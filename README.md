@@ -2,7 +2,7 @@
 
 让小米 RC003 / MI RC 蓝牙遥控器成为 Windows 的语音输入入口。
 
-言灵把遥控器麦克风的实时音频送入微信输入法，由微信输入法完成语音转文字与结构化整理。音频只在本机流转，言灵不读取输入结果，也不上传录音。
+言灵是一款面向 Windows Vibe Coding 用户的低成本语音输入工具。它把遥控器麦克风的实时音频送入微信输入法，由微信输入法完成中英文语音转文字与结构化整理，让自然语言更快进入开发工作流。音频只在本机流转，言灵不读取输入结果，也不上传录音。
 
 [下载 Windows 版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [问题排查](docs/USER_GUIDE_ZH.md#常见问题)
 
