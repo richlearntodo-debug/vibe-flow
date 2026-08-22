@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 8,
+  "captureSeconds": 0,
+  "gain": 1.0,
+  "voiceMode": "hold",
+  "setupCompleted": false,
+  "launchAtStartup": false,
+  "startBridgeOnLaunch": false,
+  "minimizeToTray": true,
+  "audioEndpointName": "CABLE Input",
+  "inputMethod": "wechat",
+  "inputMethodHotkey": "ctrl+win",
+  "drainMs": 180,
+  "mappingPreset": "coding",
+  "mappings": {
+    "确认键": "enter",
+    "Home": "win+d",
+    "TV": "task-switcher",
+    "功能键": "ctrl+shift+p",
+    "上 / 下 / 左 / 右": "direction-volume-fallback"
+  }
+}

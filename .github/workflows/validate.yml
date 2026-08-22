@@ -1,0 +1,22 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore build dependencies
+        shell: powershell
+        run: .\RESTORE_BUILD_DEPS.ps1
+      - name: Build release
+        shell: powershell
+        run: .\BUILD_RELEASE.ps1
+      - name: Validate source and defaults
+        run: npm test
