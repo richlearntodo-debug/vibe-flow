@@ -12,6 +12,16 @@ $packages = @(
         Name = "microsoft.windows.sdk.contracts"
         Url = "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.contracts/10.0.26100.4948/microsoft.windows.sdk.contracts.10.0.26100.4948.nupkg"
         Check = "ref\netstandard2.0\Windows.WinMD"
+    },
+    @{
+        Name = "naudio.core.2.2.1"
+        Url = "https://api.nuget.org/v3-flatcontainer/naudio.core/2.2.1/naudio.core.2.2.1.nupkg"
+        Check = "package\lib\netstandard2.0\NAudio.Core.dll"
+    },
+    @{
+        Name = "naudio.wasapi.2.2.1"
+        Url = "https://api.nuget.org/v3-flatcontainer/naudio.wasapi/2.2.1/naudio.wasapi.2.2.1.nupkg"
+        Check = "package\lib\netstandard2.0\NAudio.Wasapi.dll"
     }
 )
 

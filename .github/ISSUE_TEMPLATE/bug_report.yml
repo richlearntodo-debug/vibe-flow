@@ -1,0 +1,55 @@
+name: 问题反馈
+description: 连接、听写、快捷键或界面出现异常
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先在言灵的“连接与自检”页面处理红色或黄色项目并点击“重新自检”，再点击“复制问题摘要”。普通摘要不包含录音、识别文字、蓝牙地址或完整设备路径。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 发生了什么
+      description: 请说明期望结果和实际结果。
+      placeholder: 按住录音键后，我期望……，实际……
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: 言灵问题摘要
+      description: 在应用内点击“复制问题摘要”后直接粘贴到这里。
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: 转写工具
+      options:
+        - 微信输入法
+        - Typeless
+        - Windows 语音输入
+        - Voquill
+        - 其他工具
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 聚焦输入框
+        2. 按住录音键并说话
+        3. 松开录音键
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已检查内容，没有上传不希望公开的录音、识别文字或个人信息。
+          required: true

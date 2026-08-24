@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -254,6 +255,7 @@ internal static class VoxDeckInputBridge
         lock (stateLock)
         {
             string name = mapping.name ?? mapping.vk ?? "unknown";
+            bool isVoice = name.Equals("voice", StringComparison.OrdinalIgnoreCase);
             bool wasSourceDown = sourceDown.ContainsKey(name) && sourceDown[name];
             string mode = (mapping.mode ?? "tap").ToLowerInvariant();
 
@@ -266,13 +268,17 @@ internal static class VoxDeckInputBridge
                 sourceDown[name] = true;
                 Log("Key " + mapping.labelOrName() + " DOWN vk=" + mapping.vk + " scan=" + mapping.scan);
 
+                if (isVoice)
+                {
+                    SignalVoiceKeyPressed();
+                }
+
                 if (mode == "passthrough")
                 {
                     return;
                 }
                 if (mode == "suppress")
                 {
-                    if (name.Equals("voice", StringComparison.OrdinalIgnoreCase)) SignalVoiceKeyPressed();
                     BridgeForm.SetStatusText(mapping.labelOrName() + " 已接管");
                     return;
                 }
@@ -281,6 +287,10 @@ internal static class VoxDeckInputBridge
                     SendShortcut(mapping, false);
                     shortcutDown[name] = true;
                     BridgeForm.SetStatusText(mapping.labelOrName() + " 按下 -> " + mapping.shortcut);
+                }
+                else if (IsAiLauncherAction(mapping.shortcut))
+                {
+                    LaunchAiTarget(mapping.shortcut);
                 }
                 else
                 {
@@ -305,10 +315,14 @@ internal static class VoxDeckInputBridge
     {
         try
         {
-            using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyPressed")) handle.Set();
+            using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyPressed"))
+            {
+                bool delivered = handle.Set();
+                Log("Voice key signal delivered=" + delivered);
+            }
         }
-        catch (WaitHandleCannotBeOpenedException) { }
-        catch { }
+        catch (WaitHandleCannotBeOpenedException) { Log("Voice key signal unavailable: capture_not_running"); }
+        catch (Exception ex) { Log("Voice key signal failed: " + ex.Message); }
     }
 
     private static void TapShortcut(ShortcutMapping mapping)
@@ -341,6 +355,165 @@ internal static class VoxDeckInputBridge
         uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         int error = sent == inputs.Length ? 0 : Marshal.GetLastWin32Error();
         Log("SendShortcut " + (keyUp ? "UP " : "DOWN ") + mapping.labelOrName() + " " + mapping.shortcut + " " + ModeName() + " sent=" + sent + " error=" + error);
+    }
+
+    private static bool IsAiLauncherAction(string action)
+    {
+        string normalized = (action ?? "").Trim().ToLowerInvariant();
+        if (normalized.StartsWith("launch-ai:", StringComparison.Ordinal)) normalized = "launch-client:" + normalized.Substring("launch-ai:".Length);
+        return normalized == "launch-client:chatgpt" || normalized == "launch-client:deepseek" ||
+            normalized == "launch-client:claude" || normalized == "launch-client:cursor" ||
+            normalized == "launch-client:vscode" || normalized == "launch-client:windsurf" ||
+            normalized == "launch-client:terminal";
+    }
+
+    private static void LaunchAiTarget(string action)
+    {
+        string normalized = (action ?? "").Trim().ToLowerInvariant();
+        string provider = normalized.Substring(normalized.IndexOf(':') + 1);
+        string label;
+        string[] processNames;
+        string[] startAppNames;
+        string[] executableNames;
+        if (provider == "deepseek")
+        {
+            label = "DeepSeek";
+            processNames = new string[] { "DeepSeek" };
+            startAppNames = new string[] { "DeepSeek" };
+            executableNames = new string[] { "DeepSeek.exe" };
+        }
+        else if (provider == "claude")
+        {
+            label = "Claude";
+            processNames = new string[] { "Claude" };
+            startAppNames = new string[] { "Claude" };
+            executableNames = new string[] { "Claude.exe" };
+        }
+        else if (provider == "cursor")
+        {
+            label = "Cursor";
+            processNames = new string[] { "Cursor" };
+            startAppNames = new string[] { "Cursor" };
+            executableNames = new string[] { "Cursor.exe" };
+        }
+        else if (provider == "vscode")
+        {
+            label = "Visual Studio Code";
+            processNames = new string[] { "Code" };
+            startAppNames = new string[] { "Visual Studio Code", "Visual Studio Code - Insiders" };
+            executableNames = new string[] { "Code.exe", "code" };
+        }
+        else if (provider == "windsurf")
+        {
+            label = "Windsurf";
+            processNames = new string[] { "Windsurf" };
+            startAppNames = new string[] { "Windsurf" };
+            executableNames = new string[] { "Windsurf.exe" };
+        }
+        else if (provider == "terminal")
+        {
+            label = "Windows Terminal";
+            processNames = new string[] { "WindowsTerminal" };
+            startAppNames = new string[] { "Terminal", "Windows Terminal" };
+            executableNames = new string[] { "wt.exe", "wt" };
+        }
+        else
+        {
+            label = "ChatGPT";
+            processNames = new string[] { "ChatGPT" };
+            startAppNames = new string[] { "ChatGPT" };
+            executableNames = new string[] { "ChatGPT.exe" };
+        }
+
+        try
+        {
+            string focusedProcess;
+            if (TryFocusClientWindow(processNames, out focusedProcess))
+            {
+                BridgeForm.SetStatusText("已切换到 " + label);
+                Log("Client launcher focused target=" + provider + " process=" + focusedProcess);
+                return;
+            }
+
+            if (TryLaunchInstalledStartApp(startAppNames) || TryLaunchExecutable(executableNames))
+            {
+                BridgeForm.SetStatusText("正在启动 " + label);
+                Log("Client launcher started target=" + provider);
+                return;
+            }
+
+            BridgeForm.SetStatusText("未找到 " + label + " 客户端");
+            Log("Client launcher unavailable target=" + provider);
+        }
+        catch (Exception ex)
+        {
+            BridgeForm.SetStatusText(label + " 打开失败");
+            Log("Client launcher failed target=" + provider + " error=" + ex.Message);
+        }
+    }
+
+    private static bool TryFocusClientWindow(string[] processNames, out string focusedProcess)
+    {
+        focusedProcess = "";
+        foreach (string processName in processNames)
+        {
+            Process[] processes = Process.GetProcessesByName(processName);
+            try
+            {
+                foreach (Process process in processes)
+                {
+                    process.Refresh();
+                    IntPtr window = process.MainWindowHandle;
+                    if (window == IntPtr.Zero) continue;
+                    ShowWindowAsync(window, 9);
+                    SwitchToThisWindow(window, true);
+                    BringWindowToTop(window);
+                    SetForegroundWindow(window);
+                    focusedProcess = process.ProcessName;
+                    Log("Client window activation handle=" + window + " foreground=" + (GetForegroundWindow() == window));
+                    return true;
+                }
+            }
+            finally { foreach (Process process in processes) process.Dispose(); }
+        }
+        return false;
+    }
+
+    private static bool TryLaunchInstalledStartApp(string[] applicationNames)
+    {
+        string[] quoted = new string[applicationNames.Length];
+        for (int i = 0; i < applicationNames.Length; i++) quoted[i] = "'" + applicationNames[i].Replace("'", "''") + "'";
+        string script = "$names=@(" + string.Join(",", quoted) + ");" +
+            "$app=Get-StartApps|Where-Object{$names -contains $_.Name}|Select-Object -First 1;" +
+            "if($null -eq $app){exit 2};Start-Process explorer.exe -ArgumentList ('shell:AppsFolder\\'+$app.AppID);exit 0";
+        string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        var start = new ProcessStartInfo
+        {
+            FileName = "powershell.exe",
+            Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encoded,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        using (Process process = Process.Start(start))
+        {
+            if (process == null || !process.WaitForExit(6000)) return false;
+            return process.ExitCode == 0;
+        }
+    }
+
+    private static bool TryLaunchExecutable(string[] executableNames)
+    {
+        foreach (string executable in executableNames)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = executable, UseShellExecute = true });
+                return true;
+            }
+            catch { }
+        }
+        return false;
     }
 
     private static void TapVirtualKey(int virtualKey, string label)
@@ -457,6 +630,7 @@ internal static class VoxDeckInputBridge
             {
                 RAWKEYBOARD keyboard = (RAWKEYBOARD)Marshal.PtrToStructure(data, typeof(RAWKEYBOARD));
                 bool keyUp = IsRawKeyUp(keyboard.Message);
+                if (!keyUp && keyboard.VKey == 0x74) SignalVoiceKeyPressed();
                 bool firstDirectionDown = !keyUp && (keyboard.VKey == 0x26 || keyboard.VKey == 0x28) &&
                     (rawDirectionVk != keyboard.VKey || rawDirectionStartedUtc == DateTime.MinValue);
                 HandleDirectionVolumeFallback(keyboard.VKey, keyUp);
@@ -890,7 +1064,7 @@ internal static class VoxDeckInputBridge
             title.Top = 22;
 
             var description = new Label();
-            description.Text = "按 voxdeck-shortcuts.json 映射遥控器键。默认：录音键 F5 -> 按住 Ctrl + Win。";
+            description.Text = "按 voxdeck-shortcuts.json 映射遥控器键。录音键由 ATVV 语音组件独立接管。";
             description.AutoSize = false;
             description.Left = 26;
             description.Top = 66;
@@ -1215,6 +1389,21 @@ internal static class VoxDeckInputBridge
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindowAsync(IntPtr window, int command);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern void SwitchToThisWindow(IntPtr window, bool altTab);
 
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKey(uint uCode, uint uMapType);

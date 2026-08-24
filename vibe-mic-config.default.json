@@ -1,22 +1,30 @@
 {
-  "schemaVersion": 8,
+  "schemaVersion": 15,
+  "stableVoiceProfileVersion": 11,
   "captureSeconds": 0,
   "gain": 1.0,
+  "autoLevel": true,
   "voiceMode": "hold",
   "setupCompleted": false,
+  "onboardingVersion": 3,
   "launchAtStartup": false,
   "startBridgeOnLaunch": false,
   "minimizeToTray": true,
   "audioEndpointName": "CABLE Input",
   "inputMethod": "wechat",
   "inputMethodHotkey": "ctrl+win",
+  "inputMethodTrigger": "toggle",
+  "providerStartupDelayMs": 80,
+  "audioProcessingMode": "speech",
+  "autoRouteVirtualMicrophone": true,
+  "soundFeedbackEnabled": true,
   "drainMs": 180,
   "mappingPreset": "coding",
   "mappings": {
     "确认键": "enter",
     "Home": "win+d",
     "TV": "task-switcher",
-    "功能键": "ctrl+shift+p",
+    "功能键": "launch-client:chatgpt",
     "上 / 下 / 左 / 右": "direction-volume-fallback"
   }
 }

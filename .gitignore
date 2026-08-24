@@ -8,10 +8,13 @@ vibe-mic-config.json
 voxdeck-shortcuts.json
 remote-voice-config.json
 *-probe-report.json
+sink-clock-test.txt
 
 # Build outputs and dependencies
 *.exe
+*.dll
 *.zip
+*.ico
 release/
 tools/
 node_modules/
@@ -44,12 +47,12 @@ REMOTE_VOICE_VERSION.md
 RESEARCH_AND_DECISIONS*.md
 SHORTCUT_CONFIG_GUIDE.md
 TECHNICAL_ARCHITECTURE.md
-VIBE_MIC_VERSION.md
 PRODUCT_OPTIMIZATION.md
 voxdeck-icon.svg
 scripts/VoxDeck*.cs
 !scripts/VoxDeckInputBridge.cs
 scripts/*.ps1
+!scripts/capture-ui-screenshots.ps1
 scripts/decode-atvv-audio.js
 *.png
 !vibe-flow-logo.png

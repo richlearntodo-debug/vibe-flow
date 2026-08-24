@@ -15,3 +15,14 @@ npm test
 For hardware changes, include the remote model, Windows version, Bluetooth name, ATVV event sequence, and whether the test used the remote microphone or the PC microphone. State clearly which behaviors were verified on real hardware.
 
 Never attach recordings, typed text, Bluetooth addresses, complete HID paths, or diagnostics containing private speech. Redact local paths and identifiers before opening an issue.
+
+To refresh the six documentation screenshots, start a local Vibe Flow build and
+run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\capture-ui-screenshots.ps1
+```
+
+The script opens each real WinForms page and the setup dialog, then writes PNGs
+to `docs/images`. Review every image for clipping, overlap, stale diagnostics,
+or private data before committing it.

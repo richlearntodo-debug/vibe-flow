@@ -3,6 +3,7 @@ name: Windows build
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -15,8 +16,19 @@ jobs:
       - name: Restore build dependencies
         shell: powershell
         run: .\RESTORE_BUILD_DEPS.ps1
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --no-progress -y
       - name: Build release
         shell: powershell
         run: .\BUILD_RELEASE.ps1
       - name: Validate source and defaults
         run: npm test
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vibe-Flow-Windows-v1
+          path: |
+            release/VibeFlow-Setup.exe
+            release/Vibe-Flow-Windows-x64.zip
+            release/SHA256SUMS.txt
