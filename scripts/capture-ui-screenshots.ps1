@@ -45,6 +45,15 @@ public static class VibeScreenshotNative
 
     [DllImport("user32.dll")]
     public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr handle);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr handle, int command);
 }
 '@
 
@@ -95,6 +104,28 @@ function Invoke-Button([IntPtr]$Parent, [string]$Text) {
     Start-Sleep -Milliseconds 650
 }
 
+function Find-TopmostComboBox([IntPtr]$Parent) {
+    $script:matchingCombo = [IntPtr]::Zero
+    $script:matchingComboTop = [int]::MaxValue
+    $callback = [VibeScreenshotNative+WindowCallback]{
+        param([IntPtr]$handle, [IntPtr]$parameter)
+        $className = New-Object System.Text.StringBuilder 128
+        [VibeScreenshotNative]::GetClassName($handle, $className, $className.Capacity) | Out-Null
+        if ($className.ToString().Contains("COMBOBOX")) {
+            $rectangle = New-Object VibeScreenshotNative+RECT
+            [VibeScreenshotNative]::GetWindowRect($handle, [ref]$rectangle) | Out-Null
+            if ($rectangle.Top -lt $script:matchingComboTop) {
+                $script:matchingCombo = $handle
+                $script:matchingComboTop = $rectangle.Top
+            }
+        }
+        return $true
+    }
+    [VibeScreenshotNative]::EnumChildWindows($Parent, $callback, [IntPtr]::Zero) | Out-Null
+    if ($script:matchingCombo -eq [IntPtr]::Zero) { throw "No combo box found in the active page." }
+    return $script:matchingCombo
+}
+
 function Save-Window([IntPtr]$Handle, [string]$Path) {
     $rectangle = New-Object VibeScreenshotNative+RECT
     [VibeScreenshotNative]::GetWindowRect($Handle, [ref]$rectangle) | Out-Null
@@ -117,6 +148,25 @@ function Save-Window([IntPtr]$Handle, [string]$Path) {
     $bitmap.Dispose()
 }
 
+function Save-ScreenRegion([IntPtr]$Handle, [string]$Path) {
+    $rectangle = New-Object VibeScreenshotNative+RECT
+    [VibeScreenshotNative]::GetWindowRect($Handle, [ref]$rectangle) | Out-Null
+    $width = $rectangle.Right - $rectangle.Left
+    $height = $rectangle.Bottom - $rectangle.Top
+    if ($width -lt 100 -or $height -lt 100) { throw "Window is not visible: $Path" }
+    $bitmap = New-Object System.Drawing.Bitmap $width, $height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen($rectangle.Left, $rectangle.Top, 0, 0, $bitmap.Size,
+            [System.Drawing.CopyPixelOperation]::SourceCopy)
+        $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $showWindow = $null
 try {
@@ -134,6 +184,9 @@ $process = Get-Process VibeMic, VibeFlow -ErrorAction SilentlyContinue |
 if ($null -eq $process) { throw "Start Vibe Flow before capturing screenshots." }
 
 $main = $process.MainWindowHandle
+[VibeScreenshotNative]::ShowWindow($main, 9) | Out-Null
+[VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
+Start-Sleep -Milliseconds 300
 $overviewLabel = ConvertFrom-CodePoints @(0x603B, 0x89C8)
 $dictationLabel = ConvertFrom-CodePoints @(0x8BED, 0x97F3, 0x542C, 0x5199)
 $shortcutsLabel = ConvertFrom-CodePoints @(0x6309, 0x952E, 0x5FEB, 0x6377, 0x65B9, 0x5F0F)
@@ -152,6 +205,14 @@ $pages = @(
 foreach ($page in $pages) {
     Invoke-Button $main $page.Button
     Save-Window $main (Join-Path $OutputDirectory $page.File)
+    if ($page.File -eq "02-dictation.png") {
+        [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
+        $providerCombo = Find-TopmostComboBox $main
+        [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+        Start-Sleep -Milliseconds 350
+        Save-ScreenRegion $main (Join-Path $OutputDirectory "06-transcription-tools.png")
+        [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    }
 }
 
 Invoke-Button $main $setupLabel

@@ -4,7 +4,7 @@
 
 言灵是一款面向 Windows Vibe Coding 用户的遥控器语音输入工具。按住录音键时，它把遥控器麦克风音频实时送入微信输入法、Typeless、Windows 语音输入、Voquill 或其他快捷键驱动的听写工具；松开即结束本次输入。音频只在本机流转，言灵不读取输入结果，也不自行上传录音。
 
-[下载安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe) · [下载免安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [V1 发布说明](docs/RELEASE_NOTES_V1_ZH.md) · [问题排查](docs/USER_GUIDE_ZH.md#常见问题)
+[下载安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe) · [下载免安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [v1.0.1 发布说明](docs/RELEASE_NOTES_V1.0.1_ZH.md) · [问题排查](docs/USER_GUIDE_ZH.md#常见问题)
 
 ![言灵总览](docs/images/01-overview.png)
 
@@ -50,6 +50,8 @@ RC003 遥控器麦克风
 
 Typeless、Voquill 和其他第三方客户端不包含在发布包中，其账号、网络、识别和隐私策略由对应软件负责。
 
+![转写工具选择](docs/images/06-transcription-tools.png)
+
 ## 一键自检与修复
 
 “连接与自检”会在本机检查七个环节：核心组件、VB-CABLE 两个端点、已验证稳定语音档案、后台桥接、RC003/ATVV、转写工具与快捷键、最近一次端到端听写。异常项会显示唯一的下一步按钮，可直接打开蓝牙、转写配置、官方驱动安装页或恢复稳定参数。
@@ -71,6 +73,8 @@ Typeless、Voquill 和其他第三方客户端不包含在发布包中，其账�
 
 RC003 的独立返回键和音量 +/- 键在已验证的 Windows 蓝牙栈中没有上报可用事件，因此言灵不展示这些按键，也不提供不稳定的组合键。
 
+![遥控器按键与快捷方式](docs/images/03-shortcuts.png)
+
 ## 系统要求
 
 - Windows 10 或 Windows 11，64 位。
@@ -79,7 +83,7 @@ RC003 的独立返回键和音量 +/- 键在已验证的 Windows 蓝牙栈中没
 - 至少一种受支持的语音转文字工具。
 - VB-CABLE，需从其官方网站单独安装。
 
-当前正式版为 `1.0.0`。安装包尚未进行商业代码签名，首次运行时 Windows 可能显示来源提示；请只从本仓库的 Releases 页面下载，并核对发布页提供的 SHA-256。
+当前正式版为 `1.0.1`。安装包尚未进行商业代码签名，首次运行时 Windows 可能显示来源提示；请只从本仓库的 Releases 页面下载，并核对发布页提供的 SHA-256。
 
 ## 开发与构建
 

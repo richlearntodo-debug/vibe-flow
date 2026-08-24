@@ -16,14 +16,14 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.1.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.0.1")]
 
 internal sealed class VibeMicForm : Form
 {
     private const string DisplayProductName = "言灵 · Vibe Flow Remote";
-    private const string ProductRelease = "1.0.0";
+    private const string ProductRelease = "1.0.1";
     private const int ConfigSchemaVersion = 15;
     private const int CurrentOnboardingVersion = 3;
     private const int StableVoiceProfileVersion = 11;
@@ -782,30 +782,53 @@ internal sealed class VibeMicForm : Form
             using (var divider = new Pen(Color.FromArgb(215, 222, 238))) e.Graphics.DrawLine(divider, 0, 0, 0, preview.Height);
             using (var accent = new Pen(Color.FromArgb(70, cyan), 2f)) e.Graphics.DrawLine(accent, 24, 12, 112, 12);
         };
-        var previewTitle = NewLabel("遥控器位置", 11f, FontStyle.Bold, ink);
+        var previewTitle = NewLabel("遥控器功能速查", 11f, FontStyle.Bold, ink);
         previewTitle.Location = new Point(22, 20);
-        previewTitle.Size = new Size(180, 28);
+        previewTitle.Size = new Size(220, 28);
         var previewRemote = new RemoteVisual();
-        previewRemote.Location = new Point(8, 48);
-        previewRemote.Size = new Size(268, 350);
+        previewRemote.Location = new Point(8, 46);
+        previewRemote.Size = new Size(268, 286);
         previewRemote.IsActive = true;
         previewRemote.ShowCallouts = true;
         previewRemote.AccentColor = violet;
         previewRemote.HighlightedControl = "voice";
         var mappingSelection = NewLabel("录音键  →  按住听写", 9.2f, FontStyle.Bold, violet);
-        mappingSelection.Location = new Point(22, 404);
-        mappingSelection.Size = new Size(240, 46);
+        mappingSelection.Location = new Point(22, 334);
+        mappingSelection.Size = new Size(240, 30);
         mappingSelection.TextAlign = ContentAlignment.MiddleCenter;
-        var previewHelp = NewLabel("经过 RC003 真机验证的按键才会显示。方向键保持原生移动，长按上 / 下调节音量。", 8.35f, FontStyle.Regular, muted);
-        previewHelp.Location = new Point(24, 458);
-        previewHelp.Size = new Size(236, 62);
+        var quickTitle = NewLabel("默认操作", 8.5f, FontStyle.Bold, muted);
+        quickTitle.Location = new Point(24, 368);
+        quickTitle.Size = new Size(220, 22);
+        string[,] quickRows = {
+            { "Home", "显示桌面" },
+            { "↑ / ↓", "移动 · 长按调音量" },
+            { "← / →", "移动 · TV 后选应用" },
+            { "功能键", "打开 / 切回所选客户端" },
+            { "TV", "打开任务切换器" }
+        };
+        for (int i = 0; i < quickRows.GetLength(0); i++)
+        {
+            int y = 390 + i * 23;
+            var key = NewLabel(quickRows[i, 0], 8.1f, FontStyle.Bold, ink);
+            key.Location = new Point(24, y);
+            key.Size = new Size(58, 22);
+            var action = NewLabel(quickRows[i, 1], 8.1f, FontStyle.Regular, muted);
+            action.Location = new Point(84, y);
+            action.Size = new Size(176, 22);
+            preview.Controls.Add(key);
+            preview.Controls.Add(action);
+        }
+        var previewHelp = NewLabel("独立音量 +/-：此型号未检测到稳定事件", 7.7f, FontStyle.Regular, amber);
+        previewHelp.Location = new Point(24, 508);
+        previewHelp.Size = new Size(236, 22);
         preview.Controls.Add(previewTitle);
         preview.Controls.Add(previewRemote);
         preview.Controls.Add(mappingSelection);
+        preview.Controls.Add(quickTitle);
         preview.Controls.Add(previewHelp);
         card.Controls.Add(preview);
 
-        string[,] rows = { { "录音键", "managed", "固定：按住说话，实时传入所选转写工具" }, { "确认键", "enter", "默认：确认或发送" }, { "Home", "win+d", "默认：显示桌面" }, { "TV", "task-switcher", "打开任务切换，左右选择" }, { "功能键", "launch-client:chatgpt", "打开或切回所选客户端" }, { "方向键", "direction-volume-fallback", "短按移动，长按上下调音量" } };
+        string[,] rows = { { "录音键", "managed", "固定：按住说话，实时传入所选转写工具" }, { "确认键", "enter", "默认：确认或发送" }, { "Home", "win+d", "默认：显示桌面" }, { "TV", "task-switcher", "打开任务切换，左右选择" }, { "功能键", "launch-client:chatgpt", "打开或切回所选客户端" }, { "方向键", "direction-volume-fallback", "左右导航；长按上 / 下调音量" } };
         for (int i = 0; i < rows.GetLength(0); i++)
         {
             int y = 78 + i * 68;

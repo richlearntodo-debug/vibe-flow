@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.1 - 2026-08-24
+
+- Reworked the Chinese user guide around a beginner-first five-step setup, with
+  provider-specific instructions for WeChat Input Method, Typeless, Windows
+  Voice Typing, Voquill, and configurable global-hotkey clients.
+- Added a symptom-to-repair troubleshooting matrix covering installation,
+  VB-CABLE endpoints, Bluetooth pairing, provider startup, missing text, delay,
+  quiet speech, stale versions, and unsupported RC003 physical buttons.
+- Added a real expanded provider-selector screenshot and upgraded the shortcut
+  page with a compact hardware-validated reference for Home, direction/volume,
+  Function, and TV behavior.
+- Extended deterministic screenshot capture and release validation to include
+  all tutorial images in the installer and portable ZIP.
+- Kept the validated schema 15 / voice state machine v11 pipeline unchanged:
+  `1.0x`, clear speech processing, 180 ms drain, ordered audio delivery, and
+  automatic reversible `CABLE Output` capture routing.
+
 ## 1.0.0 - 2026-08-24
 
 - Promoted the hardware-validated v11 voice pipeline and schema 15 defaults to
