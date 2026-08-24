@@ -9,10 +9,12 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+      - name: Validate source and defaults
+        run: npm test
       - name: Restore build dependencies
         shell: powershell
         run: .\RESTORE_BUILD_DEPS.ps1
@@ -22,10 +24,8 @@ jobs:
       - name: Build release
         shell: powershell
         run: .\BUILD_RELEASE.ps1
-      - name: Validate source and defaults
-        run: npm test
       - name: Upload Windows package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Vibe-Flow-Windows-v1
           path: |

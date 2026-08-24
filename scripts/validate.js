@@ -42,6 +42,7 @@ const requiredFiles = [
   "docs/images/05-settings.png",
   "docs/images/06-transcription-tools.png",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/workflows/validate.yml",
 ];
 
 function read(file) {
@@ -60,6 +61,8 @@ const app = read("scripts/VibeMic.cs");
 const capture = read("scripts/VibeMicAtvvCapture.cs");
 const bridge = read("scripts/VoxDeckInputBridge.cs");
 const release = read("BUILD_RELEASE.ps1");
+const dependencyRestore = read("RESTORE_BUILD_DEPS.ps1");
+const captureBuild = read("BUILD_VIBE_MIC_CAPTURE.cmd");
 const defaultConfig = JSON.parse(read("vibe-mic-config.default.json"));
 const packageJson = JSON.parse(read("package.json"));
 const readme = read("README.md");
@@ -68,6 +71,7 @@ const quickStart = read("QUICK_START_ZH.md");
 const installer = read("installer/VibeFlow.iss");
 const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
 const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
+const workflow = read(".github/workflows/validate.yml");
 
 for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/") && item.endsWith(".png"))) {
   const png = fs.readFileSync(path.join(root, file));
@@ -197,6 +201,11 @@ assert(defaultConfig.mappings["确认键"] === "enter" && defaultConfig.mappings
 assert(release.includes('Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir'), "Release must include a non-destructive default configuration template");
 assert(release.includes('Copy-Item (Join-Path $root "CHANGELOG.md") $packageDir') && release.includes('Copy-Item (Join-Path $root "VIBE_MIC_VERSION.md") $packageDir'), "Release must include version and change notes");
 assert(release.includes('Copy-Item (Join-Path $root "NAudio.Core.dll") $packageDir') && release.includes('Copy-Item (Join-Path $root "NAudio.Wasapi.dll") $packageDir'), "Release must include the WASAPI runtime dependencies");
+assert(dependencyRestore.includes('Check = "lib\\netstandard2.0\\NAudio.Core.dll"') && dependencyRestore.includes('Check = "lib\\netstandard2.0\\NAudio.Wasapi.dll"'), "Dependency restore must use the standard NuGet extraction layout");
+assert(captureBuild.includes('naudio.core.2.2.1\\lib\\netstandard2.0\\NAudio.Core.dll') && captureBuild.includes('naudio.wasapi.2.2.1\\lib\\netstandard2.0\\NAudio.Wasapi.dll'), "Capture build must reference the restored NAudio assemblies");
+assert(!captureBuild.includes('naudio.core.2.2.1\\package\\lib') && !captureBuild.includes('naudio.wasapi.2.2.1\\package\\lib'), "Capture build still relies on a developer-only nested package directory");
+assert(workflow.includes("actions/checkout@v7") && workflow.includes("actions/setup-node@v7") && workflow.includes("actions/upload-artifact@v7"), "GitHub Actions must use the current Node runtime actions");
+assert(workflow.indexOf("Validate source and defaults") < workflow.indexOf("Build release"), "GitHub Actions must validate source before packaging");
 assert(!release.includes('(Join-Path $packageDir "vibe-mic-config.json")'), "Release must not overwrite an existing user configuration during upgrade");
 assert(release.includes('"LICENSE"') && release.includes('"THIRD_PARTY_NOTICES.md"'), "Release must include license notices");
 assert(release.includes('"VibeFlow-Setup.exe"') && release.includes('"SHA256SUMS.txt"') && release.includes("ISCC.exe"), "Formal release must build an installer and checksum manifest");
