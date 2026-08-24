@@ -10,6 +10,13 @@ using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
+[assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
+[assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
+[assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
+[assembly: System.Reflection.AssemblyVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.0.3")]
+
 internal static class VoxDeckInputBridge
 {
     private const int WH_KEYBOARD_LL = 13;
@@ -42,6 +49,9 @@ internal static class VoxDeckInputBridge
     private static LowLevelKeyboardProc hookProc = HookCallback;
     private static Mutex singleInstance;
     private static EventWaitHandle stopEvent;
+    private static EventWaitHandle voiceKeyHeldEvent;
+    private static EventWaitHandle voiceWakeRequestEvent;
+    private static int voiceKeyHeldState;
     private static readonly BlockingCollection<MappingEvent> mappingQueue = new BlockingCollection<MappingEvent>();
     private static Thread mappingWorker;
     private static BridgeConfig config = BridgeConfig.Default();
@@ -85,6 +95,9 @@ internal static class VoxDeckInputBridge
             mappingWorker.Name = "Vibe Mic shortcut queue";
             mappingWorker.Start();
             stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicStopKeyboardBridge");
+            voiceKeyHeldEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicVoiceKeyHeld");
+            voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
+            voiceKeyHeldEvent.Reset();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
@@ -101,6 +114,7 @@ internal static class VoxDeckInputBridge
             Application.Run(form);
             mappingQueue.CompleteAdding();
             if (mappingWorker != null) mappingWorker.Join(1500);
+            SetVoiceKeyHeld(false);
             ReleaseAllShortcuts();
             if (hookHandle != IntPtr.Zero)
             {
@@ -109,6 +123,8 @@ internal static class VoxDeckInputBridge
             }
             try { stopEvent.Set(); } catch { }
             stopEvent.Dispose();
+            voiceKeyHeldEvent.Dispose();
+            voiceWakeRequestEvent.Dispose();
         }
     }
 
@@ -145,6 +161,11 @@ internal static class VoxDeckInputBridge
                     if (HandleTaskSwitcherNavigation(data.vkCode, isDown, isUp)) return (IntPtr)1;
                     if (mapping != null && mapping.enabled)
                     {
+                        if ((mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (isDown) SetVoiceKeyHeld(true);
+                            else if (isUp) SetVoiceKeyHeld(false);
+                        }
                         QueueMapping(mapping, isUp);
                         return mapping.suppress ? (IntPtr)1 : CallNextHookEx(hookHandle, nCode, wParam, lParam);
                     }
@@ -270,7 +291,8 @@ internal static class VoxDeckInputBridge
 
                 if (isVoice)
                 {
-                    SignalVoiceKeyPressed();
+                    if (Volatile.Read(ref voiceKeyHeldState) == 1) SignalVoiceKeyPressed();
+                    else Log("Voice key press discarded: released_before_dispatch");
                 }
 
                 if (mode == "passthrough")
@@ -313,16 +335,74 @@ internal static class VoxDeckInputBridge
 
     private static void SignalVoiceKeyPressed()
     {
+        bool delivered = false;
         try
         {
             using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyPressed"))
             {
-                bool delivered = handle.Set();
+                delivered = handle.Set();
                 Log("Voice key signal delivered=" + delivered);
             }
         }
         catch (WaitHandleCannotBeOpenedException) { Log("Voice key signal unavailable: capture_not_running"); }
         catch (Exception ex) { Log("Voice key signal failed: " + ex.Message); }
+        SignalVoiceWakeRequested(delivered ? "capture_signal_delivered" : "capture_not_ready");
+        if (!delivered) EnsureVoiceHostRunning();
+    }
+
+    private static bool SetVoiceKeyHeld(bool held)
+    {
+        int next = held ? 1 : 0;
+        int previous = Interlocked.Exchange(ref voiceKeyHeldState, next);
+        try
+        {
+            if (voiceKeyHeldEvent != null)
+            {
+                if (held) voiceKeyHeldEvent.Set();
+                else voiceKeyHeldEvent.Reset();
+            }
+        }
+        catch (Exception ex) { Log("Voice key held state failed: " + ex.Message); }
+        return previous != next;
+    }
+
+    private static void SignalVoiceWakeRequested(string reason)
+    {
+        try
+        {
+            bool delivered = voiceWakeRequestEvent != null && voiceWakeRequestEvent.Set();
+            Log("Voice service wake requested=" + delivered + " reason=" + reason);
+        }
+        catch (Exception ex) { Log("Voice service wake failed: " + ex.Message); }
+    }
+
+    private static void EnsureVoiceHostRunning()
+    {
+        if (HasRunningProcess("VibeFlow") || HasRunningProcess("VibeMic")) return;
+        string executable = Path.Combine(Root, "VibeFlow.exe");
+        if (!File.Exists(executable)) executable = Path.Combine(Root, "VibeMic.exe");
+        if (!File.Exists(executable))
+        {
+            Log("Voice host recovery unavailable: executable_missing");
+            return;
+        }
+        try
+        {
+            var start = new ProcessStartInfo(executable, "--background");
+            start.UseShellExecute = false;
+            start.CreateNoWindow = true;
+            start.WindowStyle = ProcessWindowStyle.Hidden;
+            Process.Start(start);
+            Log("Voice host recovery started");
+        }
+        catch (Exception ex) { Log("Voice host recovery failed: " + ex.Message); }
+    }
+
+    private static bool HasRunningProcess(string name)
+    {
+        Process[] processes = Process.GetProcessesByName(name);
+        try { return processes.Length > 0; }
+        finally { foreach (Process process in processes) process.Dispose(); }
     }
 
     private static void TapShortcut(ShortcutMapping mapping)
@@ -630,7 +710,11 @@ internal static class VoxDeckInputBridge
             {
                 RAWKEYBOARD keyboard = (RAWKEYBOARD)Marshal.PtrToStructure(data, typeof(RAWKEYBOARD));
                 bool keyUp = IsRawKeyUp(keyboard.Message);
-                if (!keyUp && keyboard.VKey == 0x74) SignalVoiceKeyPressed();
+                if (keyboard.VKey == 0x74)
+                {
+                    bool changed = SetVoiceKeyHeld(!keyUp);
+                    if (!keyUp && changed) SignalVoiceKeyPressed();
+                }
                 bool firstDirectionDown = !keyUp && (keyboard.VKey == 0x26 || keyboard.VKey == 0x28) &&
                     (rawDirectionVk != keyboard.VKey || rawDirectionStartedUtc == DateTime.MinValue);
                 HandleDirectionVolumeFallback(keyboard.VKey, keyUp);

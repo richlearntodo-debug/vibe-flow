@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.0.3 - 2026-08-25
+
+- Fixed the Windows-login race where the remote key bridge could start before
+  the RC003 ATVV capture service or selected transcription client was ready.
+- Added a release-safe held-key handoff: an early recording request is recovered
+  only while the physical key remains held, so transcription never starts after
+  the user has already released it.
+- Added background host recovery when the capture helper is missing or stalled,
+  plus startup warm-up for the configured WeChat, Typeless, or Voquill client.
+- Prevented a completed, superseded capture process from clearing the readiness
+  and startup timer of the newly started capture process after settings changes.
+- Added matching `1.0.3` Windows file metadata to both background helpers so
+  diagnostics can identify mixed-version installations.
+- Reduced paired-RC003 startup latency with cached GATT service and characteristic
+  discovery, retaining an uncached fallback whenever Windows has no valid cache.
+- Added a persistent `vibe-flow-host.log` with provider readiness, capture startup,
+  wake requests, and automatic recovery decisions for post-reboot diagnosis.
+- Reworked the remote preview as a code-rendered silver RC003 reference with a
+  taller physical proportion, accurate upper-button layout, restrained icons,
+  lower-body whitespace, recording ripples, and state highlights; the source
+  reference photo is not distributed.
+- Rebuilt the shortcut screen as a clean two-column configuration and hardware
+  preview workspace. Hovering or selecting a mapping highlights its physical
+  position without changing any validated button behavior.
+- Protected the validated audio profile behind an explicit advanced-settings
+  confirmation and changed the overview action to manage, rather than
+  accidentally pause, an already-running bridge.
+- Made Windows startup an explicit first-run opt-in, added contextual Chinese
+  progress feedback, fixed the stale connection-button label, and documented
+  every onboarding step with a reusable screenshot.
+- Kept schema 15, voice state machine v11, `1.0x` gain, clear speech processing,
+  180 ms drain, automatic reversible endpoint routing, and verified mappings unchanged.
+
 ## 1.0.2 - 2026-08-24
 
 - Made `VibeFlow-Setup.exe` the unmistakable recommended download and warned

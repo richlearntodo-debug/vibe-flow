@@ -1,9 +1,12 @@
 param(
-    [string]$OutputDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs\images")
+    [string]$OutputDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs\images"),
+    [switch]$CaptureFullOnboarding,
+    [switch]$AllowUnhealthyDiagnostics
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName UIAutomationClient
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -81,6 +84,44 @@ function Find-ChildButton([IntPtr]$Parent, [string]$Text) {
     [VibeScreenshotNative]::EnumChildWindows($Parent, $callback, [IntPtr]::Zero) | Out-Null
     if ($script:matchingChild -eq [IntPtr]::Zero) { throw "Button not found: $Text" }
     return $script:matchingChild
+}
+
+function Test-ChildText([IntPtr]$Parent, [string]$Text) {
+    $script:matchingText = $false
+    $callback = [VibeScreenshotNative+WindowCallback]{
+        param([IntPtr]$handle, [IntPtr]$parameter)
+        if ((Get-WindowText $handle).Contains($Text)) {
+            $script:matchingText = $true
+        }
+        return $true
+    }
+    [VibeScreenshotNative]::EnumChildWindows($Parent, $callback, [IntPtr]::Zero) | Out-Null
+    return $script:matchingText
+}
+
+function Wait-ForChildText([IntPtr]$Parent, [string]$Text, [int]$TimeoutMilliseconds) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        if (Test-ChildText $Parent $Text) { return $true }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    return $false
+}
+
+function Set-ChildCheckboxUnchecked([IntPtr]$Parent, [string]$Text) {
+    $window = [Windows.Automation.AutomationElement]::RootElement
+    $nameCondition = New-Object Windows.Automation.PropertyCondition(
+        [Windows.Automation.AutomationElement]::NameProperty, $Text)
+    $typeCondition = New-Object Windows.Automation.PropertyCondition(
+        [Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::CheckBox)
+    $element = $window.FindFirst([Windows.Automation.TreeScope]::Descendants,
+        (New-Object Windows.Automation.AndCondition($nameCondition, $typeCondition)))
+    if ($null -eq $element) { throw "Checkbox not found: $Text" }
+    $pattern = $element.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern)
+    if ($pattern.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) {
+        $pattern.Toggle()
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 function Find-ProcessWindow([int]$ProcessId, [string]$TitlePrefix) {
@@ -194,6 +235,7 @@ $selfCheckLabel = ConvertFrom-CodePoints @(0x8FDE, 0x63A5, 0x4E0E, 0x81EA, 0x68C
 $settingsLabel = ConvertFrom-CodePoints @(0x504F, 0x597D, 0x8BBE, 0x7F6E)
 $setupLabel = ConvertFrom-CodePoints @(0x6253, 0x5F00, 0x5165, 0x95E8, 0x6307, 0x5357)
 $welcomePrefix = ConvertFrom-CodePoints @(0x6B22, 0x8FCE, 0x4F7F, 0x7528)
+$healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x542C, 0x5199)
 $pages = @(
     @{ Button = $overviewLabel; File = "01-overview.png" },
     @{ Button = $dictationLabel; File = "02-dictation.png" },
@@ -204,6 +246,10 @@ $pages = @(
 
 foreach ($page in $pages) {
     Invoke-Button $main $page.Button
+    if ($page.File -eq "04-diagnostics.png" -and -not $AllowUnhealthyDiagnostics -and
+        -not (Test-ChildText $main $healthySelfCheckText)) {
+        throw "Release diagnostics screenshot requires a healthy 7/7 self-check. Use -AllowUnhealthyDiagnostics only for troubleshooting captures."
+    }
     Save-Window $main (Join-Path $OutputDirectory $page.File)
     if ($page.File -eq "02-dictation.png") {
         [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
@@ -222,7 +268,40 @@ for ($attempt = 0; $attempt -lt 20 -and $wizard -eq [IntPtr]::Zero; $attempt++) 
     $wizard = Find-ProcessWindow $process.Id $welcomePrefix
 }
 if ($wizard -eq [IntPtr]::Zero) { throw "First-run wizard did not open." }
+if ($CaptureFullOnboarding) {
+    Set-ChildCheckboxUnchecked $wizard (ConvertFrom-CodePoints @(0x767B, 0x5F55, 0x20, 0x57, 0x69, 0x6E, 0x64, 0x6F, 0x77, 0x73, 0x20, 0x540E, 0x81EA, 0x52A8, 0x542F, 0x52A8, 0x8A00, 0x7075))
+}
 Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
+if ($CaptureFullOnboarding) {
+    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-1-provider.png")
+
+    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x9009, 0x62E9))
+    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-2-audio.png")
+
+    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x97F3, 0x9891, 0x901A, 0x9053))
+    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-3-remote.png")
+
+    $connectedText = ConvertFrom-CodePoints @(0x5DF2, 0x8FDE, 0x63A5, 0xFF0C, 0x53EF, 0x4EE5, 0x4F7F, 0x7528)
+    if (-not (Wait-ForChildText $wizard $connectedText 1500)) {
+        $startDetection = ConvertFrom-CodePoints @(0x5F00, 0x59CB, 0x68C0, 0x6D4B)
+        try { Invoke-Button $wizard $startDetection } catch {
+            Invoke-Button $wizard (ConvertFrom-CodePoints @(0x91CD, 0x65B0, 0x68C0, 0x6D4B))
+        }
+        if (-not (Wait-ForChildText $wizard $connectedText 20000)) {
+            throw "RC003 did not become ready while capturing the full onboarding flow."
+        }
+    }
+
+    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x8FDE, 0x63A5))
+    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-4-hotkey.png")
+
+    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x4FDD, 0x5B58, 0x5E76, 0x6D4B, 0x8BD5))
+    $dictationHeading = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x7B2C, 0x4E00, 0x6B21, 0x9065, 0x63A7, 0x5668, 0x542C, 0x5199)
+    if (-not (Wait-ForChildText $wizard $dictationHeading 20000)) {
+        throw "The first-dictation onboarding step did not finish loading."
+    }
+    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-5-dictation.png")
+}
 [VibeScreenshotNative]::PostMessage($wizard, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 
 Write-Host "Captured Vibe Flow screenshots in $OutputDirectory"

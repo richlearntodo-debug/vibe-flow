@@ -14,6 +14,13 @@ using Windows.Devices.Bluetooth.GenericAttributeProfile;
 using Windows.Devices.Enumeration;
 using Windows.Storage.Streams;
 
+[assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 voice capture")]
+[assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
+[assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
+[assembly: System.Reflection.AssemblyVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.0.3")]
+
 internal sealed class VibeMicAtvvCapture
 {
     private static readonly Guid ServiceUuid = new Guid("ab5e0001-5a21-4f05-bc7d-af01f617b664");
@@ -42,6 +49,7 @@ internal sealed class VibeMicAtvvCapture
     private static AdpcmFrameAccumulator frameAccumulator;
     private static EventWaitHandle stopEvent;
     private static EventWaitHandle voiceKeyEvent;
+    private static EventWaitHandle voiceKeyHeldEvent;
     private static EventWaitHandle audioDiagnosticEvent;
     private static ManualResetEvent connectionLostEvent;
     private static ManualResetEventSlim capabilitiesReadyEvent;
@@ -192,6 +200,7 @@ internal sealed class VibeMicAtvvCapture
                 prepareTranscriptionInput, releaseTranscriptionInput);
             stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicStopCapture");
             voiceKeyEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceKeyPressed");
+            voiceKeyHeldEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicVoiceKeyHeld");
             audioDiagnosticEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicCaptureAudioDiagnostic");
             connectionLostEvent = new ManualResetEvent(false);
             RuntimeLog("START endpoint=" + audioSink.DeviceName + " source_format=16000_mono virtual_mic_format=48000_stereo_16bit sensitivity=" + audioGain.ToString("0.00") +
@@ -215,6 +224,7 @@ internal sealed class VibeMicAtvvCapture
                 if (audioSink != null) audioSink.Dispose();
                 if (stopEvent != null) stopEvent.Dispose();
                 if (voiceKeyEvent != null) voiceKeyEvent.Dispose();
+                if (voiceKeyHeldEvent != null) voiceKeyHeldEvent.Dispose();
                 if (audioDiagnosticEvent != null) audioDiagnosticEvent.Dispose();
                 if (connectionLostEvent != null) connectionLostEvent.Dispose();
                 if (capabilitiesReadyEvent != null) capabilitiesReadyEvent.Dispose();
@@ -252,8 +262,15 @@ internal sealed class VibeMicAtvvCapture
 
             try
             {
-                GattDeviceServicesResult services = await ble.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached).AsTask();
-                Console.WriteLine("ATVV service status: " + services.Status);
+                GattDeviceServicesResult services = await ble.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Cached).AsTask();
+                bool serviceCacheHit = services.Status == GattCommunicationStatus.Success && services.Services.Count > 0;
+                if (!serviceCacheHit)
+                {
+                    RuntimeLog("GATT SERVICE cache=miss status=" + services.Status + " fallback=uncached");
+                    services = await ble.GetGattServicesForUuidAsync(ServiceUuid, BluetoothCacheMode.Uncached).AsTask();
+                }
+                else RuntimeLog("GATT SERVICE cache=hit");
+                Console.WriteLine("ATVV service status: " + services.Status + " cache=" + (serviceCacheHit ? "hit" : "fallback"));
                 if (services.Status != GattCommunicationStatus.Success || services.Services.Count == 0)
                     throw new InvalidOperationException("ATVV service not available: " + services.Status);
 
@@ -274,6 +291,7 @@ internal sealed class VibeMicAtvvCapture
                         await EnableNotify(control);
                         await WriteCommand(new byte[] { 0x0A, 0x01, 0x00, 0x00, 0x03, 0x03 }, "get_caps_v10");
                         RuntimeLog("ATVV READY route=RC003_16k_mono_to_" + audioSink.DeviceName + "_48k_stereo_clocked");
+                        RecoverHeldVoiceRequestAtReady();
                         Console.WriteLine(seconds == 0 ? "Listening continuously. Hold the RC003 record button and speak." : "Listening for " + seconds + " seconds. Hold the RC003 record button and speak.");
                         Console.WriteLine("Audio route: RC003 16 kHz mono -> " + audioSink.DeviceName + " 48 kHz stereo clocked virtual mic");
                         await Task.Run(delegate { MonitorConnection(seconds); });
@@ -301,6 +319,18 @@ internal sealed class VibeMicAtvvCapture
         if (sender.ConnectionStatus != BluetoothConnectionStatus.Connected && connectionLostEvent != null) connectionLostEvent.Set();
     }
 
+    private static void RecoverHeldVoiceRequestAtReady()
+    {
+        if (!ShouldRecoverHeldVoiceRequest(voiceKeyHeldEvent)) return;
+        RuntimeLog("STARTUP VOICE HOLD recovered_at_atvv_ready=true delayed_after_release=false");
+        voiceKeyEvent.Set();
+    }
+
+    private static bool ShouldRecoverHeldVoiceRequest(WaitHandle heldEvent)
+    {
+        return heldEvent != null && heldEvent.WaitOne(0);
+    }
+
     private static void MonitorConnection(int seconds)
     {
         int started = Environment.TickCount;
@@ -315,6 +345,11 @@ internal sealed class VibeMicAtvvCapture
             {
                 Interlocked.Exchange(ref audioDiagnosticArmed, 1);
                 RuntimeLog("AUDIO DIAGNOSTIC ARMED next_session_only=true max_seconds=30 privacy=explicit_user_action");
+                continue;
+            }
+            if (!ShouldRecoverHeldVoiceRequest(voiceKeyHeldEvent))
+            {
+                RuntimeLog("VOICE KEY discarded reason=released_before_capture_ready delayed_after_release=false");
                 continue;
             }
 
@@ -380,8 +415,15 @@ internal sealed class VibeMicAtvvCapture
 
     private static async Task<GattCharacteristic> GetCharacteristic(GattDeviceService service, Guid uuid)
     {
-        GattCharacteristicsResult result = await service.GetCharacteristicsForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask();
-        Console.WriteLine("Characteristic " + uuid + " status: " + result.Status);
+        GattCharacteristicsResult result = await service.GetCharacteristicsForUuidAsync(uuid, BluetoothCacheMode.Cached).AsTask();
+        bool cacheHit = result.Status == GattCommunicationStatus.Success && result.Characteristics.Count > 0;
+        if (!cacheHit)
+        {
+            RuntimeLog("GATT CHARACTERISTIC cache=miss uuid=" + uuid + " status=" + result.Status + " fallback=uncached");
+            result = await service.GetCharacteristicsForUuidAsync(uuid, BluetoothCacheMode.Uncached).AsTask();
+        }
+        else RuntimeLog("GATT CHARACTERISTIC cache=hit uuid=" + uuid);
+        Console.WriteLine("Characteristic " + uuid + " status: " + result.Status + " cache=" + (cacheHit ? "hit" : "fallback"));
         if (result.Status != GattCommunicationStatus.Success || result.Characteristics.Count == 0)
             throw new InvalidOperationException("ATVV characteristic not available: " + uuid);
         return result.Characteristics[0];
@@ -1000,6 +1042,18 @@ internal sealed class VibeMicAtvvCapture
                 !KeyboardShortcutSender.TryParse("rightalt", out parsedHotkey) || parsedHotkey.Count != 1 ||
                 KeyboardShortcutSender.TryParse("not-a-key", out parsedHotkey))
                 throw new InvalidOperationException("Transcription hotkey parsing failed");
+
+            using (var startupHold = new ManualResetEvent(false))
+            {
+                if (ShouldRecoverHeldVoiceRequest(startupHold))
+                    throw new InvalidOperationException("Released startup voice key was recovered");
+                startupHold.Set();
+                if (!ShouldRecoverHeldVoiceRequest(startupHold))
+                    throw new InvalidOperationException("Held startup voice key was not recovered");
+                startupHold.Reset();
+                if (ShouldRecoverHeldVoiceRequest(startupHold))
+                    throw new InvalidOperationException("Startup voice key recovery survived key release");
+            }
 
             var testResampler = new LinearPcmUpsampler();
             byte[] resampled = testResampler.Convert(new short[] { 0, 300 });

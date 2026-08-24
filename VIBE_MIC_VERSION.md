@@ -1,4 +1,4 @@
-# 言灵 · Vibe Flow Remote 1.0.2
+# 言灵 · Vibe Flow Remote 1.0.3
 
 Vibe Flow Remote turns the RC003 / MI RC microphone into a live Windows input source.
 The release keeps transcription ownership in the user's selected client and
@@ -27,10 +27,16 @@ Generic providers use `SendInput`, and all audio is drained before the provider 
 stopped or submitted. A newer recording preempts an older WeChat completion wait
 so buffered speech is never replayed seconds late.
 
-The 1.0.2 release keeps the current v11 settings as a recoverable stable profile
-and does not change voice transport, timing, or hardware mappings. It makes the
-recommended Windows installer explicit, warns ordinary users away from GitHub's
-auto-generated source archives, gives first-time and troubleshooting users short
-paths through the Chinese guide, and packages only one current release-notes file.
-Existing users keep their voice-provider and button choices; non-default audio
-tuning is reported as a warning and can be restored with one click.
+The 1.0.3 stable release keeps the current v11 settings as a guarded,
+recoverable stable profile and does not change voice transport, timing, or hardware mappings.
+It coordinates the input bridge, ATVV capture readiness, and selected local
+transcription client during Windows login. An early record-key request is handed
+off only while the physical key remains held, preventing both a lost first press
+and delayed activation after release. Existing users keep their voice-provider
+and button choices; advanced audio tuning requires an explicit confirmation,
+is reported as a warning when changed, and can be restored with one click. The
+five-step onboarding now uses explicit startup consent and matching tutorial
+screenshots for each required setup stage.
+The overview and shortcut workspace use a code-rendered RC003 reference with
+physical proportions, restrained button icons, live state feedback, and a clean
+configuration/preview layout. The source reference photograph is not distributed.

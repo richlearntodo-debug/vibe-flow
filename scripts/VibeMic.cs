@@ -16,14 +16,14 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.0.2.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.2.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.0.2")]
+[assembly: System.Reflection.AssemblyVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.0.3.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.0.3")]
 
 internal sealed class VibeMicForm : Form
 {
     private const string DisplayProductName = "言灵 · Vibe Flow Remote";
-    private const string ProductRelease = "1.0.2";
+    private const string ProductRelease = "1.0.3";
     private const int ConfigSchemaVersion = 15;
     private const int CurrentOnboardingVersion = 3;
     private const int StableVoiceProfileVersion = 11;
@@ -36,12 +36,13 @@ internal sealed class VibeMicForm : Form
     private readonly string configPath;
     private readonly string eventsPath;
     private readonly string brandLogoPath;
+    private readonly string hostLogPath;
     private readonly Color ink = Color.FromArgb(18, 30, 54);
     private readonly Color muted = Color.FromArgb(91, 104, 134);
-    private readonly Color violet = Color.FromArgb(92, 82, 242);
-    private readonly Color green = Color.FromArgb(15, 158, 100);
-    private readonly Color amber = Color.FromArgb(213, 142, 31);
-    private readonly Color cyan = Color.FromArgb(8, 145, 184);
+    private readonly Color violet = Color.FromArgb(104, 82, 244);
+    private readonly Color green = Color.FromArgb(10, 164, 104);
+    private readonly Color amber = Color.FromArgb(229, 151, 39);
+    private readonly Color cyan = Color.FromArgb(0, 153, 190);
     private readonly Color coral = Color.FromArgb(204, 70, 82);
     private readonly Color line = Color.FromArgb(220, 226, 239);
     private readonly Panel content = new Panel();
@@ -64,14 +65,20 @@ internal sealed class VibeMicForm : Form
     private Process keyboardBridgeProcess;
     private EventWaitHandle showWindowEvent;
     private EventWaitHandle exitApplicationEvent;
+    private EventWaitHandle voiceWakeRequestEvent;
     private VibeMicConfig config;
     private System.Windows.Forms.Timer activityTimer;
     private System.Windows.Forms.Timer reconnectTimer;
     private System.Windows.Forms.Timer visualTimer;
     private long lastEventLength;
     private int reconnectAttempt;
+    private int startupRecoveryCount;
     private bool captureStopping;
     private bool applicationExiting;
+    private bool providerWarmupActive;
+    private int providerWarmupLaunchRequested;
+    private readonly object providerWarmupLock = new object();
+    private DateTime captureStartedAt = DateTime.MinValue;
     private bool setupWizardOpen;
     private bool bridgeReady;
     private DateTime activeStreamStarted = DateTime.MinValue;
@@ -154,11 +161,13 @@ internal sealed class VibeMicForm : Form
         configPath = Path.Combine(root, "vibe-mic-config.json");
         eventsPath = Path.Combine(sessionDir, "remote-voice-events.jsonl");
         brandLogoPath = Path.Combine(root, "vibe-flow-logo.png");
+        hostLogPath = Path.Combine(sessionDir, "vibe-flow-host.log");
         Directory.CreateDirectory(sessionDir);
         config = LoadConfig();
         if (config.launchAtStartup) SetLaunchAtStartup(true);
         ReleaseVoiceHotkey();
         RotateLogFile(Path.Combine(sessionDir, "vibe-mic-runtime.log"), 4 * 1024 * 1024);
+        RotateLogFile(hostLogPath, 2 * 1024 * 1024);
         RotateLogFile(Path.Combine(root, "input-bridge-log.txt"), 4 * 1024 * 1024);
         InitializeFeedbackSounds();
         string existingRuntimeLog = Path.Combine(sessionDir, "vibe-mic-runtime.log");
@@ -187,17 +196,21 @@ internal sealed class VibeMicForm : Form
         SetupTray();
         showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicShowWindow");
         exitApplicationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicExitForUpdate");
+        voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
+        HostLog("HOST START mode=" + (backgroundLaunch ? "background" : "interactive") +
+            " provider=" + NormalizeProviderKey(config.inputMethod) + " startup=" + config.launchAtStartup);
         ThreadPool.QueueUserWorkItem(delegate
         {
             try
             {
-                WaitHandle[] handles = { showWindowEvent, exitApplicationEvent };
+                WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent };
                 while (true)
                 {
                     int signal = WaitHandle.WaitAny(handles);
                     if (IsDisposed || applicationExiting) return;
                     if (signal == 0) BeginInvoke(new Action(ShowMainWindow));
-                    else BeginInvoke(new Action(delegate { config.minimizeToTray = false; Close(); }));
+                    else if (signal == 1) BeginInvoke(new Action(delegate { config.minimizeToTray = false; Close(); }));
+                    else BeginInvoke(new Action(HandleVoiceWakeRequest));
                 }
             }
             catch { }
@@ -228,7 +241,7 @@ internal sealed class VibeMicForm : Form
     {
         var sidebar = new Panel();
         sidebar.Dock = DockStyle.Left;
-        sidebar.Width = 220;
+        sidebar.Width = 232;
         sidebar.BackColor = Color.FromArgb(249, 251, 255);
         sidebar.Paint += delegate(object sender, PaintEventArgs e)
         {
@@ -258,7 +271,7 @@ internal sealed class VibeMicForm : Form
         sub.AutoSize = true;
 
         string[] navText = { "总览", "语音听写", "按键快捷方式", "连接与自检", "偏好设置" };
-        string[] navGlyph = { "\uE80F", "\uE720", "\uE765", "\uE9D9", "\uE713" };
+        string[] navIcon = { "overview", "voice", "shortcuts", "diagnostics", "settings" };
         for (int i = 0; i < navText.Length; i++)
         {
             int page = i;
@@ -266,22 +279,28 @@ internal sealed class VibeMicForm : Form
             button.Text = navText[i];
             button.Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular);
             button.TextAlign = ContentAlignment.MiddleLeft;
-            button.Image = CreateGlyphBitmap(navGlyph[i], muted, 18, 18, 10f);
+            button.Image = CreateNavigationIcon(navIcon[i], muted, false);
             button.ImageAlign = ContentAlignment.MiddleLeft;
             button.TextImageRelation = TextImageRelation.ImageBeforeText;
-            button.Padding = new Padding(16, 0, 8, 0);
+            button.Padding = new Padding(18, 0, 10, 0);
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 0;
             button.FlatAppearance.MouseOverBackColor = Color.FromArgb(239, 242, 250);
             button.FlatAppearance.MouseDownBackColor = Color.FromArgb(229, 234, 247);
             button.BackColor = Color.Transparent;
             button.ForeColor = ink;
-            button.Tag = navGlyph[i];
+            button.Tag = navIcon[i];
             button.AccessibleName = navText[i];
             button.Location = new Point(18, 120 + i * 58);
-            button.Size = new Size(184, 46);
+            button.Size = new Size(196, 48);
             button.Cursor = Cursors.Hand;
             button.Click += delegate { ShowPage(page); };
+            button.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                if (currentPageIndex != page) return;
+                using (var brush = new SolidBrush(violet))
+                    e.Graphics.FillRoundedRectangle(brush, new Rectangle(1, 14, 3, 20), 1);
+            };
             ApplyRoundedRegion(button, 7);
             navButtons.Add(button);
             sidebar.Controls.Add(button);
@@ -388,9 +407,10 @@ internal sealed class VibeMicForm : Form
             navButtons[i].ForeColor = i == currentPageIndex ? violet : ink;
             navButtons[i].Font = new Font("Microsoft YaHei UI", 10f, i == currentPageIndex ? FontStyle.Bold : FontStyle.Regular);
             Image previousIcon = navButtons[i].Image;
-            navButtons[i].Image = CreateGlyphBitmap(navButtons[i].Tag as string, i == currentPageIndex ? violet : muted, 18, 18, 10f);
+            navButtons[i].Image = CreateNavigationIcon(navButtons[i].Tag as string, i == currentPageIndex ? violet : muted, i == currentPageIndex);
             if (previousIcon != null) previousIcon.Dispose();
             ApplyRoundedRegion(navButtons[i], 7);
+            navButtons[i].Invalidate();
         }
         content.SuspendLayout();
         content.AutoScrollPosition = Point.Empty;
@@ -408,29 +428,54 @@ internal sealed class VibeMicForm : Form
     {
         AddPageTitle("总览", "遥控器状态与常用操作");
 
-        var hero = NewCard(new Point(34, 92), new Size(960, 270));
+        var hero = NewCard(new Point(34, 92), new Size(960, 322));
         heroPanel = hero;
         hero.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         hero.Paint += PaintHeroSurface;
 
         heroStateLabel = NewLabel(IsCapturing ? "VOICE LINK" : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
-        heroStateLabel.Location = new Point(52, 38);
+        heroStateLabel.Location = new Point(52, 34);
         heroStateLabel.AutoSize = true;
         heroTitle = NewLabel(IsCapturing ? "正在连接" : "语音桥接已暂停", 27f, FontStyle.Bold, ink);
-        heroTitle.Location = new Point(50, 68);
+        heroTitle.Location = new Point(50, 62);
         heroTitle.AutoSize = true;
         heroSubtitle = NewLabel(IsCapturing ? "正在建立遥控器语音通道，请稍候" : "启动后，按住遥控器录音键即可在当前输入框听写", 10.5f, FontStyle.Regular, muted);
-        heroSubtitle.Location = new Point(52, 117);
+        heroSubtitle.Location = new Point(52, 111);
         heroSubtitle.Size = new Size(560, 30);
 
-        bridgeButton = PrimaryButton(IsCapturing ? "暂停语音桥接" : "启动语音桥接", new Point(52, 174), new Size(152, 44));
-        bridgeButton.Click += delegate { ToggleCapture(); };
-        var scan = SecondaryButton("检查连接", new Point(216, 174), new Size(124, 44));
+        string[,] linkFacts = {
+            { "●", "RC003 遥控器" },
+            { "●", ProviderDisplayName(config.inputMethod) },
+            { "●", "稳定语音档案 v" + StableVoiceProfileVersion }
+        };
+        Color[] linkColors = { violet, cyan, green };
+        int[] linkWidths = { 132, 154, 176 };
+        int factX = 52;
+        for (int i = 0; i < linkFacts.GetLength(0); i++)
+        {
+            var fact = NewLabel(linkFacts[i, 0] + "  " + linkFacts[i, 1], 8.7f, FontStyle.Bold, linkColors[i]);
+            fact.Location = new Point(factX, 158);
+            fact.Size = new Size(linkWidths[i], 25);
+            factX += linkWidths[i] + 12;
+            hero.Controls.Add(fact);
+        }
+
+        bridgeButton = PrimaryButton(IsCapturing ? "管理语音桥接" : "启动语音桥接", new Point(52, 217), new Size(152, 44));
+        bridgeButton.Click += delegate
+        {
+            if (IsCapturing) ShowPage(1);
+            else ToggleCapture();
+        };
+        var scan = SecondaryButton("检查连接", new Point(216, 217), new Size(124, 44));
         scan.Click += delegate { ScanDevice(); };
 
+        var gestureHint = NewLabel("按住说话  ·  松开后交给转写工具整理", 8.7f, FontStyle.Regular, muted);
+        gestureHint.Location = new Point(52, 276);
+        gestureHint.Size = new Size(420, 24);
+
         remoteVisual = new RemoteVisual();
-        remoteVisual.Location = new Point(716, 8);
-        remoteVisual.Size = new Size(210, 252);
+        remoteVisual.Location = new Point(688, 4);
+        remoteVisual.Size = new Size(246, 314);
         remoteVisual.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
         hero.Controls.Add(heroStateLabel);
@@ -438,70 +483,79 @@ internal sealed class VibeMicForm : Form
         hero.Controls.Add(heroSubtitle);
         hero.Controls.Add(bridgeButton);
         hero.Controls.Add(scan);
+        hero.Controls.Add(gestureHint);
         hero.Controls.Add(remoteVisual);
 
-        var flow = NewCard(new Point(34, 378), new Size(470, 220));
+        var flow = NewCard(new Point(34, 430), new Size(470, 178));
         flow.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         flow.Controls.Add(SectionTitle("开始一次听写", "\uE720", new Point(24, 18)));
         string[] steps = { "按住录音键", "说出内容", "自动回填文字" };
         string[] icons = { "\uE720", "\uE9D2", "\uE724" };
         for (int i = 0; i < 3; i++)
         {
-            int x = 34 + i * 144;
+            int x = 40 + i * 140;
             var circle = new RoundPanel();
-            circle.Location = new Point(x, 60);
-            circle.Size = new Size(62, 62);
-            circle.Radius = 31;
+            circle.Location = new Point(x, 52);
+            circle.Size = new Size(48, 48);
+            circle.Radius = 24;
             circle.BackColor = i == 0 ? Color.FromArgb(237, 235, 255) : Color.FromArgb(246, 249, 253);
             circle.BorderColor = i == 0 ? Color.FromArgb(209, 204, 255) : line;
-            var glyph = NewLabel(icons[i], 20f, FontStyle.Regular, i == 1 ? cyan : violet);
-            glyph.Font = new Font("Segoe MDL2 Assets", 20f, FontStyle.Regular);
+            var glyph = NewLabel(icons[i], 15f, FontStyle.Regular, i == 1 ? cyan : violet);
+            glyph.Font = new Font("Segoe MDL2 Assets", 15f, FontStyle.Regular);
             glyph.Dock = DockStyle.Fill;
             glyph.TextAlign = ContentAlignment.MiddleCenter;
             circle.Controls.Add(glyph);
             flow.Controls.Add(circle);
             var label = NewLabel(steps[i], 9f, FontStyle.Regular, muted);
-            label.Location = new Point(x - 18, 130);
-            label.Size = new Size(98, 24);
+            label.Location = new Point(x - 24, 105);
+            label.Size = new Size(96, 22);
             label.TextAlign = ContentAlignment.MiddleCenter;
             flow.Controls.Add(label);
             if (i < 2)
             {
-                var connector = NewLabel("····", 11f, FontStyle.Regular, Color.FromArgb(180, 190, 212));
-                connector.Location = new Point(x + 72, 79);
-                connector.AutoSize = true;
+                var connector = NewLabel("···", 9f, FontStyle.Regular, Color.FromArgb(165, 179, 207));
+                connector.Location = new Point(x + 75, 65);
+                connector.Size = new Size(34, 20);
+                connector.TextAlign = ContentAlignment.MiddleCenter;
                 flow.Controls.Add(connector);
             }
         }
         activityLabel = NewLabel("已就绪，等待按下录音键", 9.5f, FontStyle.Bold, muted);
-        activityLabel.Location = new Point(24, 174);
-        activityLabel.Size = new Size(420, 24);
+        activityLabel.Location = new Point(24, 142);
+        activityLabel.Size = new Size(420, 22);
         activityLabel.TextAlign = ContentAlignment.MiddleCenter;
         flow.Controls.Add(activityLabel);
 
-        var shortcuts = NewCard(new Point(520, 378), new Size(474, 220));
+        var shortcuts = NewCard(new Point(520, 430), new Size(474, 178));
         shortcuts.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         shortcuts.Controls.Add(SectionTitle("常用按键", "\uE765", new Point(24, 18)));
-        string[,] quick = { { "录音", "按住听写" }, { "确认", "确认或发送" }, { "TV", "打开任务切换" }, { "方向键", "短按移动，长按调音量" } };
-        for (int i = 0; i < 4; i++)
+        string[,] quick = {
+            { "录音", "按住听写" }, { "确认", "确认 / 发送" },
+            { "Home", "显示桌面" }, { "TV", "任务切换" },
+            { "功能键", "打开客户端" }, { "方向键", "导航 / 调音量" }
+        };
+        for (int i = 0; i < quick.GetLength(0); i++)
         {
-            var chip = NewLabel(i == 0 ? "●" : "·", 11f, FontStyle.Bold, i == 0 ? violet : cyan);
-            chip.Location = new Point(24, 56 + i * 36);
-            chip.Size = new Size(34, 28);
+            int column = i % 2;
+            int row = i / 2;
+            int x = 24 + column * 224;
+            int y = 50 + row * 39;
+            var chip = NewLabel("●", 7f, FontStyle.Bold, i == 0 ? violet : i < 4 ? cyan : green);
+            chip.Location = new Point(x, y + 2);
+            chip.Size = new Size(18, 24);
             chip.TextAlign = ContentAlignment.MiddleCenter;
-            chip.BackColor = Color.FromArgb(246, 248, 253);
             var key = NewLabel(quick[i, 0], 9.5f, FontStyle.Bold, ink);
-            key.Location = new Point(70, 59 + i * 36);
-            key.Size = new Size(92, 25);
+            key.Location = new Point(x + 24, y);
+            key.Size = new Size(68, 24);
             var value = NewLabel(quick[i, 1], 9f, FontStyle.Regular, muted);
-            value.Location = new Point(176, 59 + i * 36);
-            value.Size = new Size(240, 25);
+            value.Location = new Point(x + 94, y);
+            value.Size = new Size(120, 24);
             shortcuts.Controls.Add(chip);
             shortcuts.Controls.Add(key);
             shortcuts.Controls.Add(value);
         }
 
-        var status = NewCard(new Point(34, 614), new Size(960, 86));
+        var status = NewCard(new Point(34, 624), new Size(960, 86));
         status.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         SessionHealth latestHealth = GetLatestSessionHealth();
         string[] statusNames = { "蓝牙", "遥控器麦克风", "语音数据", "转写工具", "隐私保护" };
@@ -580,6 +634,7 @@ internal sealed class VibeMicForm : Form
         voiceBridgeStateLabel.Location = new Point(22, 19);
         voiceBridgeStateLabel.AutoSize = true;
         bool stableVoiceProfile = HasStableVoiceProfile(config);
+        bool advancedAudioUnlocked = !stableVoiceProfile;
         var profileBadge = NewLabel(stableVoiceProfile ? "●  稳定档案 v" + StableVoiceProfileVersion + " 已应用" : "●  参数已自定义", 8.8f, FontStyle.Bold,
             stableVoiceProfile ? green : amber);
         profileBadge.Location = new Point(650, 20);
@@ -616,7 +671,10 @@ internal sealed class VibeMicForm : Form
         var processing = StyledCombo(new Point(220, 256), new Size(260, 38));
         processing.Items.AddRange(new object[] { "清晰增强（推荐）", "原始直通" });
         processing.SelectedIndex = config.audioProcessingMode == "transparent" ? 1 : 0;
-        var processingHelp = NewLabel(config.audioProcessingMode == "transparent"
+        processing.Enabled = advancedAudioUnlocked;
+        var processingHelp = NewLabel(stableVoiceProfile
+            ? "已锁定为真机验证的清晰增强模式。"
+            : config.audioProcessingMode == "transparent"
             ? "仅做格式转换，适合排查原始音频。"
             : "稳定补偿轻声，孤立尖峰不会压低整段语音。", 9f, FontStyle.Regular, muted);
         processingHelp.Location = new Point(505, 263);
@@ -625,7 +683,9 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(processingHelp);
 
         AddFieldLabel(card, "收音灵敏度", 314);
-        var gainHelp = NewLabel("建议保持 1.0×；距离较远或声音较轻时再小幅提高。", 9.2f, FontStyle.Regular, muted);
+        var gainHelp = NewLabel(stableVoiceProfile
+            ? "已锁定为真机验证值 1.0×；普通使用无需调整。"
+            : "建议保持 1.0×；仅在排障时小幅调整。", 9.2f, FontStyle.Regular, muted);
         gainHelp.Location = new Point(220, 316);
         gainHelp.Size = new Size(520, 24);
         card.Controls.Add(gainHelp);
@@ -635,21 +695,17 @@ internal sealed class VibeMicForm : Form
         gain.Minimum = 5;
         gain.Maximum = 40;
         gain.Value = Math.Max(5, Math.Min(40, (int)(config.gain * 10)));
+        gain.Enabled = advancedAudioUnlocked;
         var gainValue = NewLabel((gain.Value / 10.0).ToString("0.0") + "×", 10f, FontStyle.Bold, violet);
         gainValue.Location = new Point(620, 350);
         gainValue.Size = new Size(70, 28);
         gain.Scroll += delegate { gainValue.Text = (gain.Value / 10.0).ToString("0.0") + "×"; };
-        gain.MouseUp += delegate
-        {
-            config.gain = gain.Value / 10.0;
-            SaveConfig();
-            RestartCaptureForAudioSettings();
-        };
         card.Controls.Add(gain);
         card.Controls.Add(gainValue);
 
         var autoRoute = StyledCheck("听写时自动使用遥控器麦克风（推荐）", config.autoRouteVirtualMicrophone, new Point(212, 390));
         autoRoute.Size = new Size(330, 34);
+        autoRoute.Enabled = advancedAudioUnlocked;
         var routeHelp = NewLabel("结束听写后自动恢复原来的 Windows 麦克风", 8.9f, FontStyle.Regular, muted);
         routeHelp.Location = new Point(548, 397);
         routeHelp.Size = new Size(350, 24);
@@ -670,10 +726,27 @@ internal sealed class VibeMicForm : Form
         var sound = SecondaryButton(config.inputMethod == "typeless" || config.inputMethod == "voquill" ? "获取所选工具" : "检查麦克风设置",
             new Point(548, 470), new Size(158, 44));
         sound.Click += delegate { OpenProviderHelp(config.inputMethod); };
-        var stable = SecondaryButton(stableVoiceProfile ? "稳定参数已应用" : "恢复稳定参数", new Point(720, 470), new Size(170, 44));
-        stable.Enabled = !stableVoiceProfile;
-        stable.Click += delegate
+        var profileAction = SecondaryButton(stableVoiceProfile ? "调整高级参数" : "恢复稳定参数", new Point(720, 470), new Size(170, 44));
+        profileAction.Tag = stableVoiceProfile ? "unlock" : "restore";
+        profileAction.Click += delegate
         {
+            if (string.Equals(profileAction.Tag as string, "unlock", StringComparison.OrdinalIgnoreCase))
+            {
+                DialogResult confirmation = MessageBox.Show(
+                    "稳定档案已经通过真机反复验证。只有在排查特殊设备问题时才建议修改声音处理、灵敏度或麦克风路由。\r\n\r\n是否继续？",
+                    "调整高级音频参数", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (confirmation != DialogResult.Yes) return;
+                advancedAudioUnlocked = true;
+                processing.Enabled = true;
+                gain.Enabled = true;
+                autoRoute.Enabled = true;
+                processingHelp.Text = config.audioProcessingMode == "transparent" ? "仅做格式转换，适合排查原始音频。" : "稳定补偿轻声，孤立尖峰不会压低整段语音。";
+                gainHelp.Text = "建议保持 1.0×；仅在排障时小幅调整。";
+                profileAction.Text = "恢复稳定参数";
+                profileAction.Tag = "restore";
+                ShowToast("高级参数已解锁，修改后可随时恢复稳定档案", "info");
+                return;
+            }
             ApplyStableVoiceProfile(config);
             SaveConfig();
             RestartCaptureForAudioSettings();
@@ -683,7 +756,7 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(start);
         card.Controls.Add(test);
         card.Controls.Add(sound);
-        card.Controls.Add(stable);
+        card.Controls.Add(profileAction);
 
         var note = NewLabel(ProviderRouteInstruction(config.inputMethod, config.autoRouteVirtualMicrophone) + "。言灵只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。", 9.3f, FontStyle.Regular, muted);
         note.Location = new Point(30, 526);
@@ -691,6 +764,20 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(note);
 
         bool updating = false;
+        Action markProfileCustomized = delegate
+        {
+            profileBadge.Text = "●  参数已自定义";
+            profileBadge.ForeColor = amber;
+            profileAction.Text = "恢复稳定参数";
+            profileAction.Tag = "restore";
+        };
+        gain.MouseUp += delegate
+        {
+            config.gain = gain.Value / 10.0;
+            markProfileCustomized();
+            SaveConfig();
+            RestartCaptureForAudioSettings();
+        };
         provider.SelectedIndexChanged += delegate
         {
             if (updating) return;
@@ -735,6 +822,7 @@ internal sealed class VibeMicForm : Form
             config.audioProcessingMode = value;
             config.autoLevel = value == "speech";
             processingHelp.Text = value == "transparent" ? "仅做格式转换，适合排查原始音频。" : "稳定补偿轻声，孤立尖峰不会压低整段语音。";
+            markProfileCustomized();
             SaveConfig();
             RestartCaptureForAudioSettings();
         };
@@ -743,6 +831,7 @@ internal sealed class VibeMicForm : Form
             config.autoRouteVirtualMicrophone = autoRoute.Checked;
             note.Text = ProviderRouteInstruction(config.inputMethod, config.autoRouteVirtualMicrophone) +
                 "。言灵只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。";
+            markProfileCustomized();
             SaveConfig();
             RestartCaptureForAudioSettings();
         };
@@ -754,13 +843,18 @@ internal sealed class VibeMicForm : Form
     private void BuildMappingsPage()
     {
         AddPageTitle("按键快捷方式", "选择按键功能，右侧遥控器会同步标出对应位置");
-        var card = NewCard(new Point(34, 100), new Size(960, 610));
-        card.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        card.Controls.Add(SectionTitle("使用场景", "\uE765", new Point(28, 22)));
-        var preset = StyledCombo(new Point(168, 18), new Size(246, 38));
+        var mappings = NewCard(new Point(34, 100), new Size(620, 610));
+        mappings.Anchor = AnchorStyles.Top | AnchorStyles.Left;
+        mappings.Controls.Add(SectionTitle("快捷方式方案", "\uE765", new Point(24, 20)));
+
+        var presetLabel = NewLabel("方案", 9f, FontStyle.Bold, muted);
+        presetLabel.Location = new Point(24, 58);
+        presetLabel.Size = new Size(46, 32);
+        presetLabel.TextAlign = ContentAlignment.MiddleLeft;
+        var preset = StyledCombo(new Point(76, 54), new Size(274, 38));
         preset.Items.AddRange(new object[] { "AI 编程（推荐）", "文本编辑", "代码阅读与评审", "自定义" });
         preset.SelectedIndex = config.mappingPreset == "editing" ? 1 : config.mappingPreset == "review" ? 2 : config.mappingPreset == "custom" ? 3 : 0;
-        var applyPreset = SecondaryButton("应用方案", new Point(428, 18), new Size(112, 40));
+        var applyPreset = SecondaryButton("应用方案", new Point(366, 53), new Size(116, 40));
         applyPreset.Click += delegate
         {
             if (preset.SelectedIndex == 3) { Toast("在下方选择快捷方式，修改会自动保存"); return; }
@@ -770,79 +864,77 @@ internal sealed class VibeMicForm : Form
             ShowPage(2);
             Toast("按键方案已应用");
         };
-        card.Controls.Add(preset);
-        card.Controls.Add(applyPreset);
+        var presetHelp = NewLabel("从常用模板开始；修改任一项目后会自动切换为自定义。", 8.4f, FontStyle.Regular, muted);
+        presetHelp.Location = new Point(24, 96);
+        presetHelp.Size = new Size(548, 24);
+        mappings.Controls.Add(presetLabel);
+        mappings.Controls.Add(preset);
+        mappings.Controls.Add(applyPreset);
+        mappings.Controls.Add(presetHelp);
 
-        var preview = new Panel();
-        preview.Location = new Point(658, 16);
-        preview.Size = new Size(284, 538);
-        preview.BackColor = Color.FromArgb(247, 249, 253);
-        preview.Paint += delegate(object sender, PaintEventArgs e)
-        {
-            using (var divider = new Pen(Color.FromArgb(215, 222, 238))) e.Graphics.DrawLine(divider, 0, 0, 0, preview.Height);
-            using (var accent = new Pen(Color.FromArgb(70, cyan), 2f)) e.Graphics.DrawLine(accent, 24, 12, 112, 12);
-        };
-        var previewTitle = NewLabel("遥控器功能速查", 11f, FontStyle.Bold, ink);
-        previewTitle.Location = new Point(22, 20);
-        previewTitle.Size = new Size(220, 28);
+        var preview = NewCard(new Point(670, 100), new Size(324, 610));
+        preview.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        preview.Controls.Add(SectionTitle("遥控器功能速查", "\uE7F4", new Point(24, 20)));
+        var previewHint = NewLabel("悬停或选择左侧按键，快速定位实体位置", 8.5f, FontStyle.Regular, muted);
+        previewHint.Location = new Point(24, 50);
+        previewHint.Size = new Size(276, 24);
         var previewRemote = new RemoteVisual();
-        previewRemote.Location = new Point(8, 46);
-        previewRemote.Size = new Size(268, 286);
+        previewRemote.Location = new Point(10, 72);
+        previewRemote.Size = new Size(304, 370);
         previewRemote.IsActive = true;
         previewRemote.ShowCallouts = true;
         previewRemote.AccentColor = violet;
         previewRemote.HighlightedControl = "voice";
-        var mappingSelection = NewLabel("录音键  →  按住听写", 9.2f, FontStyle.Bold, violet);
-        mappingSelection.Location = new Point(22, 334);
-        mappingSelection.Size = new Size(240, 30);
+        var mappingSelection = NewLabel("录音键\r\n按住听写", 9.2f, FontStyle.Bold, violet);
+        mappingSelection.Location = new Point(24, 454);
+        mappingSelection.Size = new Size(276, 54);
         mappingSelection.TextAlign = ContentAlignment.MiddleCenter;
-        var quickTitle = NewLabel("默认操作", 8.5f, FontStyle.Bold, muted);
-        quickTitle.Location = new Point(24, 368);
-        quickTitle.Size = new Size(220, 22);
-        string[,] quickRows = {
-            { "Home", "显示桌面" },
-            { "↑ / ↓", "移动 · 长按调音量" },
-            { "← / →", "移动 · TV 后选应用" },
-            { "功能键", "打开 / 切回所选客户端" },
-            { "TV", "打开任务切换器" }
-        };
-        for (int i = 0; i < quickRows.GetLength(0); i++)
-        {
-            int y = 390 + i * 23;
-            var key = NewLabel(quickRows[i, 0], 8.1f, FontStyle.Bold, ink);
-            key.Location = new Point(24, y);
-            key.Size = new Size(58, 22);
-            var action = NewLabel(quickRows[i, 1], 8.1f, FontStyle.Regular, muted);
-            action.Location = new Point(84, y);
-            action.Size = new Size(176, 22);
-            preview.Controls.Add(key);
-            preview.Controls.Add(action);
-        }
-        var previewHelp = NewLabel("独立音量 +/-：此型号未检测到稳定事件", 7.7f, FontStyle.Regular, amber);
-        previewHelp.Location = new Point(24, 508);
-        previewHelp.Size = new Size(236, 22);
-        preview.Controls.Add(previewTitle);
+        mappingSelection.BackColor = Color.FromArgb(243, 241, 255);
+        ApplyRoundedRegion(mappingSelection, 6);
+        var previewHelp = NewLabel("独立音量 +/-：此型号未检测到稳定事件\r\n当前由长按 ↑ / ↓ 调节音量", 7.8f, FontStyle.Regular, amber);
+        previewHelp.Location = new Point(24, 526);
+        previewHelp.Size = new Size(276, 46);
+        previewHelp.TextAlign = ContentAlignment.MiddleCenter;
+        preview.Controls.Add(previewHint);
         preview.Controls.Add(previewRemote);
         preview.Controls.Add(mappingSelection);
-        preview.Controls.Add(quickTitle);
         preview.Controls.Add(previewHelp);
-        card.Controls.Add(preview);
 
-        string[,] rows = { { "录音键", "managed", "固定：按住说话，实时传入所选转写工具" }, { "确认键", "enter", "默认：确认或发送" }, { "Home", "win+d", "默认：显示桌面" }, { "TV", "task-switcher", "打开任务切换，左右选择" }, { "功能键", "launch-client:chatgpt", "打开或切回所选客户端" }, { "方向键", "direction-volume-fallback", "左右导航；长按上 / 下调音量" } };
+        string[,] rows = {
+            { "录音键", "managed", "系统托管 · 保持稳定语音链路" },
+            { "确认键", "enter", "默认：确认或发送" },
+            { "Home", "win+d", "默认：显示桌面" },
+            { "TV", "task-switcher", "打开任务切换，左右选择" },
+            { "功能键", "launch-client:chatgpt", "打开或切回所选客户端" },
+            { "方向键", "direction-volume-fallback", "短按导航；长按上下调音量" }
+        };
+        string[] rowGlyphs = { "\uE720", "\uE73E", "\uE80F", "TV", "\uE765", "\uE7AD" };
+        var mappingRows = new List<Panel>();
         for (int i = 0; i < rows.GetLength(0); i++)
         {
-            int y = 78 + i * 68;
-            var icon = NewLabel(i == 0 ? "\uE720" : "\uE765", 14f, FontStyle.Regular, i == 0 ? violet : ink);
-            icon.Location = new Point(26, y);
-            icon.Size = new Size(36, 38);
+            var rowBand = new Panel();
+            rowBand.Location = new Point(24, 126 + i * 62);
+            rowBand.Size = new Size(572, 60);
+            rowBand.BackColor = Color.White;
+            rowBand.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                using (var divider = new Pen(Color.FromArgb(232, 236, 245)))
+                    e.Graphics.DrawLine(divider, 0, rowBand.Height - 1, rowBand.Width, rowBand.Height - 1);
+            };
+            mappingRows.Add(rowBand);
+
+            var icon = NewLabel(rowGlyphs[i], rowGlyphs[i] == "TV" ? 8f : 11.5f, FontStyle.Bold, i == 0 ? violet : cyan);
+            icon.Font = rowGlyphs[i] == "TV" ? new Font("Segoe UI", 8f, FontStyle.Bold) : new Font("Segoe MDL2 Assets", 11.5f, FontStyle.Regular);
+            icon.Location = new Point(4, 13);
+            icon.Size = new Size(28, 28);
             icon.TextAlign = ContentAlignment.MiddleCenter;
             var name = NewLabel(rows[i, 0], 10f, FontStyle.Bold, ink);
-            name.Location = new Point(72, y + 4);
-            name.Size = new Size(86, 28);
+            name.Location = new Point(42, 15);
+            name.Size = new Size(74, 28);
             string configKey = rows[i, 0] == "方向键" ? "上 / 下 / 左 / 右" : rows[i, 0];
             string currentAction = GetMapping(configKey, rows[i, 1]);
             List<ShortcutChoice> choices = ShortcutChoicesFor(configKey, currentAction);
-            var input = StyledCombo(new Point(164, y), new Size(250, 36));
+            var input = StyledCombo(new Point(120, 10), new Size(232, 36));
             foreach (ShortcutChoice choice in choices) input.Items.Add(choice);
             input.SelectedIndex = FindShortcutChoice(choices, currentAction);
             input.Enabled = rows[i, 0] != "录音键" && rows[i, 0] != "方向键";
@@ -850,11 +942,15 @@ internal sealed class VibeMicForm : Form
             string previewControl = RemoteControlForMappingKey(configKey);
             Action updatePreview = delegate
             {
+                foreach (Panel mappingRow in mappingRows) mappingRow.BackColor = Color.White;
+                rowBand.BackColor = Color.FromArgb(248, 247, 255);
                 previewRemote.HighlightedControl = previewControl;
                 ShortcutChoice selected = input.SelectedItem as ShortcutChoice;
-                mappingSelection.Text = rows[rowIndex, 0] + "  →  " + (selected == null ? rows[rowIndex, 2] : selected.Label);
+                string selectedText = rowIndex == 0 ? "按住听写" : rowIndex == 5 ? "短按导航 · 长按上下调音量" : selected == null ? rows[rowIndex, 2] : selected.Label;
+                mappingSelection.Text = rows[rowIndex, 0] + "\r\n" + selectedText;
                 previewRemote.Invalidate();
             };
+            rowBand.MouseEnter += delegate { updatePreview(); };
             input.Enter += delegate { updatePreview(); };
             input.MouseEnter += delegate { updatePreview(); };
             name.MouseEnter += delegate { updatePreview(); };
@@ -870,21 +966,26 @@ internal sealed class VibeMicForm : Form
                 updatePreview();
                 ShowToast(rows[rowIndex, 0] + "已设为“" + selected.Label + "”", "success");
             };
-            var hint = NewLabel(rows[i, 2], 9.5f, FontStyle.Regular, muted);
-            hint.Location = new Point(430, y + 2);
-            hint.Size = new Size(204, 42);
-            card.Controls.Add(icon);
-            card.Controls.Add(name);
-            card.Controls.Add(input);
-            card.Controls.Add(hint);
+            var hint = NewLabel(rows[i, 2], 8.4f, FontStyle.Regular, muted);
+            hint.Location = new Point(370, 9);
+            hint.Size = new Size(194, 40);
+            hint.TextAlign = ContentAlignment.MiddleLeft;
+            hint.MouseEnter += delegate { updatePreview(); };
+            rowBand.Controls.Add(icon);
+            rowBand.Controls.Add(name);
+            rowBand.Controls.Add(input);
+            rowBand.Controls.Add(hint);
+            mappings.Controls.Add(rowBand);
+            if (i == 0) updatePreview();
         }
-        var save = PrimaryButton("立即应用", new Point(164, 532), new Size(132, 42));
+        var save = PrimaryButton("立即应用", new Point(144, 538), new Size(132, 42));
         save.Click += delegate { SaveConfig(); StartKeyboardBridge(); Toast("按键快捷方式已生效"); };
-        var openBridge = SecondaryButton("打开高级配置", new Point(310, 532), new Size(150, 42));
+        var openBridge = SecondaryButton("打开高级配置", new Point(290, 538), new Size(150, 42));
         openBridge.Click += delegate { Process.Start(Path.Combine(root, "voxdeck-shortcuts.json")); };
-        card.Controls.Add(save);
-        card.Controls.Add(openBridge);
-        content.Controls.Add(card);
+        mappings.Controls.Add(save);
+        mappings.Controls.Add(openBridge);
+        content.Controls.Add(mappings);
+        content.Controls.Add(preview);
     }
 
     private void BuildDevicePage()
@@ -1044,15 +1145,17 @@ internal sealed class VibeMicForm : Form
         var privacyNote = NewLabel("普通日志只记录连接状态与聚合指标，单个日志自动限制为 4 MB。诊断音频必须每次明确确认。", 8.8f, FontStyle.Regular, muted);
         privacyNote.Location = new Point(34, 104);
         privacyNote.Size = new Size(830, 28);
-        var setup = PrimaryButton("打开入门指南", new Point(32, 154), new Size(148, 42));
+        var setup = PrimaryButton("打开入门指南", new Point(32, 154), new Size(140, 42));
         setup.Click += delegate { ShowSetupWizard(); };
-        var open = SecondaryButton("打开高级配置", new Point(196, 154), new Size(148, 42));
+        var open = SecondaryButton("查看配置文件", new Point(184, 154), new Size(142, 42));
         open.Click += delegate { Process.Start(configPath); };
-        var export = SecondaryButton("备份配置", new Point(360, 154), new Size(126, 42));
+        var export = SecondaryButton("备份配置", new Point(338, 154), new Size(112, 42));
         export.Click += delegate { ExportConfig(); };
+        var updates = SecondaryButton("检查更新", new Point(462, 154), new Size(112, 42));
+        updates.Click += delegate { OpenUri("https://github.com/richlearntodo-debug/vibe-flow/releases/latest"); };
         var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 正式版\r\nRC003 本地语音传输与快捷操作工具 · 开源版本", 9.5f, FontStyle.Regular, muted);
-        about.Location = new Point(560, 154);
-        about.Size = new Size(360, 62);
+        about.Location = new Point(600, 154);
+        about.Size = new Size(320, 62);
         var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  配置 schema " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
         profile.Location = new Point(32, 226);
         profile.Size = new Size(400, 24);
@@ -1062,6 +1165,7 @@ internal sealed class VibeMicForm : Form
         privacyCard.Controls.Add(setup);
         privacyCard.Controls.Add(open);
         privacyCard.Controls.Add(export);
+        privacyCard.Controls.Add(updates);
         privacyCard.Controls.Add(about);
         privacyCard.Controls.Add(profile);
 
@@ -1078,7 +1182,7 @@ internal sealed class VibeMicForm : Form
         var b = NewLabel(subtitle, 10f, FontStyle.Regular, muted);
         b.Location = new Point(45, 67);
         b.AutoSize = true;
-        var release = NewLabel("V1  正式版", 8.3f, FontStyle.Bold, green);
+        var release = NewLabel("V" + ProductRelease, 8.3f, FontStyle.Bold, green);
         release.Location = new Point(Math.Max(760, content.ClientSize.Width - 146), 29);
         release.Size = new Size(104, 30);
         release.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -1125,6 +1229,75 @@ internal sealed class VibeMicForm : Form
         label.ForeColor = color;
         label.BackColor = Color.Transparent;
         return label;
+    }
+
+    private static Bitmap CreateNavigationIcon(string icon, Color color, bool active)
+    {
+        var bitmap = new Bitmap(34, 24);
+        using (Graphics graphics = Graphics.FromImage(bitmap))
+        using (var pen = new Pen(color, active ? 2.05f : 1.75f))
+        using (var soft = new SolidBrush(Color.FromArgb(active ? 42 : 18, color)))
+        using (var solid = new SolidBrush(color))
+        {
+            graphics.Clear(Color.Transparent);
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            pen.LineJoin = LineJoin.Round;
+
+            if (icon == "overview")
+            {
+                graphics.FillRoundedRectangle(soft, new Rectangle(2, 3, 8, 8), 2);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(2, 3, 8, 8), 2);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(13, 3, 8, 8), 2);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(2, 14, 8, 7), 2);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(13, 14, 8, 7), 2);
+            }
+            else if (icon == "voice")
+            {
+                graphics.FillRoundedRectangle(soft, new Rectangle(6, 2, 8, 13), 4);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(6, 2, 8, 13), 4);
+                graphics.DrawArc(pen, new Rectangle(3, 7, 14, 12), 0, 180);
+                graphics.DrawLine(pen, 10, 19, 10, 22);
+                graphics.DrawLine(pen, 7, 22, 13, 22);
+                graphics.DrawArc(pen, new Rectangle(16, 6, 6, 9), -70, 140);
+            }
+            else if (icon == "shortcuts")
+            {
+                graphics.FillRoundedRectangle(soft, new Rectangle(1, 4, 21, 16), 3);
+                graphics.DrawRoundedRectangle(pen, new Rectangle(1, 4, 21, 16), 3);
+                for (int i = 0; i < 3; i++) graphics.FillRoundedRectangle(solid, new Rectangle(5 + i * 5, 8, 3, 3), 1);
+                graphics.DrawLine(pen, 5, 16, 18, 16);
+            }
+            else if (icon == "diagnostics")
+            {
+                using (var path = new GraphicsPath())
+                {
+                    path.AddLines(new PointF[] {
+                        new PointF(11.5f, 2), new PointF(20.5f, 5.5f), new PointF(19.5f, 14),
+                        new PointF(16.5f, 19), new PointF(11.5f, 22), new PointF(6.5f, 19),
+                        new PointF(3.5f, 14), new PointF(2.5f, 5.5f)
+                    });
+                    path.CloseFigure();
+                    graphics.FillPath(soft, path);
+                    graphics.DrawPath(pen, path);
+                }
+                graphics.DrawLines(pen, new PointF[] { new PointF(6.5f, 12), new PointF(10, 15.5f), new PointF(16.8f, 8.5f) });
+            }
+            else
+            {
+                int[] knobX = { 8, 16, 11 };
+                for (int i = 0; i < 3; i++)
+                {
+                    int y = 5 + i * 7;
+                    graphics.DrawLine(pen, 2, y, 21, y);
+                    graphics.FillEllipse(soft, knobX[i] - 3, y - 3, 6, 6);
+                    graphics.FillEllipse(solid, knobX[i] - 1, y - 1, 3, 3);
+                }
+            }
+        }
+        return bitmap;
     }
 
     private static Bitmap CreateGlyphBitmap(string glyph, Color color, int width, int height, float fontSize)
@@ -1256,8 +1429,9 @@ internal sealed class VibeMicForm : Form
         tray.DoubleClick += delegate { ShowMainWindow(); };
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开言灵", null, delegate { ShowMainWindow(); });
-        menu.Items.Add("启动 / 暂停语音桥接", null, delegate { ToggleCapture(); });
+        ToolStripItem bridgeItem = menu.Items.Add(IsCapturing ? "暂停语音桥接" : "启动语音桥接", null, delegate { ToggleCapture(); });
         menu.Items.Add("退出", null, delegate { config.minimizeToTray = false; Close(); });
+        menu.Opening += delegate { bridgeItem.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接"; };
         tray.ContextMenuStrip = menu;
     }
 
@@ -1276,6 +1450,7 @@ internal sealed class VibeMicForm : Form
         }
         StartKeyboardBridge();
         if (config.startBridgeOnLaunch && !IsCapturing) StartCapture();
+        WarmConfiguredProviderAsync(false);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -1299,6 +1474,7 @@ internal sealed class VibeMicForm : Form
         if (dictationErrorSound != null) { dictationErrorSound.Dispose(); dictationErrorSound = null; }
         try { if (showWindowEvent != null) { showWindowEvent.Set(); showWindowEvent.Dispose(); } } catch { }
         try { if (exitApplicationEvent != null) { exitApplicationEvent.Set(); exitApplicationEvent.Dispose(); } } catch { }
+        try { if (voiceWakeRequestEvent != null) { voiceWakeRequestEvent.Set(); voiceWakeRequestEvent.Dispose(); } } catch { }
         tray.Visible = false;
         base.OnFormClosing(e);
     }
@@ -1366,17 +1542,23 @@ internal sealed class VibeMicForm : Form
             captureProcess.EnableRaisingEvents = true;
             captureProcess.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) Log(e.Data); };
             captureProcess.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e) { if (e.Data != null) Log("ERR " + e.Data); };
-            captureProcess.Exited += delegate { try { BeginInvoke(new Action(CaptureExited)); } catch { } };
+            Process startedCapture = captureProcess;
+            captureProcess.Exited += delegate
+            {
+                try { BeginInvoke(new Action(delegate { CaptureExited(startedCapture); })); }
+                catch { }
+            };
             captureProcess.Start();
+            captureStartedAt = DateTime.Now;
             captureProcess.BeginOutputReadLine();
             captureProcess.BeginErrorReadLine();
-            Log("Voice bridge started.");
+            HostLog("CAPTURE START pid=" + captureProcess.Id + " provider=" + NormalizeProviderKey(config.inputMethod));
             UpdateCaptureUi();
             Toast("正在连接遥控器麦克风，请稍候");
         }
         catch (Exception ex)
         {
-            Log("Start failed: " + ex.Message);
+            HostLog("CAPTURE START FAILED error=" + ex.Message);
             Toast("连接没有成功，正在自动重试");
             ScheduleCaptureRestart();
         }
@@ -1401,7 +1583,8 @@ internal sealed class VibeMicForm : Form
         }
         catch { }
         finally { ReleaseVoiceHotkey(); }
-        Log("Voice bridge stopped.");
+        captureStartedAt = DateTime.MinValue;
+        HostLog("CAPTURE STOP");
         UpdateCaptureUi();
     }
 
@@ -1453,12 +1636,19 @@ internal sealed class VibeMicForm : Form
         return "\"" + (value ?? "").Replace("\"", "") + "\"";
     }
 
-    private void CaptureExited()
+    private void CaptureExited(Process exitedCapture)
     {
+        if (!ReferenceEquals(captureProcess, exitedCapture))
+        {
+            HostLog("CAPTURE EXIT superseded=true ignored=true");
+            return;
+        }
+        captureProcess = null;
         bridgeReady = false;
+        captureStartedAt = DateTime.MinValue;
         UpdateCaptureUi();
         if (applicationExiting || captureStopping || !config.startBridgeOnLaunch) return;
-        Log("Capture helper exited unexpectedly; reconnect scheduled.");
+        HostLog("CAPTURE EXIT unexpected=true reconnect=scheduled");
         connectionBadge.Text = "●  正在重新连接";
         connectionBadge.ForeColor = Color.FromArgb(224, 144, 40);
         ScheduleCaptureRestart();
@@ -1481,7 +1671,170 @@ internal sealed class VibeMicForm : Form
             if (!applicationExiting && !captureStopping && !IsCapturing) StartCapture();
         };
         reconnectTimer.Start();
-        Log("Reconnect in " + delay + " ms.");
+        HostLog("CAPTURE RECONNECT delay_ms=" + delay);
+    }
+
+    private void HandleVoiceWakeRequest()
+    {
+        if (applicationExiting) return;
+        config = LoadConfig();
+        bool held = IsVoiceKeyHeld();
+        HostLog("VOICE WAKE REQUEST held=" + held + " capture_running=" + IsCapturing +
+            " atvv_ready=" + bridgeReady + " provider=" + NormalizeProviderKey(config.inputMethod) +
+            " provider_ready=" + IsProviderReadyForStartup(config.inputMethod));
+        WarmConfiguredProviderAsync(true);
+
+        if (captureStopping)
+        {
+            HostLog("VOICE WAKE ignored reason=bridge_paused");
+            return;
+        }
+        if (!IsCapturing)
+        {
+            HostLog("VOICE WAKE recovery=start_capture");
+            StartCapture();
+            return;
+        }
+        if (bridgeReady || !held || captureStartedAt == DateTime.MinValue) return;
+
+        int waitingMs = (int)Math.Max(0, (DateTime.Now - captureStartedAt).TotalMilliseconds);
+        if (waitingMs < 30000)
+        {
+            HostLog("VOICE WAKE pending_atvv waiting_ms=" + waitingMs);
+            return;
+        }
+
+        startupRecoveryCount++;
+        HostLog("VOICE WAKE recovery=restart_stalled_capture waiting_ms=" + waitingMs +
+            " attempt=" + startupRecoveryCount);
+        StopCapture();
+        StartCapture();
+    }
+
+    private static bool IsVoiceKeyHeld()
+    {
+        try
+        {
+            using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyHeld"))
+                return handle.WaitOne(0);
+        }
+        catch { return false; }
+    }
+
+    private void WarmConfiguredProviderAsync(bool launchImmediately)
+    {
+        string provider = NormalizeProviderKey(config.inputMethod);
+        if (provider == "windows" || provider == "custom") return;
+        if (launchImmediately) Interlocked.Exchange(ref providerWarmupLaunchRequested, 1);
+        lock (providerWarmupLock)
+        {
+            if (providerWarmupActive) return;
+            providerWarmupActive = true;
+        }
+
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            bool launchAttempted = false;
+            try
+            {
+                for (int attempt = 0; attempt < 40 && !applicationExiting; attempt++)
+                {
+                    if (!NormalizeProviderKey(config.inputMethod).Equals(provider, StringComparison.OrdinalIgnoreCase)) return;
+                    if (IsProviderReadyForStartup(provider))
+                    {
+                        HostLog("PROVIDER READY provider=" + provider + " waited_ms=" + (attempt * 500));
+                        return;
+                    }
+                    bool expedited = Interlocked.CompareExchange(ref providerWarmupLaunchRequested, 0, 0) == 1;
+                    if (!launchAttempted && (expedited || attempt >= 8))
+                    {
+                        launchAttempted = true;
+                        Interlocked.Exchange(ref providerWarmupLaunchRequested, 0);
+                        TryLaunchConfiguredProvider(provider);
+                    }
+                    Thread.Sleep(500);
+                }
+                HostLog("PROVIDER NOT READY provider=" + provider + " action=check_startup_and_hotkey");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref providerWarmupLaunchRequested, 0);
+                lock (providerWarmupLock) providerWarmupActive = false;
+            }
+        });
+    }
+
+    private bool IsProviderReadyForStartup(string provider)
+    {
+        string normalized = NormalizeProviderKey(provider);
+        if (normalized == "wechat")
+            return IsProcessRunning("wetype_server") &&
+                (IsProcessRunning("wetype_renderer") || FindWindow("wetype.statusbar.window", null) != IntPtr.Zero);
+        return IsProviderRunning(normalized);
+    }
+
+    private void TryLaunchConfiguredProvider(string provider)
+    {
+        if (IsProviderReadyForStartup(provider)) return;
+        string target = FindProviderLaunchTarget(provider);
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            HostLog("PROVIDER LAUNCH unavailable provider=" + provider);
+            return;
+        }
+        try
+        {
+            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
+            HostLog("PROVIDER LAUNCH requested provider=" + provider + " target=" + target);
+        }
+        catch (Exception ex)
+        {
+            HostLog("PROVIDER LAUNCH failed provider=" + provider + " error=" + ex.Message);
+        }
+    }
+
+    private static string FindProviderLaunchTarget(string provider)
+    {
+        string normalized = NormalizeProviderKey(provider);
+        var directCandidates = new List<string>();
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (normalized == "typeless")
+        {
+            directCandidates.Add(Path.Combine(local, "Programs", "Typeless", "Typeless.exe"));
+            directCandidates.Add(Path.Combine(roaming, "Typeless.exe", "Typeless.exe"));
+        }
+        else if (normalized == "voquill")
+        {
+            directCandidates.Add(Path.Combine(local, "Programs", "Voquill", "Voquill.exe"));
+            directCandidates.Add(Path.Combine(roaming, "Voquill", "Voquill.exe"));
+        }
+        foreach (string candidate in directCandidates) if (File.Exists(candidate)) return candidate;
+
+        string[] needles = normalized == "wechat"
+            ? new string[] { "微信输入法", "wetype" }
+            : normalized == "typeless" ? new string[] { "typeless" } : new string[] { "voquill" };
+        string[] startMenuRoots =
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms)
+        };
+        foreach (string startMenuRoot in startMenuRoots)
+        {
+            if (string.IsNullOrWhiteSpace(startMenuRoot) || !Directory.Exists(startMenuRoot)) continue;
+            try
+            {
+                foreach (string shortcut in Directory.GetFiles(startMenuRoot, "*.lnk", SearchOption.AllDirectories))
+                {
+                    string name = Path.GetFileNameWithoutExtension(shortcut).ToLowerInvariant();
+                    if (name.Contains("uninstall") || name.Contains("卸载")) continue;
+                    foreach (string needle in needles)
+                        if (name.Contains(needle.ToLowerInvariant())) return shortcut;
+                }
+            }
+            catch { }
+        }
+        return "";
     }
 
     private void StopOrphanCaptureCore()
@@ -1518,15 +1871,15 @@ internal sealed class VibeMicForm : Form
                 return;
             }
             string executable = Path.Combine(root, "VoxDeckInputBridge.exe");
-            if (!File.Exists(executable)) { Log("Keyboard bridge is missing."); return; }
+            if (!File.Exists(executable)) { HostLog("KEYBOARD BRIDGE missing=true"); return; }
             var start = new ProcessStartInfo(executable, "--background");
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
             start.WindowStyle = ProcessWindowStyle.Hidden;
             keyboardBridgeProcess = Process.Start(start);
-            Log("Keyboard bridge started in background.");
+            HostLog("KEYBOARD BRIDGE started=true pid=" + keyboardBridgeProcess.Id);
         }
-        catch (Exception ex) { Log("Keyboard bridge start failed: " + ex.Message); }
+        catch (Exception ex) { HostLog("KEYBOARD BRIDGE start_failed=true error=" + ex.Message); }
     }
 
     private void StopKeyboardBridge()
@@ -1722,6 +2075,8 @@ internal sealed class VibeMicForm : Form
                 rail.BackColor = Color.FromArgb(248, 250, 255);
                 rail.Paint += delegate(object sender, PaintEventArgs e)
                 {
+                    using (var progress = new Pen(Color.FromArgb(218, 224, 239), 2f))
+                        e.Graphics.DrawLine(progress, 43, 146, 43, 364);
                     using (var pen = new Pen(line)) e.Graphics.DrawLine(pen, rail.Width - 1, 0, rail.Width - 1, rail.Height);
                 };
                 var setupLogo = new PictureBox();
@@ -1771,7 +2126,7 @@ internal sealed class VibeMicForm : Form
                 pageContent.BackColor = Color.Transparent;
                 var back = SecondaryButton("上一步", new Point(34, 584), new Size(112, 42));
                 var next = PrimaryButton("下一步", new Point(508, 584), new Size(150, 42));
-                var stepCounter = NewLabel("STEP 1 / 5", 8.5f, FontStyle.Bold, violet);
+                var stepCounter = NewLabel("第 1 步，共 5 步", 8.5f, FontStyle.Bold, violet);
                 stepCounter.Location = new Point(164, 594);
                 stepCounter.Size = new Size(100, 24);
                 var wizardFeedback = NewLabel("", 8.8f, FontStyle.Bold, muted);
@@ -1790,7 +2145,7 @@ internal sealed class VibeMicForm : Form
                 string selectedProvider = NormalizeProviderKey(config.inputMethod);
                 string selectedHotkey = config.inputMethodHotkey;
                 string selectedTrigger = config.inputMethodTrigger;
-                bool startupChoiceValue = config.setupCompleted ? config.launchAtStartup : true;
+                bool startupChoiceValue = config.launchAtStartup;
                 bool autoRouteChoiceValue = config.autoRouteVirtualMicrophone;
                 TextBox shortcutBox = null;
                 ComboBox triggerBox = null;
@@ -1803,6 +2158,11 @@ internal sealed class VibeMicForm : Form
                 {
                     wizardFeedback.Text = message;
                     wizardFeedback.ForeColor = success ? green : Color.FromArgb(202, 76, 76);
+                };
+                Action<string> showWizardInfo = delegate(string message)
+                {
+                    wizardFeedback.Text = message;
+                    wizardFeedback.ForeColor = cyan;
                 };
 
                 renderStep = delegate(int step)
@@ -1818,13 +2178,15 @@ internal sealed class VibeMicForm : Form
                         progressLabels[i].ForeColor = i == currentStep ? violet : i < currentStep ? green : muted;
                         progressLabels[i].Font = new Font("Microsoft YaHei UI", 9.5f, i == currentStep ? FontStyle.Bold : FontStyle.Regular);
                         Control number = progressLabels[i].Parent.Controls[progressLabels[i].Parent.Controls.IndexOf(progressLabels[i]) - 1];
+                        number.Text = i < currentStep ? "✓" : (i + 1).ToString();
                         number.ForeColor = i <= currentStep ? Color.White : muted;
                         number.BackColor = i < currentStep ? green : i == currentStep ? violet : Color.FromArgb(237, 240, 248);
                     }
-                    stepCounter.Text = "STEP " + (currentStep + 1) + " / 5";
+                    stepCounter.Text = "第 " + (currentStep + 1) + " 步，共 5 步";
                     wizardFeedback.Text = "";
                     back.Enabled = currentStep > 0;
-                    next.Text = currentStep == 4 ? "完成设置" : "下一步";
+                    next.Text = currentStep == 0 ? "确认选择" : currentStep == 1 ? "确认音频通道" :
+                        currentStep == 2 ? "确认连接" : currentStep == 3 ? "保存并测试" : "完成设置";
 
                     string headingText = currentStep == 0 ? "先选择你每天使用的转写工具" :
                         currentStep == 1 ? "安装一次本地音频通道" :
@@ -1871,8 +2233,11 @@ internal sealed class VibeMicForm : Form
                         info.Controls.Add(infoSummary);
                         info.Controls.Add(profile);
                         info.Controls.Add(help);
-                        var startupChoice = StyledCheck("登录 Windows 后自动启动言灵（推荐）", startupChoiceValue, new Point(4, 410));
+                        var startupChoice = StyledCheck("登录 Windows 后自动启动言灵", startupChoiceValue, new Point(4, 410));
                         startupChoice.CheckedChanged += delegate { startupChoiceValue = startupChoice.Checked; };
+                        var startupHelp = NewLabel("默认不启用；可随时在“偏好设置”中修改。", 8.8f, FontStyle.Regular, muted);
+                        startupHelp.Location = new Point(30, 445);
+                        startupHelp.Size = new Size(520, 24);
                         providerChoice.SelectedIndexChanged += delegate
                         {
                             selectedProvider = ProviderKeyFromIndex(providerChoice.SelectedIndex);
@@ -1885,6 +2250,7 @@ internal sealed class VibeMicForm : Form
                         pageContent.Controls.Add(providerState);
                         pageContent.Controls.Add(info);
                         pageContent.Controls.Add(startupChoice);
+                        pageContent.Controls.Add(startupHelp);
                     }
                     else if (currentStep == 1)
                     {
@@ -1892,9 +2258,9 @@ internal sealed class VibeMicForm : Form
                         bool outputReady = HasCableOutput();
                         var required = NewLabel(inputReady && outputReady ? "●  必需组件已安装" : "●  必需组件 · 仅需安装一次", 9f, FontStyle.Bold,
                             inputReady && outputReady ? green : amber);
-                        required.Location = new Point(6, 82);
+                        required.Location = new Point(6, 94);
                         required.Size = new Size(280, 24);
-                        var route = NewCard(new Point(4, 108), new Size(602, 224));
+                        var route = NewCard(new Point(4, 124), new Size(602, 224));
                         var routeTitle = NewLabel("RC003  →  CABLE Input  →  CABLE Output  →  " + ProviderDisplayName(selectedProvider), 10f, FontStyle.Bold, ink);
                         routeTitle.Location = new Point(22, 22);
                         routeTitle.Size = new Size(556, 28);
@@ -1908,7 +2274,7 @@ internal sealed class VibeMicForm : Form
                         install.Click += delegate { OpenUri(inputReady && outputReady ? "ms-settings:sound" : "https://vb-audio.com/Cable/"); };
                         var recheck = SecondaryButton("重新检测", new Point(400, 113), new Size(164, 38));
                         recheck.Click += delegate { renderStep(1); };
-                        var routeNote = NewLabel("安装驱动后请重新打开言灵检测。听写开始前临时切换默认麦克风，音频排空后立即恢复。", 8.8f, FontStyle.Regular, muted);
+                        var routeNote = NewLabel("安装后若仍未检测到，请按驱动提示重启 Windows。听写结束后会自动恢复原麦克风。", 8.8f, FontStyle.Regular, muted);
                         routeNote.Location = new Point(22, 168);
                         routeNote.Size = new Size(540, 42);
                         route.Controls.Add(routeTitle);
@@ -1917,10 +2283,10 @@ internal sealed class VibeMicForm : Form
                         route.Controls.Add(install);
                         route.Controls.Add(recheck);
                         route.Controls.Add(routeNote);
-                        var autoRouteChoice = StyledCheck("听写时自动使用遥控器麦克风（强烈推荐）", autoRouteChoiceValue, new Point(4, 360));
+                        var autoRouteChoice = StyledCheck("听写时自动使用遥控器麦克风（强烈推荐）", autoRouteChoiceValue, new Point(4, 376));
                         autoRouteChoice.CheckedChanged += delegate { autoRouteChoiceValue = autoRouteChoice.Checked; };
                         var safety = NewLabel("关闭后，需要在每个转写工具中手动选择 CABLE Output。", 8.9f, FontStyle.Regular, muted);
-                        safety.Location = new Point(30, 398);
+                        safety.Location = new Point(30, 414);
                         safety.Size = new Size(550, 26);
                         pageContent.Controls.Add(required);
                         pageContent.Controls.Add(route);
@@ -1949,7 +2315,8 @@ internal sealed class VibeMicForm : Form
                             if (!IsCapturing) StartCapture();
                             liveConnectionStatus.Text = "●  正在建立语音链路";
                             liveConnectionStatus.ForeColor = amber;
-                            showWizardFeedback("正在检测，请稍候", true);
+                            detect.Text = "重新检测";
+                            showWizardInfo("正在检测，请稍候");
                         };
                         connection.Controls.Add(liveConnectionStatus);
                         connection.Controls.Add(model);
@@ -1998,7 +2365,7 @@ internal sealed class VibeMicForm : Form
                                 return;
                             }
                             SaveWizardProviderConfig(selectedProvider, selectedHotkey, selectedTrigger, autoRouteChoiceValue);
-                            showWizardFeedback("已发送测试，请观察工具", true);
+                            showWizardInfo("已发送测试，请确认工具已打开并结束");
                             TestVoiceHotkey();
                         };
                         var help = SecondaryButton("查看工具设置", new Point(204, 216), new Size(146, 40));
@@ -2140,7 +2507,7 @@ internal sealed class VibeMicForm : Form
                         liveConnectionStatus.Text = IsCapturing && bridgeReady ? "●  已连接，可以使用" : IsCapturing ? "●  正在建立语音链路" : "●  等待开始检测";
                         liveConnectionStatus.ForeColor = IsCapturing && bridgeReady ? green : IsCapturing ? amber : muted;
                         if (IsCapturing && bridgeReady) showWizardFeedback("连接成功", true);
-                        else if (IsCapturing) showWizardFeedback("正在检测，请稍候", true);
+                        else if (IsCapturing) showWizardInfo("正在检测，请稍候");
                     }
                     if (currentStep == 4 && firstDictationStatus != null && !firstDictationStatus.IsDisposed)
                     {
@@ -2213,7 +2580,7 @@ internal sealed class VibeMicForm : Form
     private void UpdateCaptureUi()
     {
         if (InvokeRequired) { BeginInvoke(new Action(UpdateCaptureUi)); return; }
-        if (bridgeButton != null && !bridgeButton.IsDisposed) bridgeButton.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接";
+        if (bridgeButton != null && !bridgeButton.IsDisposed) bridgeButton.Text = IsCapturing ? "管理语音桥接" : "启动语音桥接";
         if (DateTime.Now < transientFeedbackUntil && !string.IsNullOrWhiteSpace(transientFeedbackState))
         {
             ApplyVisualState(transientFeedbackState);
@@ -2824,10 +3191,28 @@ internal sealed class VibeMicForm : Form
         if (logBox != null && !logBox.IsDisposed) logBox.AppendText(lineText + Environment.NewLine);
     }
 
+    private void HostLog(string message)
+    {
+        if (InvokeRequired) { BeginInvoke(new Action<string>(HostLog), message); return; }
+        string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+        string lineText = timestamp.Substring(11, 8) + " " + message;
+        if (logBox != null && !logBox.IsDisposed) logBox.AppendText(lineText + Environment.NewLine);
+        try { File.AppendAllText(hostLogPath, timestamp + " " + message + Environment.NewLine, new UTF8Encoding(false)); }
+        catch { }
+    }
+
     private string LoadRecentDiagnostics()
     {
         var sb = new StringBuilder();
         sb.AppendLine("最近技术事件（提交问题时通常只需复制上方摘要）");
+        if (File.Exists(hostLogPath))
+        {
+            sb.AppendLine("主程序启动与恢复：");
+            string[] hostLines = ReadLogTailLines(hostLogPath, 64 * 1024);
+            int hostStart = Math.Max(0, hostLines.Length - 16);
+            for (int i = hostStart; i < hostLines.Length; i++) sb.AppendLine(hostLines[i]);
+            sb.AppendLine();
+        }
         string runtimeLog = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         if (File.Exists(runtimeLog))
         {
@@ -2960,6 +3345,16 @@ internal sealed class VibeMicForm : Form
     {
         int generation;
         int.TryParse(ExtractMetric(lineText, "generation"), out generation);
+        if (lineText.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            bridgeReady = true;
+            reconnectAttempt = 0;
+            startupRecoveryCount = 0;
+            HostLog("CAPTURE READY startup_ms=" +
+                (captureStartedAt == DateTime.MinValue ? "unknown" : ((int)(DateTime.Now - captureStartedAt).TotalMilliseconds).ToString()));
+            UpdateCaptureUi();
+            return;
+        }
         if (lineText.IndexOf("REMOTE STREAM START ", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             transientFeedbackUntil = DateTime.MinValue;
@@ -3919,50 +4314,55 @@ internal sealed class RoundPanel : Panel
 
 internal sealed class RemoteVisual : Control
 {
+    private const int DesignWidth = 112;
+    private const int DesignHeight = 440;
     public Color AccentColor = Color.FromArgb(126, 139, 174);
     public bool IsActive;
     public bool IsRecording;
     public bool ShowCallouts;
     public string HighlightedControl = "";
     public float AnimationPhase;
-    public RemoteVisual() { DoubleBuffered = true; }
+    public RemoteVisual()
+    {
+        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+        DoubleBuffered = true;
+        ResizeRedraw = true;
+        BackColor = Color.Transparent;
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
+        base.OnPaint(e);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        float scale = Math.Min(1f, Math.Max(0.68f, (Height - 12f) / 296f));
-        int bodyWidth = (int)(86 * scale);
+        e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        e.Graphics.CompositingQuality = CompositingQuality.HighQuality;
+
+        float scale = Math.Min(1.15f, Math.Max(0.48f, (Height - 12f) / DesignHeight));
+        int bodyWidth = (int)Math.Round(DesignWidth * scale);
         int x = Width / 2 - bodyWidth / 2;
         Func<int, int> sx = delegate(int value) { return x + (int)(value * scale); };
-        Func<int, int> sy = delegate(int value) { return 7 + (int)(value * scale); };
-        Func<int, int> sr = delegate(int value) { return Math.Max(5, (int)(value * scale)); };
-        var body = new Rectangle(x, 7, bodyWidth, Math.Min(Height - 12, (int)(288 * scale)));
-        if (IsActive)
-        {
-            float wave = (float)((Math.Sin(AnimationPhase) + 1.0) / 2.0);
-            for (int i = 2; i >= 0; i--)
-            {
-                int spread = 10 + i * 12 + (int)(wave * (IsRecording ? 12 : 5));
-                int alpha = Math.Max(10, (IsRecording ? 52 : 32) - i * 10);
-                using (var glow = new Pen(Color.FromArgb(alpha, AccentColor), IsRecording ? 3f : 2f))
-                    e.Graphics.DrawRoundedRectangle(glow, new Rectangle(body.X - spread / 2, body.Y - spread / 2, body.Width + spread, body.Height + spread), 12 + spread / 3);
-            }
-        }
-        using (var shadow = new SolidBrush(Color.FromArgb(24, 50, 40, 120))) e.Graphics.FillRectangle(shadow, x + sr(8), 12, bodyWidth, body.Height);
-        using (var brush = new LinearGradientBrush(body, Color.FromArgb(245, 246, 248), Color.FromArgb(190, 193, 202), 0f))
-            e.Graphics.FillRoundedRectangle(brush, body, 10);
-        DrawButton(e.Graphics, sx(20), sy(24), sr(13), "○", IsHighlighted("power"), AccentColor);
-        DrawButton(e.Graphics, sx(66), sy(24), sr(13), "", IsHighlighted("voice") || IsRecording, AccentColor);
-        DrawMicrophone(e.Graphics, sx(66), sy(24), sr(13), IsHighlighted("voice") || IsRecording, AccentColor);
-        DrawDirectionalPad(e.Graphics, sx(43), sy(84), sr(30), sr(16), AccentColor);
-        DrawButton(e.Graphics, sx(23), sy(134), sr(14), "‹", IsHighlighted("back"), AccentColor);
-        DrawButton(e.Graphics, sx(63), sy(134), sr(14), "+", IsHighlighted("volumeup"), AccentColor);
-        DrawButton(e.Graphics, sx(23), sy(170), sr(14), "⌂", IsHighlighted("home"), AccentColor);
-        DrawButton(e.Graphics, sx(63), sy(170), sr(14), "−", IsHighlighted("volumedown"), AccentColor);
-        DrawButton(e.Graphics, sx(23), sy(206), sr(14), "≡", IsHighlighted("menu"), AccentColor);
-        DrawButton(e.Graphics, sx(63), sy(206), sr(14), "□", IsHighlighted("tv"), AccentColor);
-        using (var font = new Font("Segoe UI", 6.5f, FontStyle.Bold))
-        using (var b = new SolidBrush(Color.FromArgb(70, 73, 82)))
-            e.Graphics.DrawString("XIAOMI", font, b, sx(27), sy(262));
+        Func<int, int> sy = delegate(int value) { return 6 + (int)(value * scale); };
+        Func<int, int> sr = delegate(int value) { return Math.Max(2, (int)Math.Round(value * scale)); };
+        var body = new Rectangle(x, 6, bodyWidth, Math.Min(Height - 12, (int)Math.Round(DesignHeight * scale)));
+
+        DrawBodyAura(e.Graphics, body);
+        DrawMetalBody(e.Graphics, body, sr(6));
+
+        int voiceX = sx(83);
+        int voiceY = sy(29);
+        int topRadius = sr(13);
+        if (IsRecording) DrawRecordingRipples(e.Graphics, voiceX, voiceY, topRadius);
+
+        DrawTopButton(e.Graphics, sx(29), sy(29), topRadius, "power", IsHighlighted("power"), AccentColor, scale);
+        DrawTopButton(e.Graphics, voiceX, voiceY, topRadius, "voice", IsHighlighted("voice") || IsRecording, AccentColor, scale);
+        DrawDirectionalPad(e.Graphics, sx(56), sy(96), sr(43), sr(22), AccentColor, scale);
+        DrawDarkButton(e.Graphics, sx(29), sy(158), sr(17), "back", IsHighlighted("back"), AccentColor, scale);
+        DrawVolumeRocker(e.Graphics, sx(83), sy(141), sy(219), sr(17), AccentColor, scale);
+        DrawDarkButton(e.Graphics, sx(29), sy(199), sr(17), "home", IsHighlighted("home"), AccentColor, scale);
+        DrawDarkButton(e.Graphics, sx(29), sy(240), sr(17), "menu", IsHighlighted("menu"), AccentColor, scale);
+        DrawDarkButton(e.Graphics, sx(83), sy(240), sr(17), "tv", IsHighlighted("tv"), AccentColor, scale);
+        DrawBranding(e.Graphics, sx(56), sy(316), sy(405), scale);
+
         if (ShowCallouts) DrawCallouts(e.Graphics, body, sx, sy);
     }
 
@@ -3971,51 +4371,324 @@ internal sealed class RemoteVisual : Control
         return string.Equals(HighlightedControl, control, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void DrawDirectionalPad(Graphics g, int cx, int cy, int radius, int innerRadius, Color accent)
+    private void DrawBodyAura(Graphics g, Rectangle body)
     {
-        using (var b = new SolidBrush(Color.FromArgb(42, 43, 47))) g.FillEllipse(b, cx - radius, cy - radius, radius * 2, radius * 2);
+        if (!IsActive) return;
+        float breath = (float)((Math.Sin(AnimationPhase * 0.72f) + 1.0) / 2.0);
+        for (int i = 3; i >= 0; i--)
+        {
+            int spread = 7 + i * 7 + (int)(breath * (IsRecording ? 9 : 4));
+            int alpha = Math.Max(8, (IsRecording ? 55 : 34) - i * 9);
+            var aura = new Rectangle(body.X - spread / 2, body.Y - spread / 2, body.Width + spread, body.Height + spread);
+            using (var pen = new Pen(Color.FromArgb(alpha, AccentColor), IsRecording ? 2.3f : 1.5f))
+                g.DrawRoundedRectangle(pen, aura, Math.Max(7, 9 + spread / 4));
+        }
+    }
+
+    private static void DrawMetalBody(Graphics g, Rectangle body, int radius)
+    {
+        var shadowRect = new Rectangle(body.X + 4, body.Y + 5, body.Width, body.Height);
+        using (var shadowPath = RoundedPath(shadowRect, radius + 1))
+        using (var shadow = new SolidBrush(Color.FromArgb(38, 31, 42, 67)))
+            g.FillPath(shadow, shadowPath);
+
+        using (var bodyPath = RoundedPath(body, radius))
+        using (var metal = new LinearGradientBrush(body, Color.White, Color.Silver, 0f))
+        {
+            metal.InterpolationColors = new ColorBlend
+            {
+                Colors = new Color[] {
+                    Color.FromArgb(128, 134, 145), Color.FromArgb(237, 240, 243),
+                    Color.FromArgb(253, 253, 253), Color.FromArgb(219, 222, 227),
+                    Color.FromArgb(246, 247, 248), Color.FromArgb(185, 190, 199),
+                    Color.FromArgb(118, 124, 135)
+                },
+                Positions = new float[] { 0f, 0.055f, 0.17f, 0.52f, 0.82f, 0.95f, 1f }
+            };
+            g.FillPath(metal, bodyPath);
+
+            GraphicsState state = g.Save();
+            g.SetClip(bodyPath);
+            for (int y = body.Top + 8; y < body.Bottom - 6; y += 5)
+            {
+                int alpha = 5 + ((y - body.Top) % 4);
+                using (var grain = new Pen(Color.FromArgb(alpha, 45, 52, 64), 1f))
+                    g.DrawLine(grain, body.Left + 5, y, body.Right - 5, y);
+            }
+            using (var topSheen = new Pen(Color.FromArgb(180, 255, 255, 255), 1f))
+                g.DrawLine(topSheen, body.Left + radius, body.Top + 1, body.Right - radius, body.Top + 1);
+            g.Restore(state);
+        }
+
+        int railWidth = Math.Max(2, body.Width / 18);
+        var leftRail = new Rectangle(body.Left + 1, body.Top + 2, railWidth, body.Height - 4);
+        var rightRail = new Rectangle(body.Right - railWidth - 1, body.Top + 2, railWidth, body.Height - 4);
+        using (var leftBrush = new LinearGradientBrush(leftRail, Color.FromArgb(112, 119, 131), Color.FromArgb(244, 246, 248), 0f))
+            g.FillRoundedRectangle(leftBrush, leftRail, Math.Max(1, railWidth / 2));
+        using (var rightBrush = new LinearGradientBrush(rightRail, Color.FromArgb(238, 240, 243), Color.FromArgb(104, 111, 123), 0f))
+            g.FillRoundedRectangle(rightBrush, rightRail, Math.Max(1, railWidth / 2));
+
+        using (var border = new Pen(Color.FromArgb(185, 82, 88, 100), 1f))
+            g.DrawRoundedRectangle(border, body, radius);
+        using (var faceEdge = new Pen(Color.FromArgb(112, 255, 255, 255), 1f))
+        {
+            g.DrawLine(faceEdge, body.Left + railWidth + 1, body.Top + radius, body.Left + railWidth + 1, body.Bottom - radius);
+            g.DrawLine(faceEdge, body.Right - railWidth - 2, body.Top + radius, body.Right - railWidth - 2, body.Bottom - radius);
+        }
+    }
+
+    private void DrawRecordingRipples(Graphics g, int cx, int cy, int radius)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            float phase = (AnimationPhase * 0.36f + i * 0.25f) % 1f;
+            int ringRadius = radius + 4 + (int)(phase * 25f);
+            int alpha = Math.Max(8, (int)((1f - phase) * 118f));
+            using (var ring = new Pen(Color.FromArgb(alpha, AccentColor), 1.5f + (1f - phase) * 1.4f))
+                g.DrawEllipse(ring, cx - ringRadius, cy - ringRadius, ringRadius * 2, ringRadius * 2);
+        }
+        int coreRadius = radius + 3 + (int)(((Math.Sin(AnimationPhase * 1.7f) + 1.0) / 2.0) * 3);
+        using (var core = new Pen(Color.FromArgb(120, AccentColor), 3f))
+            g.DrawEllipse(core, cx - coreRadius, cy - coreRadius, coreRadius * 2, coreRadius * 2);
+    }
+
+    private static void DrawTopButton(Graphics g, int cx, int cy, int radius, string icon, bool highlighted, Color accent, float scale)
+    {
+        if (highlighted)
+        {
+            using (var halo = new Pen(Color.FromArgb(78, accent), Math.Max(2f, 4f * scale)))
+                g.DrawEllipse(halo, cx - radius - 3, cy - radius - 3, (radius + 3) * 2, (radius + 3) * 2);
+        }
+        var bounds = new Rectangle(cx - radius, cy - radius, radius * 2, radius * 2);
+        Color upper = highlighted ? Lighten(accent, 24) : Color.FromArgb(250, 251, 252);
+        Color lower = highlighted ? accent : Color.FromArgb(190, 194, 201);
+        using (var fill = new LinearGradientBrush(bounds, upper, lower, 90f)) g.FillEllipse(fill, bounds);
+        using (var border = new Pen(highlighted ? Color.FromArgb(210, accent) : Color.FromArgb(225, 44, 47, 52), Math.Max(1f, 1.15f * scale)))
+            g.DrawEllipse(border, bounds);
+        using (var sheen = new Pen(Color.FromArgb(145, 255, 255, 255), 1f))
+            g.DrawArc(sheen, bounds.X + 2, bounds.Y + 2, bounds.Width - 4, bounds.Height - 4, 205, 130);
+        Color iconColor = highlighted ? Color.White : Color.FromArgb(46, 48, 53);
+        if (icon == "power") DrawPowerIcon(g, cx, cy, radius, iconColor, scale);
+        else DrawMicrophoneIcon(g, cx, cy, radius, iconColor, scale, highlighted);
+    }
+
+    private static void DrawPowerIcon(Graphics g, int cx, int cy, int radius, Color color, float scale)
+    {
+        int iconRadius = Math.Max(3, (int)Math.Round(radius * 0.46f));
+        using (var pen = new Pen(color, Math.Max(1.15f, 1.65f * scale)))
+        {
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            g.DrawLine(pen, cx, cy - iconRadius - 2, cx, cy - 1);
+            g.DrawArc(pen, cx - iconRadius, cy - iconRadius, iconRadius * 2, iconRadius * 2, -43, 266);
+        }
+    }
+
+    private static void DrawMicrophoneIcon(Graphics g, int cx, int cy, int radius, Color color, float scale, bool active)
+    {
+        float width = Math.Max(1.1f, 1.55f * scale);
+        using (var pen = new Pen(color, width))
+        {
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            int capsuleWidth = Math.Max(4, (int)Math.Round(radius * 0.48f));
+            int capsuleHeight = Math.Max(6, (int)Math.Round(radius * 0.88f));
+            g.DrawRoundedRectangle(pen, new Rectangle(cx - capsuleWidth / 2, cy - capsuleHeight / 2 - 1, capsuleWidth, capsuleHeight), Math.Max(2, capsuleWidth / 2));
+            g.DrawArc(pen, cx - capsuleWidth / 2 - 2, cy - 2, capsuleWidth + 4, capsuleHeight, 0, 180);
+            g.DrawLine(pen, cx, cy + capsuleHeight / 2 + 2, cx, cy + capsuleHeight / 2 + 5);
+            g.DrawLine(pen, cx - 2, cy + capsuleHeight / 2 + 5, cx + 2, cy + capsuleHeight / 2 + 5);
+            if (active)
+            {
+                g.DrawArc(pen, cx - radius - 3, cy - radius / 2, 4, radius, -70, 140);
+                g.DrawArc(pen, cx + radius - 1, cy - radius / 2, 4, radius, 110, 140);
+            }
+        }
+    }
+
+    private void DrawDirectionalPad(Graphics g, int cx, int cy, int radius, int innerRadius, Color accent, float scale)
+    {
+        var outer = new Rectangle(cx - radius, cy - radius, radius * 2, radius * 2);
+        using (var shadow = new SolidBrush(Color.FromArgb(55, 20, 23, 30)))
+            g.FillEllipse(shadow, outer.X + 1, outer.Y + 3, outer.Width, outer.Height);
+        using (var fill = new LinearGradientBrush(outer, Color.FromArgb(67, 69, 75), Color.FromArgb(24, 26, 31), 90f))
+            g.FillEllipse(fill, outer);
+
         bool allDirections = IsHighlighted("directions");
         string[] names = { "up", "right", "down", "left" };
-        PointF[][] wedges = {
-            new PointF[] { new PointF(cx, cy - radius + 3), new PointF(cx - 15, cy - 8), new PointF(cx + 15, cy - 8) },
-            new PointF[] { new PointF(cx + radius - 3, cy), new PointF(cx + 8, cy - 15), new PointF(cx + 8, cy + 15) },
-            new PointF[] { new PointF(cx, cy + radius - 3), new PointF(cx - 15, cy + 8), new PointF(cx + 15, cy + 8) },
-            new PointF[] { new PointF(cx - radius + 3, cy), new PointF(cx - 8, cy - 15), new PointF(cx - 8, cy + 15) }
-        };
+        float[] starts = { -135f, -45f, 45f, 135f };
         for (int i = 0; i < names.Length; i++)
         {
             if (!allDirections && !IsHighlighted(names[i])) continue;
-            using (var highlight = new SolidBrush(Color.FromArgb(220, accent))) g.FillPolygon(highlight, wedges[i]);
+            using (var highlight = new SolidBrush(Color.FromArgb(205, accent)))
+                g.FillPie(highlight, outer.X + 3, outer.Y + 3, outer.Width - 6, outer.Height - 6, starts[i], 90f);
         }
+
+        using (var rim = new Pen(Color.FromArgb(220, 20, 22, 27), Math.Max(1f, 1.4f * scale)))
+            g.DrawEllipse(rim, outer);
+        using (var sheen = new Pen(Color.FromArgb(92, 255, 255, 255), 1f))
+            g.DrawArc(sheen, outer.X + 2, outer.Y + 2, outer.Width - 4, outer.Height - 4, 205, 128);
+
+        int markerRadius = Math.Max(1, (int)(1.7f * scale));
+        Point[] markers = {
+            new Point(cx, cy - radius + Math.Max(6, radius / 5)),
+            new Point(cx + radius - Math.Max(6, radius / 5), cy),
+            new Point(cx, cy + radius - Math.Max(6, radius / 5)),
+            new Point(cx - radius + Math.Max(6, radius / 5), cy)
+        };
+        for (int i = 0; i < markers.Length; i++)
+        {
+            bool lit = allDirections || IsHighlighted(names[i]);
+            using (var marker = new SolidBrush(lit ? Color.White : Color.FromArgb(11, 13, 17)))
+                g.FillEllipse(marker, markers[i].X - markerRadius, markers[i].Y - markerRadius, markerRadius * 2, markerRadius * 2);
+        }
+
         bool ok = IsHighlighted("ok");
-        using (var center = new SolidBrush(ok ? accent : Color.FromArgb(47, 48, 52)))
-            g.FillEllipse(center, cx - innerRadius, cy - innerRadius, innerRadius * 2, innerRadius * 2);
-        using (var p = new Pen(ok ? Color.White : Color.FromArgb(90, 91, 96), 1.5f))
-            g.DrawEllipse(p, cx - innerRadius, cy - innerRadius, innerRadius * 2, innerRadius * 2);
+        var centerBounds = new Rectangle(cx - innerRadius, cy - innerRadius, innerRadius * 2, innerRadius * 2);
+        using (var center = new LinearGradientBrush(centerBounds, ok ? Lighten(accent, 20) : Color.FromArgb(66, 68, 73), ok ? accent : Color.FromArgb(30, 32, 37), 90f))
+            g.FillEllipse(center, centerBounds);
+        using (var centerBorder = new Pen(ok ? Color.White : Color.FromArgb(135, 11, 13, 17), Math.Max(1f, 1.4f * scale)))
+            g.DrawEllipse(centerBorder, centerBounds);
+        using (var centerSheen = new Pen(Color.FromArgb(ok ? 105 : 45, 255, 255, 255), 1f))
+            g.DrawArc(centerSheen, centerBounds.X + 2, centerBounds.Y + 2, centerBounds.Width - 4, centerBounds.Height - 4, 205, 130);
     }
 
-    private static void DrawMicrophone(Graphics g, int cx, int cy, int radius, bool highlighted, Color accent)
+    private static void DrawDarkButton(Graphics g, int cx, int cy, int radius, string icon, bool highlighted, Color accent, float scale)
     {
-        Color color = highlighted ? Color.White : Color.FromArgb(220, 230, 234, 244);
         if (highlighted)
         {
-            using (var glow = new SolidBrush(Color.FromArgb(220, accent))) g.FillEllipse(glow, cx - radius, cy - radius, radius * 2, radius * 2);
+            using (var halo = new Pen(Color.FromArgb(74, accent), Math.Max(2f, 4f * scale)))
+                g.DrawEllipse(halo, cx - radius - 3, cy - radius - 3, (radius + 3) * 2, (radius + 3) * 2);
         }
-        using (var pen = new Pen(color, 1.5f))
+        var bounds = new Rectangle(cx - radius, cy - radius, radius * 2, radius * 2);
+        using (var shadow = new SolidBrush(Color.FromArgb(45, 18, 20, 27)))
+            g.FillEllipse(shadow, bounds.X + 1, bounds.Y + 2, bounds.Width, bounds.Height);
+        using (var fill = new LinearGradientBrush(bounds, highlighted ? Lighten(accent, 15) : Color.FromArgb(63, 65, 70), highlighted ? accent : Color.FromArgb(25, 27, 32), 90f))
+            g.FillEllipse(fill, bounds);
+        using (var border = new Pen(highlighted ? Color.FromArgb(220, accent) : Color.FromArgb(214, 20, 22, 27), Math.Max(1f, 1.2f * scale)))
+            g.DrawEllipse(border, bounds);
+        using (var sheen = new Pen(Color.FromArgb(65, 255, 255, 255), 1f))
+            g.DrawArc(sheen, bounds.X + 2, bounds.Y + 2, bounds.Width - 4, bounds.Height - 4, 205, 128);
+
+        Color iconColor = Color.FromArgb(244, 247, 250);
+        float penWidth = Math.Max(1.05f, 1.55f * scale);
+        using (var pen = new Pen(iconColor, penWidth))
         {
-            g.DrawRoundedRectangle(pen, new Rectangle(cx - 3, cy - 7, 6, 11), 3);
-            g.DrawArc(pen, cx - 6, cy - 3, 12, 11, 0, 180);
-            g.DrawLine(pen, cx, cy + 7, cx, cy + 10);
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            pen.LineJoin = LineJoin.Round;
+            int unit = Math.Max(3, (int)Math.Round(5.4f * scale));
+            if (icon == "back")
+            {
+                g.DrawLines(pen, new Point[] { new Point(cx + unit / 2, cy - unit), new Point(cx - unit / 2, cy), new Point(cx + unit / 2, cy + unit) });
+            }
+            else if (icon == "home")
+            {
+                using (var path = new GraphicsPath())
+                {
+                    path.AddLines(new PointF[] {
+                        new PointF(cx - unit, cy - 1), new PointF(cx, cy - unit), new PointF(cx + unit, cy - 1),
+                        new PointF(cx + unit, cy + unit), new PointF(cx - unit, cy + unit)
+                    });
+                    path.CloseFigure();
+                    g.DrawPath(pen, path);
+                }
+            }
+            else if (icon == "menu")
+            {
+                for (int i = -1; i <= 1; i++) g.DrawLine(pen, cx - unit, cy + i * Math.Max(3, unit / 2), cx + unit, cy + i * Math.Max(3, unit / 2));
+            }
+            else
+            {
+                int tvWidth = Math.Max(10, (int)Math.Round(14 * scale));
+                int tvHeight = Math.Max(7, (int)Math.Round(10 * scale));
+                g.DrawRoundedRectangle(pen, new Rectangle(cx - tvWidth / 2, cy - tvHeight / 2, tvWidth, tvHeight), Math.Max(2, (int)(3 * scale)));
+                using (var font = new Font("Segoe UI", Math.Max(4.8f, 5.6f * scale), FontStyle.Bold))
+                using (var brush = new SolidBrush(iconColor))
+                using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                    g.DrawString("TV", font, brush, new RectangleF(cx - tvWidth / 2f, cy - tvHeight / 2f, tvWidth, tvHeight), format);
+            }
         }
+    }
+
+    private void DrawVolumeRocker(Graphics g, int cx, int top, int bottom, int halfWidth, Color accent, float scale)
+    {
+        var bounds = new Rectangle(cx - halfWidth, top, halfWidth * 2, bottom - top);
+        var shadowBounds = new Rectangle(bounds.X + 1, bounds.Y + 3, bounds.Width, bounds.Height);
+        using (var shadowPath = RoundedPath(shadowBounds, halfWidth))
+        using (var shadow = new SolidBrush(Color.FromArgb(48, 18, 20, 27)))
+            g.FillPath(shadow, shadowPath);
+
+        using (var path = RoundedPath(bounds, halfWidth))
+        using (var fill = new LinearGradientBrush(bounds, Color.FromArgb(62, 64, 69), Color.FromArgb(24, 26, 31), 90f))
+        {
+            g.FillPath(fill, path);
+            GraphicsState state = g.Save();
+            g.SetClip(path);
+            int middle = bounds.Top + bounds.Height / 2;
+            if (IsHighlighted("volumeup"))
+            {
+                using (var active = new SolidBrush(Color.FromArgb(230, accent)))
+                    g.FillRectangle(active, bounds.Left, bounds.Top, bounds.Width, middle - bounds.Top + 1);
+            }
+            if (IsHighlighted("volumedown"))
+            {
+                using (var active = new SolidBrush(Color.FromArgb(230, accent)))
+                    g.FillRectangle(active, bounds.Left, middle, bounds.Width, bounds.Bottom - middle);
+            }
+            g.Restore(state);
+        }
+
+        using (var border = new Pen(Color.FromArgb(214, 20, 22, 27), Math.Max(1f, 1.2f * scale)))
+            g.DrawRoundedRectangle(border, bounds, halfWidth);
+        using (var separator = new Pen(Color.FromArgb(38, 255, 255, 255), 1f))
+            g.DrawLine(separator, bounds.Left + 4, bounds.Top + bounds.Height / 2, bounds.Right - 4, bounds.Top + bounds.Height / 2);
+
+        int plusY = bounds.Top + bounds.Height / 4;
+        int minusY = bounds.Top + bounds.Height * 3 / 4;
+        int unit = Math.Max(3, (int)Math.Round(5.5f * scale));
+        using (var icon = new Pen(Color.FromArgb(245, 247, 250), Math.Max(1.05f, 1.55f * scale)))
+        {
+            icon.StartCap = LineCap.Round;
+            icon.EndCap = LineCap.Round;
+            g.DrawLine(icon, cx - unit, plusY, cx + unit, plusY);
+            g.DrawLine(icon, cx, plusY - unit, cx, plusY + unit);
+            g.DrawLine(icon, cx - unit, minusY, cx + unit, minusY);
+        }
+    }
+
+    private void DrawBranding(Graphics g, int cx, int markY, int textY, float scale)
+    {
+        Color markColor = IsActive ? Color.FromArgb(180, AccentColor) : Color.FromArgb(135, 53, 57, 65);
+        int markWidth = Math.Max(8, (int)Math.Round(13 * scale));
+        int markHeight = Math.Max(7, (int)Math.Round(11 * scale));
+        using (var pen = new Pen(markColor, Math.Max(1f, 1.25f * scale)))
+        {
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            pen.LineJoin = LineJoin.Round;
+            g.DrawRectangle(pen, cx - markWidth / 2, markY - markHeight / 2, markWidth, markHeight);
+            g.DrawLines(pen, new Point[] {
+                new Point(cx - markWidth / 3, markY + markHeight / 3),
+                new Point(cx - markWidth / 3, markY - markHeight / 3),
+                new Point(cx + markWidth / 3, markY + markHeight / 3),
+                new Point(cx + markWidth / 3, markY - markHeight / 3)
+            });
+        }
+        using (var font = new Font("Segoe UI", Math.Max(5.2f, 7.2f * scale), FontStyle.Bold))
+        using (var brush = new SolidBrush(Color.FromArgb(150, 45, 49, 57)))
+        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near })
+            g.DrawString("xiaomi", font, brush, new RectangleF(cx - 34, textY, 68, 14), format);
     }
 
     private void DrawCallouts(Graphics g, Rectangle body, Func<int, int> sx, Func<int, int> sy)
     {
-        DrawCallout(g, "录音键", sx(66), sy(24), body.Right + 10, sy(16), IsHighlighted("voice"), false);
-        DrawCallout(g, "方向 / 确认", sx(43), sy(84), Math.Max(2, body.Left - 88), sy(75), IsHighlighted("directions") || IsHighlighted("ok"), true);
-        DrawCallout(g, "Home", sx(23), sy(170), Math.Max(2, body.Left - 64), sy(160), IsHighlighted("home"), true);
-        DrawCallout(g, "功能键", sx(23), sy(206), Math.Max(2, body.Left - 70), sy(210), IsHighlighted("menu"), true);
-        DrawCallout(g, "TV", sx(63), sy(206), body.Right + 10, sy(210), IsHighlighted("tv"), false);
+        DrawCallout(g, "录音键", sx(83), sy(29), body.Right + 10, sy(19), IsHighlighted("voice") || IsRecording, false);
+        DrawCallout(g, "方向 / 确认", sx(56), sy(96), Math.Max(2, body.Left - 88), sy(86), IsHighlighted("directions") || IsHighlighted("ok"), true);
+        DrawCallout(g, "返回", sx(29), sy(158), Math.Max(2, body.Left - 58), sy(150), IsHighlighted("back"), true);
+        DrawCallout(g, "音量 +/-", sx(83), sy(180), body.Right + 10, sy(170), IsHighlighted("volumeup") || IsHighlighted("volumedown"), false);
+        DrawCallout(g, "Home", sx(29), sy(199), Math.Max(2, body.Left - 62), sy(192), IsHighlighted("home"), true);
+        DrawCallout(g, "功能键", sx(29), sy(240), Math.Max(2, body.Left - 68), sy(237), IsHighlighted("menu"), true);
+        DrawCallout(g, "TV", sx(83), sy(240), body.Right + 10, sy(237), IsHighlighted("tv"), false);
     }
 
     private void DrawCallout(Graphics g, string text, int targetX, int targetY, int textX, int textY, bool highlighted, bool leftSide)
@@ -4023,29 +4696,33 @@ internal sealed class RemoteVisual : Control
         Color color = highlighted ? AccentColor : Color.FromArgb(112, 123, 148);
         using (var pen = new Pen(Color.FromArgb(highlighted ? 180 : 85, color), highlighted ? 1.8f : 1f))
         {
-            int lineEnd = leftSide ? textX + 54 : textX - 6;
+            pen.StartCap = LineCap.Round;
+            pen.EndCap = LineCap.Round;
+            int lineEnd = leftSide ? textX + 52 : textX - 6;
             g.DrawLine(pen, targetX, targetY, lineEnd, textY + 9);
+            using (var dot = new SolidBrush(Color.FromArgb(highlighted ? 220 : 120, color)))
+                g.FillEllipse(dot, targetX - 2, targetY - 2, 4, 4);
         }
-        using (var font = new Font("Microsoft YaHei UI", 7.8f, highlighted ? FontStyle.Bold : FontStyle.Regular))
+        using (var font = new Font("Microsoft YaHei UI", 7.6f, highlighted ? FontStyle.Bold : FontStyle.Regular))
         using (var brush = new SolidBrush(color)) g.DrawString(text, font, brush, textX, textY);
     }
 
-    private static void DrawButton(Graphics g, int cx, int cy, int r, string text, bool highlighted, Color accent)
+    private static GraphicsPath RoundedPath(Rectangle rectangle, int radius)
     {
-        using (var b = new SolidBrush(highlighted ? accent : Color.FromArgb(47, 48, 52))) g.FillEllipse(b, cx - r, cy - r, r * 2, r * 2);
-        if (highlighted)
-        {
-            using (var halo = new Pen(Color.FromArgb(80, accent), 5f)) g.DrawEllipse(halo, cx - r - 3, cy - r - 3, r * 2 + 6, r * 2 + 6);
-        }
-        if (!string.IsNullOrEmpty(text))
-        {
-            using (var f = new Font("Segoe UI Symbol", 10f, FontStyle.Bold))
-            using (var b = new SolidBrush(Color.White))
-            {
-                var s = g.MeasureString(text, f);
-                g.DrawString(text, f, b, cx - s.Width / 2, cy - s.Height / 2);
-            }
-        }
+        int safeRadius = Math.Max(1, Math.Min(radius, Math.Min(rectangle.Width, rectangle.Height) / 2));
+        int diameter = safeRadius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(rectangle.Left, rectangle.Top, diameter, diameter, 180, 90);
+        path.AddArc(rectangle.Right - diameter, rectangle.Top, diameter, diameter, 270, 90);
+        path.AddArc(rectangle.Right - diameter, rectangle.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rectangle.Left, rectangle.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    private static Color Lighten(Color color, int amount)
+    {
+        return Color.FromArgb(color.A, Math.Min(255, color.R + amount), Math.Min(255, color.G + amount), Math.Min(255, color.B + amount));
     }
 }
 

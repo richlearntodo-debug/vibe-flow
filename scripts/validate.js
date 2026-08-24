@@ -30,6 +30,11 @@ const requiredFiles = [
   "docs/RELEASE_NOTES_ZH.md",
   "docs/ARCHITECTURE.md",
   "docs/images/00-first-run.png",
+  "docs/images/00-setup-1-provider.png",
+  "docs/images/00-setup-2-audio.png",
+  "docs/images/00-setup-3-remote.png",
+  "docs/images/00-setup-4-hotkey.png",
+  "docs/images/00-setup-5-dictation.png",
   "docs/images/01-overview.png",
   "docs/images/02-dictation.png",
   "docs/images/03-shortcuts.png",
@@ -62,6 +67,7 @@ const guide = read("docs/USER_GUIDE_ZH.md");
 const quickStart = read("QUICK_START_ZH.md");
 const installer = read("installer/VibeFlow.iss");
 const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
+const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
 
 for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/") && item.endsWith(".png"))) {
   const png = fs.readFileSync(path.join(root, file));
@@ -71,11 +77,13 @@ for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/"
 }
 
 assert(app.includes('DisplayProductName = "言灵 · Vibe Flow Remote"') && app.includes("Text = DisplayProductName"), "Vibe Flow Remote window title is missing");
-assert(app.includes('ProductRelease = "1.0.2"') && packageJson.version === "1.0.2", "Application and package versions are not aligned");
-assert(app.includes('AssemblyFileVersion("1.0.2.0")') && app.includes('AssemblyInformationalVersion("1.0.2")'), "Windows executable version metadata is missing");
+assert(app.includes('ProductRelease = "1.0.3"') && packageJson.version === "1.0.3", "Application and package versions are not aligned");
+assert(app.includes('AssemblyFileVersion("1.0.3.0")') && app.includes('AssemblyInformationalVersion("1.0.3")'), "Windows executable version metadata is missing");
 assert(app.includes('brandLogoPath = Path.Combine(root, "vibe-flow-logo.png")'), "Brand logo is not wired into the app");
 assert(app.includes("ShowSetupWizard"), "First-run setup is missing");
 assert(app.includes("VibeMicExitForUpdate") && app.includes("ExistingInstanceUsesDifferentPath"), "Cross-directory update handoff is missing");
+assert(app.includes("CaptureExited(Process exitedCapture)") && app.includes("ReferenceEquals(captureProcess, exitedCapture)") && app.includes("CAPTURE EXIT superseded=true ignored=true"), "Superseded capture exits can corrupt the active capture lifecycle");
+assert(capture.includes('AssemblyFileVersion("1.0.3.0")') && bridge.includes('AssemblyFileVersion("1.0.3.0")'), "Shipped helper binaries must carry the release version");
 assert(app.includes("CABLE Output"), "Setup must explain the transcription-client microphone endpoint");
 assert(app.includes("ExportDiagnostics"), "Redacted diagnostics export is missing");
 assert(app.includes("CaptureNextAudioDiagnostic") && app.includes("Local\\\\VibeMicCaptureAudioDiagnostic"), "Opt-in one-shot audio diagnostics UI is missing");
@@ -89,8 +97,14 @@ assert(app.includes("BuildProblemSummary") && app.includes("复制问题摘要")
 assert(app.includes("BuildSelfCheckReport") && app.includes("AddSelfCheckRow") && app.includes("HandleSelfCheckAction"), "Actionable self-check center is missing");
 assert(app.includes("播放端点不是 CABLE Input") && app.includes("install-cable") && app.includes("restore-profile"), "Self-check repair actions do not cover audio endpoint failures");
 assert(app.includes("StableVoiceProfileVersion = 11") && app.includes("ApplyStableVoiceProfile") && app.includes("HasStableVoiceProfile"), "Validated voice profile is not pinned or recoverable");
+assert(app.includes("StableVoiceGain = 1.0") && app.includes("StableVoiceDrainMs = 180") && app.includes('StableVoiceEndpoint = "CABLE Input"') && app.includes('StableVoiceProcessing = "speech"'), "Validated voice constants changed");
+assert(app.includes("调整高级参数") && app.includes("稳定档案已经通过真机反复验证"), "Stable audio controls are not protected from accidental changes");
+assert(app.includes("管理语音桥接") && !app.includes('bridgeButton = PrimaryButton(IsCapturing ? "暂停语音桥接"'), "Overview still exposes accidental bridge shutdown as its primary action");
+assert(app.includes("bool startupChoiceValue = config.launchAtStartup") && !app.includes("config.setupCompleted ? config.launchAtStartup : true"), "First-run startup consent must not be preselected");
 assert(app.includes("PollInputFeedback") && app.includes("HighlightedControl") && app.includes("ShowCallouts"), "Remote button interaction feedback is missing");
 assert(app.includes("RotateLogFile") && app.includes("4 * 1024 * 1024"), "Runtime log rotation is missing");
+assert(app.includes("vibe-flow-host.log") && app.includes("VOICE WAKE recovery=restart_stalled_capture"), "Persistent startup recovery diagnostics are missing");
+assert(app.includes("WarmConfiguredProviderAsync") && app.includes("PROVIDER READY provider="), "Configured transcription provider is not warmed during startup");
 assert(app.includes("autoRouteVirtualMicrophone") && app.includes("听写时自动使用遥控器麦克风"), "Automatic virtual microphone routing must be configurable");
 assert(app.includes("audioProcessingMode") && app.includes("清晰增强（推荐）") && app.includes("原始直通"), "Audio processing modes must be configurable and understandable");
 assert(app.includes("Typeless") && app.includes("Voquill（开源）") && app.includes("Windows 语音输入"), "Transcription provider choices are incomplete");
@@ -102,11 +116,14 @@ assert(capture.includes("ClockedVirtualMicSink"), "Capture must route live audio
 assert(!capture.includes("WeChatHotkey"), "Capture must not inject keyboard shortcuts from BLE callbacks");
 assert(capture.includes("MonitorConnection"), "Capture must monitor BLE and ATVV health");
 assert(capture.includes("vibe-mic-runtime.log"), "Capture must write readable diagnostics");
+assert(capture.includes("BluetoothCacheMode.Cached") && capture.includes("fallback=uncached"), "ATVV startup must use cached characteristic discovery with an uncached fallback");
 
 assert(bridge.includes("WH_KEYBOARD_LL"), "Input bridge must use a low-level keyboard hook");
 assert(bridge.includes("RegisterRawInputDevices"), "Input bridge must register device-scoped Raw Input");
 assert(bridge.includes("keyboard.VKey == 0x74") && bridge.includes("SignalVoiceKeyPressed"), "Raw Input must provide a redundant RC003 voice-key signal");
 assert(bridge.includes("Voice key signal delivered=") && bridge.includes("capture_not_running"), "Voice-key delivery must be diagnosable in release logs");
+assert(bridge.includes("Local\\\\VibeMicVoiceKeyHeld") && bridge.includes("Local\\\\VibeMicVoiceWakeRequested"), "Voice-key startup handoff events are missing");
+assert(bridge.includes("EnsureVoiceHostRunning") && bridge.includes("Voice host recovery started"), "The input bridge cannot recover a missing background host");
 assert(!bridge.includes("wetype.statusbar.window") && !bridge.includes("VibeMicAtvvStream"), "The input bridge must not own WeType or ATVV session lifecycle");
 assert(!bridge.includes("LegacyKeyEvent") && !bridge.includes("source_f5_quiet"), "Obsolete Ctrl+Win/F5-release fallback remains in the bridge");
 assert(bridge.includes("launch-client:chatgpt") && bridge.includes("launch-client:deepseek") && bridge.includes("launch-client:claude"), "Client launcher provider whitelist is incomplete");
@@ -121,6 +138,7 @@ assert(capture.includes("HotkeyTranscriptionSessionController") && capture.inclu
 assert(capture.includes("provider=\" + provider") && capture.includes("TRANSCRIPTION READY"), "Provider timing diagnostics are missing");
 assert(capture.includes("KeyboardShortcutSender") && capture.includes("SendInput"), "Provider shortcuts must use reliable SendInput injection");
 assert(capture.includes("mic_open_recovery") && capture.includes("waiting_for_natural_stream_ms=120"), "A missing natural ATVV stream must use bounded MIC_OPEN recovery");
+assert(capture.includes("RecoverHeldVoiceRequestAtReady") && capture.includes("released_before_capture_ready") && capture.includes("delayed_after_release=false"), "Held voice requests are not safely recovered after startup");
 assert(capture.includes("AdpcmFrameAccumulator") && capture.includes("partial_frame_bytes"), "ATVV audio must be accumulated by the advertised 120-byte frame boundary");
 assert(capture.includes("WriteSilence(drainMs)") && capture.includes('" trailing_silence_ms=" + drainMs'), "Live audio must end with the configured silence tail");
 assert(capture.includes("OutputSampleRate = 48000") && capture.includes("OutputChannels = 2"), "VB-CABLE output must match the standard 48 kHz stereo endpoint format");
@@ -165,6 +183,7 @@ assert(defaultConfig.onboardingVersion === 3, "Release onboarding version is inv
 assert(defaultConfig.soundFeedbackEnabled === true, "Completion sound feedback must be enabled for new users");
 assert(defaultConfig.autoRouteVirtualMicrophone === true, "Automatic virtual microphone routing must be enabled for new users");
 assert(defaultConfig.audioProcessingMode === "speech", "Robust quiet-speech leveling must be enabled for new users");
+assert(defaultConfig.audioEndpointName === "CABLE Input" && defaultConfig.autoLevel === true && defaultConfig.voiceMode === "hold", "Validated endpoint or capture mode changed");
 assert(defaultConfig.inputMethod === "wechat" && defaultConfig.inputMethodHotkey === "ctrl+win", "Default transcription provider is invalid");
 assert(defaultConfig.inputMethodTrigger === "toggle" && defaultConfig.providerStartupDelayMs === 80, "Default provider trigger profile is invalid");
 assert(defaultConfig.gain === 1.0 && defaultConfig.drainMs === 180 && defaultConfig.captureSeconds === 0, "Validated voice timing and sensitivity defaults changed");
@@ -173,6 +192,7 @@ assert(defaultConfig.launchAtStartup === false, "Release must not register start
 assert(JSON.stringify(mappingKeys) === JSON.stringify(expectedKeys), "Release configuration exposes unverified mappings");
 assert(defaultConfig.mappings["功能键"] === "launch-client:chatgpt", "Function must default to the ChatGPT client launcher");
 assert(defaultConfig.mappings["上 / 下 / 左 / 右"] === "direction-volume-fallback", "Direction hold volume mapping is missing");
+assert(defaultConfig.mappings["确认键"] === "enter" && defaultConfig.mappings.Home === "win+d" && defaultConfig.mappings.TV === "task-switcher", "Validated single-key defaults changed");
 
 assert(release.includes('Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir'), "Release must include a non-destructive default configuration template");
 assert(release.includes('Copy-Item (Join-Path $root "CHANGELOG.md") $packageDir') && release.includes('Copy-Item (Join-Path $root "VIBE_MIC_VERSION.md") $packageDir'), "Release must include version and change notes");
@@ -182,12 +202,12 @@ assert(release.includes('"LICENSE"') && release.includes('"THIRD_PARTY_NOTICES.m
 assert(release.includes('"VibeFlow-Setup.exe"') && release.includes('"SHA256SUMS.txt"') && release.includes("ISCC.exe"), "Formal release must build an installer and checksum manifest");
 assert(release.includes('docs\\USER_GUIDE_ZH.md') && release.includes('docs\\RELEASE_NOTES_ZH.md') && release.includes('docs\\images\\*.png'), "Release must include the offline tutorial, current release notes, and screenshots");
 assert(!release.includes('RELEASE_NOTES*.md'), "Release must not package historical release-note files");
-assert(installer.includes('#define MyAppVersion "1.0.2"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
+assert(installer.includes('#define MyAppVersion "1.0.3"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
 assert(installer.includes("[InstallDelete]") && installer.includes('RELEASE_NOTES_V*.md'), "Installer must remove legacy release notes during upgrades");
 assert(installer.includes("WaitForVibeFlowExit") && installer.includes("OpenMutex") && installer.includes("for Attempt := 1 to 48"), "Installer must wait for a clean background-service shutdown");
 assert(installer.includes("VibeMicExitForUpdate") && installer.includes("vibe-mic-config.json") && installer.includes("[UninstallDelete]"), "Installer update or uninstall behavior is incomplete");
 assert(readme.includes("docs/USER_GUIDE_ZH.md") && readme.includes("docs/images/01-overview.png"), "GitHub README must link the tutorial and screenshot");
-assert(readme.includes("一键自检与修复") && readme.includes("1.0.2"), "GitHub README does not describe the current self-check release");
+assert(readme.includes("一键自检与修复") && readme.includes("1.0.3"), "GitHub README does not describe the current self-check release");
 assert(readme.includes("VibeFlow-Setup.exe") && readme.includes("Source code (zip)"), "GitHub README does not distinguish the installer from source archives");
 assert(guide.includes("CABLE Input") && guide.includes("CABLE Output"), "Tutorial must explain the VB-CABLE route");
 assert(guide.includes("Typeless") && guide.includes("Voquill") && guide.includes("Windows 语音输入"), "Tutorial must explain supported transcription clients");
@@ -196,6 +216,11 @@ assert(guide.includes("为什么没有组合键"), "Tutorial must explain the ve
 assert(guide.includes("VibeFlow-Setup.exe") && guide.includes("两分钟验收") && guide.includes("教程截图复用"), "Tutorial does not cover installation, acceptance, and reusable screenshots");
 assert(guide.includes("按你的情况开始") && guide.includes("Source code (tar.gz)"), "Tutorial does not provide a beginner-safe download path");
 assert(guide.includes("images/06-transcription-tools.png") && guide.includes("现象 | 先检查 | 处理方法"), "Tutorial lacks provider visuals or symptom-based troubleshooting");
+for (const step of ["provider", "audio", "remote", "hotkey", "dictation"]) {
+  assert(guide.includes(`images/00-setup-${["provider", "audio", "remote", "hotkey", "dictation"].indexOf(step) + 1}-${step}.png`), `Tutorial lacks the ${step} onboarding screenshot`);
+}
+assert(screenshotScript.includes("CaptureFullOnboarding") && screenshotScript.includes("Wait-ForChildText"), "Full onboarding screenshot automation is missing");
+assert(screenshotScript.includes("AllowUnhealthyDiagnostics") && screenshotScript.includes("healthySelfCheckText") && screenshotScript.includes("requires a healthy 7/7 self-check"), "Release screenshots can silently publish an unhealthy diagnostics state");
 assert(quickStart.includes("VibeFlow-Setup.exe") && quickStart.includes("Source code (zip)"), "Offline quick start does not distinguish the installer from source archives");
 assert(releaseNotes.includes("VibeFlow-Setup.exe") && releaseNotes.includes("发布验证") && releaseNotes.includes("已知边界"), "V1 GitHub release notes are incomplete");
 
