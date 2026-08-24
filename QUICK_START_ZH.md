@@ -4,7 +4,7 @@
 
 ## 首次使用
 
-1. 推荐从 GitHub Releases 下载并运行 `VibeFlow-Setup.exe`；免安装版需完整解压 ZIP 后再打开 `VibeFlow.exe`。首次打开先选择日常使用的转写工具，并选择是否登录 Windows 后自动运行。
+1. 推荐直接下载并运行 [`VibeFlow-Setup.exe`](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe)；免安装版需完整解压 `Vibe-Flow-Windows-x64.zip` 后再打开 `VibeFlow.exe`。不要下载 GitHub 自动生成的 `Source code (zip)` 或 `Source code (tar.gz)`，它们不是安装包。首次打开先选择日常使用的转写工具，并选择是否登录 Windows 后自动运行。
 2. 按页面安装或检测 VB-CABLE，确认 `CABLE Input` 和 `CABLE Output` 都已就绪。它是当前语音链路唯一必须额外安装的本地驱动。
 3. 在 Windows 蓝牙中配对 `MI RC` 或“小米蓝牙语音遥控器”，回到向导等待“已连接，可以使用”。
 4. 核对转写工具快捷键和触发方式，点击“测试启动与结束”。

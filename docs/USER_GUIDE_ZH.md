@@ -2,6 +2,17 @@
 
 这份教程面向第一次使用 RC003 蓝牙语音遥控器的 Windows 用户。正常情况下，完成一次设置后，以后只需要聚焦输入框并按住录音键。
 
+> **第一次安装：先下载 [`VibeFlow-Setup.exe`](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe)。** 不要下载 GitHub 发布页底部的 `Source code (zip)` 或 `Source code (tar.gz)`，它们是给开发者使用的源码，不是 Windows 安装包。
+
+## 按你的情况开始
+
+| 你的情况 | 从这里开始 |
+| --- | --- |
+| 第一次安装 | [下载与安装](#下载与安装)，然后依次完成页面上的五步设置 |
+| 已经安装旧版 | 直接运行最新版安装包覆盖升级，再做一次[两分钟验收](#两分钟验收) |
+| 能打开但不能听写 | 先运行[连接与自检](#连接与自检)，再按现象查看[常见问题](#常见问题) |
+| 只想确认按键 | 查看[按键快捷方式](#按键快捷方式) |
+
 ## 先看完整流程
 
 首次配置只做五件事：
@@ -25,10 +36,13 @@
 
 ## 下载与安装
 
-只从 [GitHub Releases](https://github.com/richlearntodo-debug/vibe-flow/releases/latest) 下载正式发布文件：
+只从 [GitHub Releases](https://github.com/richlearntodo-debug/vibe-flow/releases/latest) 下载正式发布文件。发布页的 **Assets** 区域中只需要关注下面三个文件：
 
 - **推荐：`VibeFlow-Setup.exe`**。双击后按安装向导完成安装，程序会出现在开始菜单和 Windows“已安装的应用”中。安装器按当前用户安装言灵本体，不需要管理员权限，也不会覆盖升级前的 `vibe-mic-config.json`。
 - **免安装：`Vibe-Flow-Windows-x64.zip`**。完整解压到固定目录后双击 `VibeFlow.exe`，不要直接在压缩包内运行。
+- **校验文件：`SHA256SUMS.txt`**。用于确认下载文件完整且没有被替换。
+
+不要下载 GitHub 自动附加的 `Source code (zip)` 或 `Source code (tar.gz)`。它们不包含可直接使用的完整 Windows 发布环境，也不适合普通用户安装。
 
 发布页同时提供 `SHA256SUMS.txt`。如果 Windows 显示来源提示，请先确认文件来自本仓库，再核对 SHA-256。言灵安装器尚未进行商业代码签名；VB-CABLE 是独立的虚拟音频驱动，其官方安装过程会单独请求管理员权限。
 

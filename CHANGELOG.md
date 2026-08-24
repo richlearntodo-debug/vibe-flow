@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.2 - 2026-08-24
+
+- Made `VibeFlow-Setup.exe` the unmistakable recommended download and warned
+  non-developers that GitHub's generated source archives are not installers.
+- Added direct tutorial paths for first installation, upgrade validation,
+  shortcut lookup, and symptom-based troubleshooting.
+- Replaced two version-specific release-note files with one current
+  `docs/RELEASE_NOTES_ZH.md` in both the repository and release packages;
+  upgrades remove legacy `RELEASE_NOTES_V*.md` files from the install folder.
+- Tightened release validation around user-facing download guidance and package
+  contents while keeping schema 15, voice state machine v11, `1.0x` gain,
+  clear speech processing, 180 ms drain, and automatic endpoint routing intact.
+- Replaced the installer's fixed 1.8-second shutdown delay with a bounded wait
+  for the running app to finish stopping its capture and input-bridge children,
+  preventing silent upgrades from aborting while normal cleanup is still active.
+
 ## 1.0.1 - 2026-08-24
 
 - Reworked the Chinese user guide around a beginner-first five-step setup, with

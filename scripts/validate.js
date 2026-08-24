@@ -27,8 +27,7 @@ const requiredFiles = [
   "installer/VibeFlow.iss",
   "installer/languages/ChineseSimplified.isl",
   "docs/USER_GUIDE_ZH.md",
-  "docs/RELEASE_NOTES_V1_ZH.md",
-  "docs/RELEASE_NOTES_V1.0.1_ZH.md",
+  "docs/RELEASE_NOTES_ZH.md",
   "docs/ARCHITECTURE.md",
   "docs/images/00-first-run.png",
   "docs/images/01-overview.png",
@@ -60,8 +59,9 @@ const defaultConfig = JSON.parse(read("vibe-mic-config.default.json"));
 const packageJson = JSON.parse(read("package.json"));
 const readme = read("README.md");
 const guide = read("docs/USER_GUIDE_ZH.md");
+const quickStart = read("QUICK_START_ZH.md");
 const installer = read("installer/VibeFlow.iss");
-const releaseNotes = read("docs/RELEASE_NOTES_V1.0.1_ZH.md");
+const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
 
 for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/") && item.endsWith(".png"))) {
   const png = fs.readFileSync(path.join(root, file));
@@ -71,8 +71,8 @@ for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/"
 }
 
 assert(app.includes('DisplayProductName = "言灵 · Vibe Flow Remote"') && app.includes("Text = DisplayProductName"), "Vibe Flow Remote window title is missing");
-assert(app.includes('ProductRelease = "1.0.1"') && packageJson.version === "1.0.1", "Application and package versions are not aligned");
-assert(app.includes('AssemblyFileVersion("1.0.1.0")') && app.includes('AssemblyInformationalVersion("1.0.1")'), "Windows executable version metadata is missing");
+assert(app.includes('ProductRelease = "1.0.2"') && packageJson.version === "1.0.2", "Application and package versions are not aligned");
+assert(app.includes('AssemblyFileVersion("1.0.2.0")') && app.includes('AssemblyInformationalVersion("1.0.2")'), "Windows executable version metadata is missing");
 assert(app.includes('brandLogoPath = Path.Combine(root, "vibe-flow-logo.png")'), "Brand logo is not wired into the app");
 assert(app.includes("ShowSetupWizard"), "First-run setup is missing");
 assert(app.includes("VibeMicExitForUpdate") && app.includes("ExistingInstanceUsesDifferentPath"), "Cross-directory update handoff is missing");
@@ -180,17 +180,23 @@ assert(release.includes('Copy-Item (Join-Path $root "NAudio.Core.dll") $packageD
 assert(!release.includes('(Join-Path $packageDir "vibe-mic-config.json")'), "Release must not overwrite an existing user configuration during upgrade");
 assert(release.includes('"LICENSE"') && release.includes('"THIRD_PARTY_NOTICES.md"'), "Release must include license notices");
 assert(release.includes('"VibeFlow-Setup.exe"') && release.includes('"SHA256SUMS.txt"') && release.includes("ISCC.exe"), "Formal release must build an installer and checksum manifest");
-assert(release.includes('docs\\USER_GUIDE_ZH.md') && release.includes('docs\\RELEASE_NOTES*.md') && release.includes('docs\\images\\*.png'), "Release must include the offline tutorial, release notes, and screenshots");
-assert(installer.includes('#define MyAppVersion "1.0.1"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
+assert(release.includes('docs\\USER_GUIDE_ZH.md') && release.includes('docs\\RELEASE_NOTES_ZH.md') && release.includes('docs\\images\\*.png'), "Release must include the offline tutorial, current release notes, and screenshots");
+assert(!release.includes('RELEASE_NOTES*.md'), "Release must not package historical release-note files");
+assert(installer.includes('#define MyAppVersion "1.0.2"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
+assert(installer.includes("[InstallDelete]") && installer.includes('RELEASE_NOTES_V*.md'), "Installer must remove legacy release notes during upgrades");
+assert(installer.includes("WaitForVibeFlowExit") && installer.includes("OpenMutex") && installer.includes("for Attempt := 1 to 48"), "Installer must wait for a clean background-service shutdown");
 assert(installer.includes("VibeMicExitForUpdate") && installer.includes("vibe-mic-config.json") && installer.includes("[UninstallDelete]"), "Installer update or uninstall behavior is incomplete");
 assert(readme.includes("docs/USER_GUIDE_ZH.md") && readme.includes("docs/images/01-overview.png"), "GitHub README must link the tutorial and screenshot");
-assert(readme.includes("一键自检与修复") && readme.includes("1.0.1"), "GitHub README does not describe the current self-check release");
+assert(readme.includes("一键自检与修复") && readme.includes("1.0.2"), "GitHub README does not describe the current self-check release");
+assert(readme.includes("VibeFlow-Setup.exe") && readme.includes("Source code (zip)"), "GitHub README does not distinguish the installer from source archives");
 assert(guide.includes("CABLE Input") && guide.includes("CABLE Output"), "Tutorial must explain the VB-CABLE route");
 assert(guide.includes("Typeless") && guide.includes("Voquill") && guide.includes("Windows 语音输入"), "Tutorial must explain supported transcription clients");
 assert(guide.includes("连接与自检") && guide.includes("七个检查项"), "Tutorial must explain actionable self-checks");
 assert(guide.includes("为什么没有组合键"), "Tutorial must explain the verified-control limitation");
 assert(guide.includes("VibeFlow-Setup.exe") && guide.includes("两分钟验收") && guide.includes("教程截图复用"), "Tutorial does not cover installation, acceptance, and reusable screenshots");
+assert(guide.includes("按你的情况开始") && guide.includes("Source code (tar.gz)"), "Tutorial does not provide a beginner-safe download path");
 assert(guide.includes("images/06-transcription-tools.png") && guide.includes("现象 | 先检查 | 处理方法"), "Tutorial lacks provider visuals or symptom-based troubleshooting");
+assert(quickStart.includes("VibeFlow-Setup.exe") && quickStart.includes("Source code (zip)"), "Offline quick start does not distinguish the installer from source archives");
 assert(releaseNotes.includes("VibeFlow-Setup.exe") && releaseNotes.includes("发布验证") && releaseNotes.includes("已知边界"), "V1 GitHub release notes are incomplete");
 
 console.log("Vibe Flow validation passed.");

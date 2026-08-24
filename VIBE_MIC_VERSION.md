@@ -1,4 +1,4 @@
-# 言灵 · Vibe Flow Remote 1.0.1
+# 言灵 · Vibe Flow Remote 1.0.2
 
 Vibe Flow Remote turns the RC003 / MI RC microphone into a live Windows input source.
 The release keeps transcription ownership in the user's selected client and
@@ -27,13 +27,10 @@ Generic providers use `SendInput`, and all audio is drained before the provider 
 stopped or submitted. A newer recording preempts an older WeChat completion wait
 so buffered speech is never replayed seconds late.
 
-The 1.0.1 release keeps the current v11 settings as a recoverable stable profile,
-adds a seven-part actionable self-check, and links every detected failure to the
-relevant setup page or Windows setting. The home remote now reacts to real button
-events, while the shortcut page includes a highlighted RC003 control map and a
-hardware-validated quick reference. The five-step guide identifies VB-CABLE as
-the only required extra local driver, explains each supported provider, and
-requires a real end-to-end dictation before setup completes. Existing users keep
-their voice-provider and button choices; non-default audio tuning is reported as
-a warning and can be restored with one click. Voice transport and timing are
-unchanged from the validated 1.0.0 release.
+The 1.0.2 release keeps the current v11 settings as a recoverable stable profile
+and does not change voice transport, timing, or hardware mappings. It makes the
+recommended Windows installer explicit, warns ordinary users away from GitHub's
+auto-generated source archives, gives first-time and troubleshooting users short
+paths through the Chinese guide, and packages only one current release-notes file.
+Existing users keep their voice-provider and button choices; non-default audio
+tuning is reported as a warning and can be restored with one click.

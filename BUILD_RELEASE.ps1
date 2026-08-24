@@ -41,7 +41,7 @@ $packageDocs = Join-Path $packageDir "docs"
 $packageImages = Join-Path $packageDocs "images"
 New-Item -ItemType Directory -Force -Path $packageImages | Out-Null
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
-Copy-Item (Join-Path $root "docs\RELEASE_NOTES*.md") $packageDocs
+Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\images\*.png") $packageImages
 
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal

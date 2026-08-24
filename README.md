@@ -4,7 +4,9 @@
 
 言灵是一款面向 Windows Vibe Coding 用户的遥控器语音输入工具。按住录音键时，它把遥控器麦克风音频实时送入微信输入法、Typeless、Windows 语音输入、Voquill 或其他快捷键驱动的听写工具；松开即结束本次输入。音频只在本机流转，言灵不读取输入结果，也不自行上传录音。
 
-[下载安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe) · [下载免安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [v1.0.1 发布说明](docs/RELEASE_NOTES_V1.0.1_ZH.md) · [问题排查](docs/USER_GUIDE_ZH.md#常见问题)
+> **普通用户推荐：直接下载 [`VibeFlow-Setup.exe`](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe)。** 这是 Windows 安装程序。请不要下载 GitHub 发布页底部自动生成的 `Source code (zip)` 或 `Source code (tar.gz)`，它们只是源码，不是可直接安装的软件。
+
+[下载免安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) · [查看最新版发布页](https://github.com/richlearntodo-debug/vibe-flow/releases/latest) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [当前发布说明](docs/RELEASE_NOTES_ZH.md) · [问题排查](docs/USER_GUIDE_ZH.md#常见问题)
 
 ![言灵总览](docs/images/01-overview.png)
 
@@ -28,7 +30,7 @@ RC003 遥控器麦克风
 
 ## 五步开始
 
-1. 下载 `VibeFlow-Setup.exe` 并按提示安装；也可以下载 ZIP，解压后运行 `VibeFlow.exe`。
+1. 下载上方推荐的 `VibeFlow-Setup.exe` 并按提示安装；也可以下载免安装 ZIP，完整解压后运行 `VibeFlow.exe`。
 2. 在首次向导选择微信输入法、Typeless 或其他常用转写工具。
 3. 按页面安装并检测 `CABLE Input` / `CABLE Output`，然后配对并连接 RC003。
 4. 确认工具快捷键与言灵中的预设一致，并完成一次启动测试。
@@ -83,7 +85,7 @@ RC003 的独立返回键和音量 +/- 键在已验证的 Windows 蓝牙栈中没
 - 至少一种受支持的语音转文字工具。
 - VB-CABLE，需从其官方网站单独安装。
 
-当前正式版为 `1.0.1`。安装包尚未进行商业代码签名，首次运行时 Windows 可能显示来源提示；请只从本仓库的 Releases 页面下载，并核对发布页提供的 SHA-256。
+当前正式版为 `1.0.2`。安装包尚未进行商业代码签名，首次运行时 Windows 可能显示来源提示；请只从本仓库的 Releases 页面下载，并核对发布页提供的 SHA-256。
 
 ## 开发与构建
 

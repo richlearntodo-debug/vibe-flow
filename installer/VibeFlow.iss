@@ -1,5 +1,5 @@
 #define MyAppName "言灵 Vibe Flow Remote"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "1.0.2"
 #define MyAppPublisher "Vibe Flow Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases/latest
-VersionInfoVersion=1.0.1.0
+VersionInfoVersion=1.0.2.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
@@ -45,6 +45,9 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他选项："; Flags: unchecked
 
+[InstallDelete]
+Type: files; Name: "{app}\docs\RELEASE_NOTES_V*.md"
+
 [Files]
 Source: "..\release\Vibe-Flow-Windows-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -66,13 +69,31 @@ Type: filesandordirs; Name: "{app}\remote-voice-session"
 [Code]
 const
   EVENT_MODIFY_STATE = $0002;
+  SYNCHRONIZE = $00100000;
 
 function OpenEvent(dwDesiredAccess: LongWord; bInheritHandle: Boolean; lpName: string): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
+function OpenMutex(dwDesiredAccess: LongWord; bInheritHandle: Boolean; lpName: string): THandle;
+  external 'OpenMutexW@kernel32.dll stdcall';
 function SetEvent(hEvent: THandle): Boolean;
   external 'SetEvent@kernel32.dll stdcall';
 function CloseHandle(hObject: THandle): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
+
+procedure WaitForVibeFlowExit;
+var
+  AppMutex: THandle;
+  Attempt: Integer;
+begin
+  for Attempt := 1 to 48 do
+  begin
+    AppMutex := OpenMutex(SYNCHRONIZE, False, 'Local\VibeMic');
+    if AppMutex = 0 then
+      Exit;
+    CloseHandle(AppMutex);
+    Sleep(250);
+  end;
+end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
@@ -84,7 +105,7 @@ begin
   begin
     SetEvent(ExitEvent);
     CloseHandle(ExitEvent);
-    Sleep(1800);
+    WaitForVibeFlowExit;
   end;
 end;
 
@@ -99,7 +120,7 @@ begin
     begin
       SetEvent(ExitEvent);
       CloseHandle(ExitEvent);
-      Sleep(1200);
+      WaitForVibeFlowExit;
     end;
     RegDeleteValue(HKEY_CURRENT_USER,
       'Software\Microsoft\Windows\CurrentVersion\Run', 'Vibe Flow');
