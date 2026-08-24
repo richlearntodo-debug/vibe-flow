@@ -209,7 +209,10 @@ assert(installer.includes("VibeMicExitForUpdate") && installer.includes("vibe-mi
 assert(readme.includes("docs/USER_GUIDE_ZH.md") && readme.includes("docs/images/01-overview.png"), "GitHub README must link the tutorial and screenshot");
 assert(readme.includes("一键自检与修复") && readme.includes("1.0.3"), "GitHub README does not describe the current self-check release");
 assert(readme.includes("VibeFlow-Setup.exe") && readme.includes("Source code (zip)"), "GitHub README does not distinguish the installer from source archives");
+assert(readme.includes("最新正式版 · v1.0.3") && readme.indexOf("最新正式版 · v1.0.3") < readme.indexOf("docs/images/01-overview.png"), "GitHub README must put the latest release before product screenshots");
+assert(readme.includes("正式版时间线") && readme.includes("2026-08-25") && readme.includes("releases/tag/v1.0.0"), "GitHub README must include a dated stable-release timeline");
 assert(guide.includes("CABLE Input") && guide.includes("CABLE Output"), "Tutorial must explain the VB-CABLE route");
+assert(guide.includes("VBCABLE_Setup_x64.exe") && guide.includes("以管理员身份运行") && guide.includes("重启 Windows"), "Tutorial must provide beginner-safe VB-CABLE installation steps");
 assert(guide.includes("Typeless") && guide.includes("Voquill") && guide.includes("Windows 语音输入"), "Tutorial must explain supported transcription clients");
 assert(guide.includes("连接与自检") && guide.includes("七个检查项"), "Tutorial must explain actionable self-checks");
 assert(guide.includes("为什么没有组合键"), "Tutorial must explain the verified-control limitation");
@@ -222,6 +225,7 @@ for (const step of ["provider", "audio", "remote", "hotkey", "dictation"]) {
 assert(screenshotScript.includes("CaptureFullOnboarding") && screenshotScript.includes("Wait-ForChildText"), "Full onboarding screenshot automation is missing");
 assert(screenshotScript.includes("AllowUnhealthyDiagnostics") && screenshotScript.includes("healthySelfCheckText") && screenshotScript.includes("requires a healthy 7/7 self-check"), "Release screenshots can silently publish an unhealthy diagnostics state");
 assert(quickStart.includes("VibeFlow-Setup.exe") && quickStart.includes("Source code (zip)"), "Offline quick start does not distinguish the installer from source archives");
+assert(quickStart.includes("VBCABLE_Setup_x64.exe") && quickStart.includes("Install Driver"), "Offline quick start must explain the required VB-CABLE driver install");
 assert(releaseNotes.includes("VibeFlow-Setup.exe") && releaseNotes.includes("发布验证") && releaseNotes.includes("已知边界"), "V1 GitHub release notes are incomplete");
 
 console.log("Vibe Flow validation passed.");

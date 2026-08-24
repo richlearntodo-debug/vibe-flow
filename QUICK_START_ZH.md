@@ -5,7 +5,7 @@
 ## 首次使用
 
 1. 推荐直接下载并运行 [`VibeFlow-Setup.exe`](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe)；免安装版需完整解压 `Vibe-Flow-Windows-x64.zip` 后再打开 `VibeFlow.exe`。不要下载 GitHub 自动生成的 `Source code (zip)` 或 `Source code (tar.gz)`，它们不是安装包。首次打开先选择日常使用的转写工具，并选择是否登录 Windows 后自动运行。
-2. 按页面安装或检测 VB-CABLE，确认 `CABLE Input` 和 `CABLE Output` 都已就绪。它是当前语音链路唯一必须额外安装的本地驱动。
+2. 按页面安装或检测 VB-CABLE。第一次安装时，从 [VB-Audio 官方页面](https://vb-audio.com/Cable/) 下载驱动 ZIP，完整解压，右键 `VBCABLE_Setup_x64.exe` 选择“以管理员身份运行”，点击 **Install Driver**，然后重启 Windows。回到言灵确认 `CABLE Input` 和 `CABLE Output` 都已就绪。它是当前语音链路唯一必须额外安装的本地驱动。
 3. 在 Windows 蓝牙中配对 `MI RC` 或“小米蓝牙语音遥控器”，回到向导等待“已连接，可以使用”。
 4. 核对转写工具快捷键和触发方式，点击“测试启动与结束”。
 5. 点击向导测试输入框，按住遥控器录音键说完一句话再松开。绿色成功状态和轻提示音出现后即可完成设置。
@@ -14,7 +14,7 @@
 
 升级已有安装时可以覆盖程序文件，但不要删除运行目录中的 `vibe-mic-config.json`。发布包只携带 `vibe-mic-config.default.json` 模板，不会覆盖现有设置。
 
-注意：言灵输出音频到播放端点 `CABLE Input`；听写开始前会临时把 Windows 默认录音端点切换到对应的 `CABLE Output`，结束后自动恢复。关闭自动路由时，才需要在转写工具中手动选择 `CABLE Output`。
+注意：言灵输出音频到播放端点 `CABLE Input`；听写开始前会临时把 Windows 默认录音端点切换到对应的 `CABLE Output`，结束后自动恢复。普通用户不需要长期修改默认麦克风；关闭自动路由时，才需要在转写工具中手动选择 `CABLE Output`。
 
 ## 默认按键
 
