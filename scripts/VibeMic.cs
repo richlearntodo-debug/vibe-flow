@@ -6,7 +6,9 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Globalization;
 using System.Media;
+using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
@@ -16,17 +18,19 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.0.3.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.3.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.0.3")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.1.0")]
 
 internal sealed class VibeMicForm : Form
 {
     private const string DisplayProductName = "言灵 · Vibe Flow Remote";
-    private const string ProductRelease = "1.0.3";
-    private const int ConfigSchemaVersion = 15;
-    private const int CurrentOnboardingVersion = 3;
+    private const string ProductRelease = "1.1.0";
+    private const int ConfigSchemaVersion = 19;
+    private const int CurrentOnboardingVersion = 5;
     private const int StableVoiceProfileVersion = 11;
+    private const string WeChatAiHotkey = "ctrl+win+shift";
+    private const string WeChatCompatibilityHotkey = "ctrl+win";
     private const double StableVoiceGain = 1.0;
     private const int StableVoiceDrainMs = 180;
     private const string StableVoiceEndpoint = "CABLE Input";
@@ -66,6 +70,15 @@ internal sealed class VibeMicForm : Form
     private EventWaitHandle showWindowEvent;
     private EventWaitHandle exitApplicationEvent;
     private EventWaitHandle voiceWakeRequestEvent;
+    private EventWaitHandle providerHotkeyTapEvent;
+    private EventWaitHandle providerHotkeyDownEvent;
+    private EventWaitHandle providerHotkeyUpEvent;
+    private EventWaitHandle recordingStartCueEvent;
+    private EventWaitHandle recordingStopCueEvent;
+    private Thread recordingCueThread;
+    private readonly object providerHotkeySync = new object();
+    private WindowsAudioDuckingLease audioDuckingLease;
+    private string heldProviderHotkey;
     private VibeMicConfig config;
     private System.Windows.Forms.Timer activityTimer;
     private System.Windows.Forms.Timer reconnectTimer;
@@ -88,11 +101,14 @@ internal sealed class VibeMicForm : Form
     private System.Windows.Forms.Timer toastTimer;
     private SoundPlayer dictationCompletePlayer;
     private SoundPlayer dictationErrorPlayer;
+    private SoundPlayer dictationStopPlayer;
     private MemoryStream dictationCompleteSound;
     private MemoryStream dictationErrorSound;
+    private MemoryStream dictationStopSound;
     private long runtimeFeedbackPosition;
     private long inputFeedbackPosition;
     private int lastFeedbackGeneration;
+    private int updateOperationActive;
     private int currentPageIndex;
     private DateTime remoteHighlightUntil = DateTime.MinValue;
     private DateTime transientFeedbackUntil = DateTime.MinValue;
@@ -169,6 +185,8 @@ internal sealed class VibeMicForm : Form
         RotateLogFile(Path.Combine(sessionDir, "vibe-mic-runtime.log"), 4 * 1024 * 1024);
         RotateLogFile(hostLogPath, 2 * 1024 * 1024);
         RotateLogFile(Path.Combine(root, "input-bridge-log.txt"), 4 * 1024 * 1024);
+        audioDuckingLease = new WindowsAudioDuckingLease(
+            Path.Combine(sessionDir, "windows-audio-ducking-lease.json"), HostLog);
         InitializeFeedbackSounds();
         string existingRuntimeLog = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         runtimeFeedbackPosition = File.Exists(existingRuntimeLog) ? new FileInfo(existingRuntimeLog).Length : 0;
@@ -197,24 +215,33 @@ internal sealed class VibeMicForm : Form
         showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicShowWindow");
         exitApplicationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicExitForUpdate");
         voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
+        providerHotkeyTapEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyTapRequested");
+        providerHotkeyDownEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyDownRequested");
+        providerHotkeyUpEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyUpRequested");
+        recordingStartCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStartCue");
+        recordingStopCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStopCue");
         HostLog("HOST START mode=" + (backgroundLaunch ? "background" : "interactive") +
             " provider=" + NormalizeProviderKey(config.inputMethod) + " startup=" + config.launchAtStartup);
         ThreadPool.QueueUserWorkItem(delegate
         {
             try
             {
-                WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent };
+                WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent,
+                    providerHotkeyTapEvent, providerHotkeyDownEvent, providerHotkeyUpEvent };
                 while (true)
                 {
                     int signal = WaitHandle.WaitAny(handles);
                     if (IsDisposed || applicationExiting) return;
                     if (signal == 0) BeginInvoke(new Action(ShowMainWindow));
                     else if (signal == 1) BeginInvoke(new Action(delegate { config.minimizeToTray = false; Close(); }));
-                    else BeginInvoke(new Action(HandleVoiceWakeRequest));
+                    else if (signal == 2) BeginInvoke(new Action(HandleVoiceWakeRequest));
+                    else if (signal == 3) HandleProviderHotkeyTapRequest();
+                    else HandleProviderHotkeyHoldRequest(signal == 4);
                 }
             }
             catch { }
         });
+        StartRecordingCueWorker();
 
         activityTimer = new System.Windows.Forms.Timer();
         activityTimer.Interval = 500;
@@ -235,6 +262,7 @@ internal sealed class VibeMicForm : Form
                 heroPanel.Invalidate();
         };
         visualTimer.Start();
+        if (config.autoCheckUpdates) ScheduleAutomaticUpdateCheck();
     }
 
     private void BuildShell()
@@ -426,14 +454,14 @@ internal sealed class VibeMicForm : Form
 
     private void BuildOverview()
     {
-        AddPageTitle("总览", "遥控器状态与常用操作");
+        AddPageTitle("总览", "按住听写、连接状态与遥控器快捷操作");
 
         var hero = NewCard(new Point(34, 92), new Size(960, 322));
         heroPanel = hero;
         hero.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         hero.Paint += PaintHeroSurface;
 
-        heroStateLabel = NewLabel(IsCapturing ? "VOICE LINK" : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
+        heroStateLabel = NewLabel(IsCapturing ? (UsesLongDictation(config.voiceMode) ? "CONTINUOUS DICTATION" : "PUSH TO TALK") : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
         heroStateLabel.Location = new Point(52, 34);
         heroStateLabel.AutoSize = true;
         heroTitle = NewLabel(IsCapturing ? "正在连接" : "语音桥接已暂停", 27f, FontStyle.Bold, ink);
@@ -446,7 +474,7 @@ internal sealed class VibeMicForm : Form
         string[,] linkFacts = {
             { "●", "RC003 遥控器" },
             { "●", ProviderDisplayName(config.inputMethod) },
-            { "●", "稳定语音档案 v" + StableVoiceProfileVersion }
+            { "●", UsesLongDictation(config.voiceMode) ? "连续听写 · 实验模式" : "按住说话 · 稳定模式" }
         };
         Color[] linkColors = { violet, cyan, green };
         int[] linkWidths = { 132, 154, 176 };
@@ -470,7 +498,7 @@ internal sealed class VibeMicForm : Form
         scan.Click += delegate { ScanDevice(); };
 
         var gestureHint = NewLabel(UsesLongDictation(config.voiceMode)
-            ? "单击开始  ·  再按一次后交给转写工具整理"
+            ? "单击开始  ·  无需持续按住  ·  再按一次结束"
             : "按住说话  ·  松开后交给转写工具整理", 8.7f, FontStyle.Regular, muted);
         gestureHint.Location = new Point(52, 276);
         gestureHint.Size = new Size(420, 24);
@@ -490,9 +518,9 @@ internal sealed class VibeMicForm : Form
 
         var flow = NewCard(new Point(34, 430), new Size(470, 178));
         flow.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-        flow.Controls.Add(SectionTitle("开始一次听写", "\uE720", new Point(24, 18)));
+        flow.Controls.Add(SectionTitle(UsesLongDictation(config.voiceMode) ? "连续听写" : "开始一次听写", "\uE720", new Point(24, 18)));
         string[] steps = UsesLongDictation(config.voiceMode)
-            ? new string[] { "单击录音键", "持续说出内容", "再按一次并回填" }
+            ? new string[] { "单击开始", "自然连续说话", "再次单击结束" }
             : new string[] { "按住录音键", "说出内容", "自动回填文字" };
         string[] icons = { "\uE720", "\uE9D2", "\uE724" };
         for (int i = 0; i < 3; i++)
@@ -524,7 +552,7 @@ internal sealed class VibeMicForm : Form
                 flow.Controls.Add(connector);
             }
         }
-        activityLabel = NewLabel("已就绪，等待按下录音键", 9.5f, FontStyle.Bold, muted);
+        activityLabel = NewLabel(UsesLongDictation(config.voiceMode) ? "已就绪 · 单击开始，最长 10 分钟安全保护" : "已就绪，等待按下录音键", 9.5f, FontStyle.Bold, muted);
         activityLabel.Location = new Point(24, 142);
         activityLabel.Size = new Size(420, 22);
         activityLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -624,7 +652,7 @@ internal sealed class VibeMicForm : Form
 
     private void BuildVoicePage()
     {
-        AddPageTitle("语音听写", "遥控器负责收音，所选语音工具负责转写与整理");
+        AddPageTitle("语音听写", "遥控器负责收音，所选工具负责转写与整理");
         var card = NewCard(new Point(34, 100), new Size(960, 650));
         card.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         card.Controls.Add(SectionTitle("听写通道", "\uE720", new Point(30, 24)));
@@ -661,20 +689,20 @@ internal sealed class VibeMicForm : Form
 
         AddFieldLabel(card, "启动快捷键", 206);
         var hotkey = StyledTextBox(config.inputMethodHotkey, new Point(220, 202), new Size(220, 34));
-        var triggerMode = StyledCombo(new Point(458, 200), new Size(160, 38));
-        triggerMode.Items.AddRange(new object[] { "单击切换", "按住触发" });
+        var triggerMode = StyledCombo(new Point(458, 200), new Size(184, 38));
+        PopulateTriggerModeOptions(triggerMode, config.inputMethod);
         triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
-        var hotkeyHelp = NewLabel("须与所选工具中的快捷键一致", 9f, FontStyle.Regular, muted);
-        hotkeyHelp.Location = new Point(640, 207);
-        hotkeyHelp.Size = new Size(260, 25);
+        var hotkeyHelp = NewLabel(ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger), 9f, FontStyle.Regular, muted);
+        hotkeyHelp.Location = new Point(658, 207);
+        hotkeyHelp.Size = new Size(242, 25);
         card.Controls.Add(hotkey);
         card.Controls.Add(triggerMode);
         card.Controls.Add(hotkeyHelp);
 
-        AddFieldLabel(card, "遥控器录音", 260);
+        AddFieldLabel(card, "录音方式", 260);
         var voiceMode = StyledCombo(new Point(220, 256), new Size(330, 38));
-        voiceMode.Items.AddRange(new object[] { "按住说话（最长 60 秒）", "长听写（单击开始，再次单击结束）" });
-        voiceMode.SelectedIndex = NormalizeVoiceMode(config.voiceMode) == "continuous" ? 1 : 0;
+        voiceMode.Items.AddRange(new object[] { "按住说话（推荐 · 松开即结束）", "连续听写（实验 · 短按启动）" });
+        voiceMode.SelectedIndex = NormalizeVoiceMode(config.voiceMode) == "hold" ? 0 : 1;
         var voiceModeHelp = NewLabel(VoiceModeHelp(config.voiceMode), 9f, FontStyle.Regular, muted);
         voiceModeHelp.Location = new Point(570, 263);
         voiceModeHelp.Size = new Size(330, 25);
@@ -795,10 +823,12 @@ internal sealed class VibeMicForm : Form
         provider.SelectedIndexChanged += delegate
         {
             if (updating) return;
-            ApplyProviderProfile(config, ProviderKeyFromIndex(provider.SelectedIndex));
             updating = true;
+            ApplyProviderProfile(config, ProviderKeyFromIndex(provider.SelectedIndex));
             hotkey.Text = config.inputMethodHotkey;
+            PopulateTriggerModeOptions(triggerMode, config.inputMethod);
             triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
+            hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             providerStatus.Text = ProviderStatusText(config.inputMethod);
             providerStatus.ForeColor = IsProviderRunning(config.inputMethod) ? green : amber;
             updating = false;
@@ -812,11 +842,20 @@ internal sealed class VibeMicForm : Form
             if (!IsValidTranscriptionHotkey(value))
             {
                 hotkey.Text = config.inputMethodHotkey;
-                Toast("快捷键格式不正确，请使用例如 ctrl+win、rightalt 或 win+h");
+                Toast("快捷键格式不正确，请使用例如 ctrl+win+shift、rightalt 或 win+h");
                 return;
             }
             if (value == config.inputMethodHotkey) return;
             config.inputMethodHotkey = value;
+            if (NormalizeProviderKey(config.inputMethod) == "wechat")
+            {
+                if (value == WeChatAiHotkey) config.inputMethodTrigger = "toggle";
+                else if (value == WeChatCompatibilityHotkey) config.inputMethodTrigger = "hold";
+                updating = true;
+                triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
+                updating = false;
+                hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
+            }
             SaveConfig();
             RestartCaptureForAudioSettings();
         };
@@ -824,22 +863,30 @@ internal sealed class VibeMicForm : Form
         {
             if (updating) return;
             string value = triggerMode.SelectedIndex == 1 ? "hold" : "toggle";
-            if (value == config.inputMethodTrigger) return;
+            if (NormalizeProviderKey(config.inputMethod) == "wechat")
+            {
+                string profileHotkey = value == "hold" ? WeChatCompatibilityHotkey : WeChatAiHotkey;
+                if (value == config.inputMethodTrigger && profileHotkey == config.inputMethodHotkey) return;
+                config.inputMethodHotkey = profileHotkey;
+                hotkey.Text = profileHotkey;
+            }
+            else if (value == config.inputMethodTrigger) return;
             config.inputMethodTrigger = value;
+            hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             SaveConfig();
             RestartCaptureForAudioSettings();
         };
         voiceMode.SelectedIndexChanged += delegate
         {
-            string value = voiceMode.SelectedIndex == 1 ? "continuous" : "hold";
+            string value = voiceMode.SelectedIndex == 0 ? "hold" : "continuous";
             if (value == NormalizeVoiceMode(config.voiceMode)) return;
             config.voiceMode = value;
             voiceModeHelp.Text = VoiceModeHelp(value);
             SaveConfig();
             RestartCaptureForAudioSettings();
             ShowToast(value == "continuous"
-                ? "长听写已开启：单击录音开始，再次单击结束"
-                : "按住说话已开启：松开录音键即结束", "success");
+                ? "实验长听写已开启：短按后立即松开，再次短按结束"
+                : "按住说话已开启：按下开始，松开立即结束", "success");
         };
         processing.SelectedIndexChanged += delegate
         {
@@ -868,7 +915,7 @@ internal sealed class VibeMicForm : Form
 
     private void BuildMappingsPage()
     {
-        AddPageTitle("按键快捷方式", "选择按键功能，右侧遥控器会同步标出对应位置");
+        AddPageTitle("按键快捷方式", "为高频操作分配实体按键，修改后立即保存");
         var mappings = NewCard(new Point(34, 100), new Size(620, 610));
         mappings.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         mappings.Controls.Add(SectionTitle("快捷方式方案", "\uE765", new Point(24, 20)));
@@ -890,7 +937,7 @@ internal sealed class VibeMicForm : Form
             ShowPage(2);
             Toast("按键方案已应用");
         };
-        var presetHelp = NewLabel("从常用模板开始；修改任一项目后会自动切换为自定义。", 8.4f, FontStyle.Regular, muted);
+        var presetHelp = NewLabel("先选常用模板，再按习惯微调；同一功能重复分配时会提醒。", 8.4f, FontStyle.Regular, muted);
         presetHelp.Location = new Point(24, 96);
         presetHelp.Size = new Size(548, 24);
         mappings.Controls.Add(presetLabel);
@@ -990,7 +1037,11 @@ internal sealed class VibeMicForm : Form
                 SetMapping(selectedKey, selected.Shortcut);
                 SaveConfig();
                 updatePreview();
-                ShowToast(rows[rowIndex, 0] + "已设为“" + selected.Label + "”", "success");
+                string conflict = FindMappingConflict(selectedKey, selected.Shortcut);
+                ShowToast(string.IsNullOrEmpty(conflict)
+                    ? rows[rowIndex, 0] + "已设为“" + selected.Label + "”"
+                    : "已保存；" + rows[rowIndex, 0] + "与" + conflict + "使用相同功能",
+                    string.IsNullOrEmpty(conflict) ? "success" : "warning");
             };
             var hint = NewLabel(rows[i, 2], 8.4f, FontStyle.Regular, muted);
             hint.Location = new Point(370, 9);
@@ -1004,8 +1055,8 @@ internal sealed class VibeMicForm : Form
             mappings.Controls.Add(rowBand);
             if (i == 0) updatePreview();
         }
-        var save = PrimaryButton("立即应用", new Point(144, 538), new Size(132, 42));
-        save.Click += delegate { SaveConfig(); StartKeyboardBridge(); Toast("按键快捷方式已生效"); };
+        var save = PrimaryButton("保存并应用", new Point(144, 538), new Size(132, 42));
+        save.Click += delegate { SaveConfig(); StartKeyboardBridge(); ShowToast("按键快捷方式已保存并生效", "success"); };
         var openBridge = SecondaryButton("打开高级配置", new Point(290, 538), new Size(150, 42));
         openBridge.Click += delegate { Process.Start(Path.Combine(root, "voxdeck-shortcuts.json")); };
         mappings.Controls.Add(save);
@@ -1138,7 +1189,7 @@ internal sealed class VibeMicForm : Form
         var feedbackCard = NewCard(new Point(630, 100), new Size(364, 310));
         feedbackCard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         feedbackCard.Controls.Add(SectionTitle("交互反馈", "\uE8BD", new Point(26, 22)));
-        var feedbackSound = StyledCheck("听写完成或失败时播放提示音", config.soundFeedbackEnabled, new Point(28, 72));
+        var feedbackSound = StyledCheck("录音结束或失败时播放提示音", config.soundFeedbackEnabled, new Point(28, 72));
         feedbackSound.Size = new Size(308, 40);
         feedbackSound.CheckedChanged += delegate
         {
@@ -1146,20 +1197,20 @@ internal sealed class VibeMicForm : Form
             SaveConfig();
             ShowToast(feedbackSound.Checked ? "听写提示音已开启" : "听写提示音已关闭", "success");
         };
-        var previewSound = SecondaryButton("试听完成提示音", new Point(28, 126), new Size(146, 40));
-        previewSound.Click += delegate
+        var previewStopSound = SecondaryButton("试听结束提示音", new Point(28, 126), new Size(284, 40));
+        previewStopSound.Click += delegate
         {
-            PlayFeedbackSound(true);
-            ShowToast("已播放听写完成提示音", "success");
+            PlayRecordingCue(false);
+            ShowToast("已播放录音结束提示音", "success");
         };
-        var feedbackNote = NewLabel("录音、整理、完成与失败状态会同步显示在首页遥控器和状态栏。", 8.9f, FontStyle.Regular, muted);
+        var feedbackNote = NewLabel("开始录音使用首页光效，不播放声音；结束时播放清晰、短促的完成音。", 8.9f, FontStyle.Regular, muted);
         feedbackNote.Location = new Point(28, 194);
         feedbackNote.Size = new Size(304, 52);
         var feedbackState = NewLabel("●  视觉反馈始终开启", 9f, FontStyle.Bold, violet);
         feedbackState.Location = new Point(28, 258);
         feedbackState.Size = new Size(260, 24);
         feedbackCard.Controls.Add(feedbackSound);
-        feedbackCard.Controls.Add(previewSound);
+        feedbackCard.Controls.Add(previewStopSound);
         feedbackCard.Controls.Add(feedbackNote);
         feedbackCard.Controls.Add(feedbackState);
 
@@ -1171,23 +1222,32 @@ internal sealed class VibeMicForm : Form
         var privacyNote = NewLabel("普通日志只记录连接状态与聚合指标，单个日志自动限制为 4 MB。诊断音频必须每次明确确认。", 8.8f, FontStyle.Regular, muted);
         privacyNote.Location = new Point(34, 104);
         privacyNote.Size = new Size(830, 28);
-        var setup = PrimaryButton("打开入门指南", new Point(32, 154), new Size(140, 42));
+        var automaticUpdates = StyledCheck("自动检查 GitHub 正式版更新（安装前始终确认）", config.autoCheckUpdates, new Point(32, 132));
+        automaticUpdates.Size = new Size(520, 40);
+        automaticUpdates.CheckedChanged += delegate
+        {
+            config.autoCheckUpdates = automaticUpdates.Checked;
+            SaveConfig();
+            ShowToast(automaticUpdates.Checked ? "自动更新检查已开启" : "自动更新检查已关闭", "success");
+        };
+        var setup = PrimaryButton("打开入门指南", new Point(32, 184), new Size(140, 42));
         setup.Click += delegate { ShowSetupWizard(); };
-        var open = SecondaryButton("查看配置文件", new Point(184, 154), new Size(142, 42));
+        var open = SecondaryButton("查看配置文件", new Point(184, 184), new Size(142, 42));
         open.Click += delegate { Process.Start(configPath); };
-        var export = SecondaryButton("备份配置", new Point(338, 154), new Size(112, 42));
+        var export = SecondaryButton("备份配置", new Point(338, 184), new Size(112, 42));
         export.Click += delegate { ExportConfig(); };
-        var updates = SecondaryButton("检查更新", new Point(462, 154), new Size(112, 42));
-        updates.Click += delegate { OpenUri("https://github.com/richlearntodo-debug/vibe-flow/releases/latest"); };
+        var updates = SecondaryButton("安全检查更新", new Point(462, 184), new Size(124, 42));
+        updates.Click += delegate { CheckForUpdates(true); };
         var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 正式版\r\nRC003 本地语音传输与快捷操作工具 · 开源版本", 9.5f, FontStyle.Regular, muted);
-        about.Location = new Point(600, 154);
+        about.Location = new Point(610, 184);
         about.Size = new Size(320, 62);
         var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  配置 schema " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
-        profile.Location = new Point(32, 226);
+        profile.Location = new Point(32, 240);
         profile.Size = new Size(400, 24);
         privacyCard.Controls.Add(privacyTitle);
         privacyCard.Controls.Add(privacy);
         privacyCard.Controls.Add(privacyNote);
+        privacyCard.Controls.Add(automaticUpdates);
         privacyCard.Controls.Add(setup);
         privacyCard.Controls.Add(open);
         privacyCard.Controls.Add(export);
@@ -1493,14 +1553,25 @@ internal sealed class VibeMicForm : Form
         if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
         StopCapture();
         StopKeyboardBridge();
-        ReleaseVoiceHotkey();
+        ReleaseHeldProviderHotkey("app_exit");
+        if (audioDuckingLease != null) { audioDuckingLease.Dispose(); audioDuckingLease = null; }
+        try { if (recordingStartCueEvent != null) recordingStartCueEvent.Set(); } catch { }
+        try { if (recordingStopCueEvent != null) recordingStopCueEvent.Set(); } catch { }
+        if (recordingCueThread != null) { try { recordingCueThread.Join(800); } catch { } recordingCueThread = null; }
         if (dictationCompletePlayer != null) { dictationCompletePlayer.Dispose(); dictationCompletePlayer = null; }
         if (dictationErrorPlayer != null) { dictationErrorPlayer.Dispose(); dictationErrorPlayer = null; }
+        if (dictationStopPlayer != null) { dictationStopPlayer.Dispose(); dictationStopPlayer = null; }
         if (dictationCompleteSound != null) { dictationCompleteSound.Dispose(); dictationCompleteSound = null; }
         if (dictationErrorSound != null) { dictationErrorSound.Dispose(); dictationErrorSound = null; }
+        if (dictationStopSound != null) { dictationStopSound.Dispose(); dictationStopSound = null; }
         try { if (showWindowEvent != null) { showWindowEvent.Set(); showWindowEvent.Dispose(); } } catch { }
         try { if (exitApplicationEvent != null) { exitApplicationEvent.Set(); exitApplicationEvent.Dispose(); } } catch { }
         try { if (voiceWakeRequestEvent != null) { voiceWakeRequestEvent.Set(); voiceWakeRequestEvent.Dispose(); } } catch { }
+        try { if (providerHotkeyTapEvent != null) { providerHotkeyTapEvent.Set(); providerHotkeyTapEvent.Dispose(); } } catch { }
+        try { if (providerHotkeyDownEvent != null) { providerHotkeyDownEvent.Set(); providerHotkeyDownEvent.Dispose(); } } catch { }
+        try { if (providerHotkeyUpEvent != null) { providerHotkeyUpEvent.Set(); providerHotkeyUpEvent.Dispose(); } } catch { }
+        try { if (recordingStartCueEvent != null) { recordingStartCueEvent.Dispose(); recordingStartCueEvent = null; } } catch { }
+        try { if (recordingStopCueEvent != null) { recordingStopCueEvent.Dispose(); recordingStopCueEvent = null; } } catch { }
         tray.Visible = false;
         base.OnFormClosing(e);
     }
@@ -1610,7 +1681,7 @@ internal sealed class VibeMicForm : Form
             }
         }
         catch { }
-        finally { ReleaseVoiceHotkey(); }
+        finally { ReleaseHeldProviderHotkey("capture_stop"); }
         captureStartedAt = DateTime.MinValue;
         HostLog("CAPTURE STOP");
         UpdateCaptureUi();
@@ -1672,6 +1743,7 @@ internal sealed class VibeMicForm : Form
             return;
         }
         captureProcess = null;
+        ReleaseHeldProviderHotkey("capture_exit");
         bridgeReady = false;
         captureStartedAt = DateTime.MinValue;
         UpdateCaptureUi();
@@ -1710,6 +1782,12 @@ internal sealed class VibeMicForm : Form
         HostLog("VOICE WAKE REQUEST held=" + held + " capture_running=" + IsCapturing +
             " atvv_ready=" + bridgeReady + " provider=" + NormalizeProviderKey(config.inputMethod) +
             " provider_ready=" + IsProviderReadyForStartup(config.inputMethod));
+        if (!captureStopping && audioDuckingLease != null)
+        {
+            bool protectedEarly = audioDuckingLease.Acquire("voice_wake_request");
+            if (protectedEarly) audioDuckingLease.ReleaseAfter(35000, "voice_wake_timeout");
+            HostLog("VOICE WAKE ducking_protected=" + protectedEarly + " phase=before_provider_session");
+        }
         WarmConfiguredProviderAsync(true);
 
         if (captureStopping)
@@ -1739,6 +1817,125 @@ internal sealed class VibeMicForm : Form
             " attempt=" + startupRecoveryCount);
         StopCapture();
         StartCapture();
+    }
+
+    private void HandleProviderHotkeyTapRequest()
+    {
+        if (applicationExiting) return;
+        lock (providerHotkeySync)
+        {
+            VibeMicConfig current = LoadConfig();
+            string shortcut = string.IsNullOrWhiteSpace(current.inputMethodHotkey)
+                ? DefaultHotkeyForProvider(current.inputMethod) : current.inputMethodHotkey;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            if (!string.IsNullOrWhiteSpace(heldProviderHotkey))
+            {
+                HostLog("PROVIDER HOTKEY TAP ignored=true reason=hold_active shortcut=" + SafeLogValue(heldProviderHotkey));
+                return;
+            }
+            bool duckingProtected = audioDuckingLease == null || audioDuckingLease.Acquire("provider_hotkey_tap");
+            bool down = SendProviderHotkeyState(shortcut, false);
+            if (down) Thread.Sleep(IsCtrlWinShortcut(shortcut) ? 180 : 80);
+            bool up = down && SendProviderHotkeyState(shortcut, true);
+            if (!up) ReleaseVoiceHotkey();
+            if (audioDuckingLease != null)
+            {
+                if (down) audioDuckingLease.ReleaseAfter(1200, "provider_hotkey_tap_complete");
+                else audioDuckingLease.ReleaseNow("provider_hotkey_tap_failed");
+            }
+            timer.Stop();
+            HostLog("PROVIDER HOTKEY TAP injection=" +
+                (IsCtrlWinShortcut(shortcut) ? "keybd_event_vk_control" : "keybd_event_configured") +
+                " shortcut=" + SafeLogValue(shortcut) +
+                " down=" + down + " up=" + up + " ducking_protected=" + duckingProtected +
+                " elapsed_ms=" + timer.ElapsedMilliseconds);
+        }
+    }
+
+    private void HandleProviderHotkeyHoldRequest(bool keyDown)
+    {
+        if (applicationExiting && keyDown) return;
+        lock (providerHotkeySync)
+        {
+            VibeMicConfig current = LoadConfig();
+            string configured = string.IsNullOrWhiteSpace(current.inputMethodHotkey)
+                ? DefaultHotkeyForProvider(current.inputMethod) : current.inputMethodHotkey;
+            if (keyDown)
+            {
+                if (!string.IsNullOrWhiteSpace(heldProviderHotkey))
+                {
+                    HostLog("PROVIDER HOTKEY HOLD action=down sent=True duplicate=True shortcut=" +
+                        SafeLogValue(heldProviderHotkey));
+                    return;
+                }
+                bool duckingProtected = audioDuckingLease == null || audioDuckingLease.Acquire("provider_hotkey_hold");
+                bool sent = SendProviderHotkeyState(configured, false);
+                if (sent) heldProviderHotkey = configured;
+                else if (audioDuckingLease != null) audioDuckingLease.ReleaseNow("provider_hotkey_down_failed");
+                HostLog("PROVIDER HOTKEY HOLD action=down sent=" + sent + " duplicate=False shortcut=" +
+                    SafeLogValue(configured) + " injection=" +
+                    (IsCtrlWinShortcut(configured) ? "keybd_event_vk_control" : "keybd_event_configured") +
+                    " ducking_protected=" + duckingProtected);
+                return;
+            }
+
+            string releaseShortcut = string.IsNullOrWhiteSpace(heldProviderHotkey) ? configured : heldProviderHotkey;
+            bool wasHeld = !string.IsNullOrWhiteSpace(heldProviderHotkey);
+            bool released = SendProviderHotkeyState(releaseShortcut, true);
+            heldProviderHotkey = null;
+            if (audioDuckingLease != null)
+                audioDuckingLease.ReleaseAfter(1200, "provider_hotkey_hold_complete");
+            HostLog("PROVIDER HOTKEY HOLD action=up sent=" + released + " was_held=" + wasHeld +
+                " shortcut=" + SafeLogValue(releaseShortcut) + " injection=" +
+                (IsCtrlWinShortcut(releaseShortcut) ? "keybd_event_vk_control" : "keybd_event_configured"));
+        }
+    }
+
+    private static bool SendProviderHotkeyState(string shortcut, bool keyUp)
+    {
+        if (!IsCtrlWinShortcut(shortcut)) return SendConfiguredHotkey(shortcut, keyUp);
+        if (keyUp)
+        {
+            ReleaseVoiceHotkey();
+            return true;
+        }
+        keybd_event(0x11, 0x1D, 0, UIntPtr.Zero);
+        keybd_event(0x5B, 0x5B, 0, UIntPtr.Zero);
+        return true;
+    }
+
+    private void ReleaseHeldProviderHotkey(string reason)
+    {
+        lock (providerHotkeySync)
+        {
+            if (string.IsNullOrWhiteSpace(heldProviderHotkey))
+            {
+                ReleaseVoiceHotkey();
+                if (audioDuckingLease != null) audioDuckingLease.ReleaseNow(reason + "_without_held_key");
+                return;
+            }
+            string shortcut = heldProviderHotkey;
+            bool released = SendProviderHotkeyState(shortcut, true);
+            heldProviderHotkey = null;
+            if (audioDuckingLease != null) audioDuckingLease.ReleaseNow(reason);
+            HostLog("PROVIDER HOTKEY HOLD action=release sent=" + released + " reason=" + reason +
+                " shortcut=" + SafeLogValue(shortcut));
+        }
+    }
+
+    private static bool IsCtrlWinShortcut(string shortcut)
+    {
+        string[] parts = (shortcut ?? "").Split(new char[] { '+', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        bool control = false;
+        bool windows = false;
+        foreach (string raw in parts)
+        {
+            string part = raw.Trim().ToLowerInvariant();
+            if (part == "ctrl" || part == "control" || part == "leftctrl" || part == "lctrl") control = true;
+            else if (part == "win" || part == "meta" || part == "leftwin" || part == "lwin") windows = true;
+            else return false;
+        }
+        return parts.Length == 2 && control && windows;
     }
 
     private static bool IsVoiceKeyHeld()
@@ -1973,17 +2170,6 @@ internal sealed class VibeMicForm : Form
     {
         config = LoadConfig();
         string provider = NormalizeProviderKey(config.inputMethod);
-        if (provider == "wechat" && TryClickWeTypeToolbar())
-        {
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                Thread.Sleep(1200);
-                TryClickWeTypeToolbar();
-            });
-            Toast("已触发微信语音面板；面板出现即表示启动控制正常");
-            return;
-        }
-
         string shortcut = config.inputMethodHotkey;
         bool hold = config.inputMethodTrigger == "hold";
         ThreadPool.QueueUserWorkItem(delegate
@@ -1999,7 +2185,8 @@ internal sealed class VibeMicForm : Form
                 SendConfiguredHotkey(shortcut, true);
             }
         });
-        Toast("已测试 " + ProviderDisplayName(provider) + " 快捷键 " + shortcut.Replace("+", " + "));
+        Toast("已测试 " + ProviderDisplayName(provider) + " 快捷键 " + shortcut.Replace("+", " + ") +
+            (hold ? "（按住触发）" : "（单击开始，再次单击结束）"));
     }
 
     private static bool SendConfiguredHotkey(string shortcut, bool keyUp)
@@ -2047,20 +2234,6 @@ internal sealed class VibeMicForm : Form
         };
         int result;
         return names.TryGetValue(value, out result) ? result : -1;
-    }
-
-    private static bool TryClickWeTypeToolbar()
-    {
-        IntPtr toolbar = FindWindow("wetype.statusbar.window", null);
-        if (toolbar == IntPtr.Zero) return false;
-        ClientRect rectangle;
-        if (!GetClientRect(toolbar, out rectangle) || rectangle.Right <= 0 || rectangle.Bottom <= 0) return false;
-        int x = Math.Max(1, rectangle.Right * 45 / 142);
-        int y = Math.Max(1, rectangle.Bottom / 2);
-        IntPtr point = new IntPtr((y << 16) | (x & 0xFFFF));
-        bool down = PostMessage(toolbar, 0x0201, new IntPtr(1), point);
-        bool up = PostMessage(toolbar, 0x0202, IntPtr.Zero, point);
-        return down && up;
     }
 
     private static void ReleaseVoiceHotkey()
@@ -2254,7 +2427,9 @@ internal sealed class VibeMicForm : Form
                     string subtitleText = currentStep == 0 ? "言灵负责传输遥控器声音，所选工具负责识别和整理文字。" :
                         currentStep == 1 ? "VB-CABLE 是当前语音链路唯一需要额外安装的本地驱动；检测通过后无需重复安装。" :
                         currentStep == 2 ? "先在 Windows 中完成蓝牙配对，再由言灵建立语音链路。" :
-                        currentStep == 3 ? "这里的快捷键必须与转写工具内部设置完全相同。" : "点击下方输入框，按住遥控器录音键说完一句话后松开。";
+                        currentStep == 3 ? "这里的快捷键必须与转写工具内部设置完全相同。" : UsesLongDictation(config.voiceMode)
+                        ? "点击输入框，单击录音键开始；说完后再按一次结束。"
+                        : "点击输入框，按住录音键说完一句话后松开。";
                     var heading = NewLabel(headingText, 20f, FontStyle.Bold, ink);
                     heading.Location = new Point(0, 4);
                     heading.AutoSize = true;
@@ -2405,13 +2580,24 @@ internal sealed class VibeMicForm : Form
                         triggerLabel.Location = new Point(24, 162);
                         triggerLabel.Size = new Size(110, 28);
                         triggerBox = StyledCombo(new Point(140, 158), new Size(200, 38));
-                        triggerBox.Items.AddRange(new object[] { "单击切换", "按住触发" });
+                        PopulateTriggerModeOptions(triggerBox, selectedProvider);
                         triggerBox.SelectedIndex = selectedTrigger == "hold" ? 1 : 0;
+                        triggerBox.SelectedIndexChanged += delegate
+                        {
+                            selectedTrigger = triggerBox.SelectedIndex == 1 ? "hold" : "toggle";
+                            if (NormalizeProviderKey(selectedProvider) == "wechat")
+                            {
+                                selectedHotkey = selectedTrigger == "hold" ? WeChatCompatibilityHotkey : WeChatAiHotkey;
+                                shortcutBox.Text = selectedHotkey;
+                            }
+                        };
                         var reset = SecondaryButton("恢复推荐配置", new Point(366, 111), new Size(166, 38));
                         reset.Click += delegate
                         {
-                            shortcutBox.Text = DefaultHotkeyForProvider(selectedProvider);
-                            triggerBox.SelectedIndex = DefaultTriggerForProvider(selectedProvider) == "hold" ? 1 : 0;
+                            selectedHotkey = DefaultHotkeyForProvider(selectedProvider);
+                            selectedTrigger = DefaultTriggerForProvider(selectedProvider);
+                            shortcutBox.Text = selectedHotkey;
+                            triggerBox.SelectedIndex = selectedTrigger == "hold" ? 1 : 0;
                         };
                         var test = PrimaryButton("测试启动与结束", new Point(24, 216), new Size(166, 40));
                         test.Click += delegate
@@ -2463,7 +2649,7 @@ internal sealed class VibeMicForm : Form
                         testInput.BorderStyle = BorderStyle.FixedSingle;
                         testInput.Font = new Font("Microsoft YaHei UI", 12f);
                         testInput.BackColor = Color.White;
-                        firstDictationStatus = NewLabel(firstDictationSucceeded ? "●  首次听写成功，已经可以开始使用" : "●  点击上方输入框，然后按住遥控器录音键", 10f, FontStyle.Bold,
+                        firstDictationStatus = NewLabel(firstDictationSucceeded ? "●  首次听写成功，已经可以开始使用" : "●  " + VoiceReadyInstruction(config.voiceMode), 10f, FontStyle.Bold,
                             firstDictationSucceeded ? green : violet);
                         firstDictationStatus.Location = new Point(4, 286);
                         firstDictationStatus.Size = new Size(596, 34);
@@ -2477,7 +2663,7 @@ internal sealed class VibeMicForm : Form
                             firstDictationBaselineGeneration = current.Generation;
                             firstDictationSucceeded = false;
                             if (!IsCapturing) StartCapture();
-                            firstDictationStatus.Text = "●  已就绪，请按住遥控器录音键开始";
+                            firstDictationStatus.Text = "●  已就绪 · " + VoiceReadyInstruction(config.voiceMode);
                             firstDictationStatus.ForeColor = violet;
                             testInput.Focus();
                         };
@@ -2585,7 +2771,9 @@ internal sealed class VibeMicForm : Form
                         }
                         else
                         {
-                            firstDictationStatus.Text = "●  正在听写，请自然说话，完成后松开录音键";
+                            firstDictationStatus.Text = UsesLongDictation(config.voiceMode)
+                                ? "●  正在连续听写 · 说完后再按一次录音键"
+                                : "●  正在听写 · 请自然说话，完成后松开录音键";
                             firstDictationStatus.ForeColor = violet;
                         }
                     }
@@ -2650,7 +2838,9 @@ internal sealed class VibeMicForm : Form
         if (heroSubtitle != null && !heroSubtitle.IsDisposed)
             heroSubtitle.Text = !IsCapturing ? "启动后，" + VoiceStartInstruction(config.voiceMode) : bridgeReady ? VoiceStartInstruction(config.voiceMode) : "正在建立遥控器语音通道，请稍候";
         if (heroStateLabel != null && !heroStateLabel.IsDisposed)
-            heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady ? "READY" : "CONNECTING";
+            heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady
+                ? UsesLongDictation(config.voiceMode) ? "CONTINUOUS READY" : "READY"
+                : "CONNECTING";
         connectionBadge.Text = !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接";
         connectionBadge.ForeColor = !IsCapturing ? muted : bridgeReady ? green : amber;
         UpdateOverviewStatus();
@@ -2816,7 +3006,18 @@ internal sealed class VibeMicForm : Form
             if (hasGeneration && itemGeneration != health.Generation &&
                 (!hasLogicalGeneration || itemLogicalGeneration != health.Generation)) continue;
 
-            if (item.IndexOf("TRANSCRIPTION READY", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (item.IndexOf("INPUT TARGET CAPTURE", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                health.InputTargetObserved = true;
+                health.InputTargetCaptured = item.IndexOf("source=none", StringComparison.OrdinalIgnoreCase) < 0;
+            }
+            else if (item.IndexOf("INPUT TARGET RESTORE", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                item.IndexOf("delivery_ready=True", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                health.InputTargetObserved = true;
+                health.InputTargetReady = true;
+            }
+            else if (item.IndexOf("TRANSCRIPTION READY", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 health.Ready = true;
                 health.Provider = NormalizeProviderKey(ExtractMetric(item, "provider"));
@@ -2843,6 +3044,7 @@ internal sealed class VibeMicForm : Form
                 health.StreamStopped = true;
                 int totalAudioMs;
                 if (int.TryParse(ExtractMetric(item, "audio_ms"), out totalAudioMs)) health.AudioMs = totalAudioMs;
+                int.TryParse(ExtractMetric(item, "segments"), out health.SegmentCount);
                 TryParseRuntimeTimestamp(item, out health.EndedAt);
             }
             else if (item.IndexOf("VIRTUAL MIC DRAIN COMPLETE", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -2858,6 +3060,14 @@ internal sealed class VibeMicForm : Form
             {
                 health.Completed = true;
                 health.AudioDelivered = item.IndexOf("audio_delivered=True", StringComparison.OrdinalIgnoreCase) >= 0;
+                health.DeliveryMode = ExtractMetric(item, "delivery_mode");
+                health.DeliveryFailed = string.Equals(health.DeliveryMode, "provider_direct_unconfirmed",
+                    StringComparison.OrdinalIgnoreCase) || string.Equals(health.DeliveryMode, "not_submitted",
+                    StringComparison.OrdinalIgnoreCase);
+                if (item.IndexOf("input_target_ready=", StringComparison.OrdinalIgnoreCase) >= 0)
+                    health.InputTargetObserved = true;
+                if (item.IndexOf("input_target_ready=True", StringComparison.OrdinalIgnoreCase) >= 0)
+                    health.InputTargetReady = true;
                 TryParseRuntimeTimestamp(item, out health.EndedAt);
             }
             if (item.IndexOf("AUDIO LIVE FAILED", StringComparison.OrdinalIgnoreCase) >= 0 ||
@@ -2869,8 +3079,10 @@ internal sealed class VibeMicForm : Form
             }
         }
 
-        health.Success = health.Completed && health.AudioDelivered && health.StreamStopped && !health.Failed;
+        health.Success = health.Completed && health.AudioDelivered && health.StreamStopped &&
+            !health.Failed && !health.DeliveryFailed;
         if (health.Failed) health.NextAction = "打开诊断记录并复制问题摘要";
+        else if (health.DeliveryFailed) health.NextAction = "文字已转写，但工具未直接写入；请保持原输入框聚焦后重新测试";
         else if (!health.Ready) health.NextAction = "转写工具没有进入听写状态，请先测试工具快捷键";
         else if (!health.StreamStopped) health.NextAction = UsesLongDictation(config.voiceMode)
             ? "仍在长听写；完成后再按一次录音键"
@@ -2880,6 +3092,8 @@ internal sealed class VibeMicForm : Form
         else if (health.OutputRmsPercent > 0 && health.OutputRmsPercent < 0.8) health.NextAction = "声音偏小，请靠近遥控器麦克风并自然说话";
         else if (health.MaxGapMs > 250) health.NextAction = "蓝牙音频间隔偏大，请减少距离或重新连接遥控器";
         else if (config.autoRouteVirtualMicrophone && !health.RouteAcquired) health.NextAction = "没有切换到 CABLE Output，请重新检测本地音频通道";
+        else if (health.Success && NormalizeProviderKey(health.Provider) == "wechat" && health.InputTargetObserved && !health.InputTargetReady)
+            health.NextAction = "音频与转写成功，但原输入框焦点未恢复；请重新聚焦输入框后再试";
         else if (health.Success && health.RouteRestorePending) health.NextAction = "文字已送出，但请检查 Windows 默认麦克风是否已恢复";
         else if (health.Success) health.NextAction = "链路正常，可以继续使用";
         else if (health.Completed && !health.AudioDelivered) health.NextAction = "转写工具未接收音频，请检查快捷键和触发方式";
@@ -2901,6 +3115,7 @@ internal sealed class VibeMicForm : Form
         result.AppendLine("最近一次听写：" + state + "  ·  会话 #" + health.Generation);
         result.AppendLine("转写工具：" + ProviderDisplayName(health.Provider));
         result.AppendLine("录音时长：" + FormatMillisecondsAsSeconds(health.AudioMs) +
+            (health.SegmentCount > 1 ? "（" + health.SegmentCount + " 个连续分段）" : "") +
             "  ·  工具响应：" + FormatMilliseconds(health.TriggerToReadyMs) +
             "  ·  输出电平：" + FormatPercent(health.OutputRmsPercent));
         result.AppendLine("蓝牙最大间隔：" + FormatMilliseconds(health.MaxGapMs) +
@@ -2908,6 +3123,11 @@ internal sealed class VibeMicForm : Form
             "  ·  排空：" + (health.Drained ? FormatMilliseconds(health.DrainWaitMs) : "等待中"));
         result.AppendLine("麦克风路由：" + (!config.autoRouteVirtualMicrophone ? "手动" : health.RouteAcquired ? "已切换到 CABLE Output" : "未确认切换") +
             "  ·  恢复：" + (!config.autoRouteVirtualMicrophone ? "不适用" : health.RouteRestored ? "已恢复" : health.RouteRestorePending ? "待确认" : "等待中"));
+        if (NormalizeProviderKey(health.Provider) == "wechat")
+            result.AppendLine("文字回填：" + (!health.InputTargetObserved ? "升级后尚未复测（下次听写自动验证）" :
+                health.DeliveryFailed ? "转写成功，但工具未能直接写入" :
+                health.InputTargetReady ? "焦点保持正常（工具原生直填）" :
+                health.InputTargetCaptured ? "已记录目标，等待工具直填" : "未记录输入目标"));
         result.AppendLine("结论：" + health.NextAction);
         return result.ToString();
     }
@@ -3032,12 +3252,14 @@ internal sealed class VibeMicForm : Form
                 health.MaxGapMs <= 250 && health.PendingAfterDrain == 0 && health.Drained;
             bool levelHealthy = health.OutputRmsPercent >= 0.8;
             bool timingHealthy = health.TriggerToReadyMs <= 1500;
+            bool inputTargetHealthy = provider != "wechat" || !health.InputTargetObserved || health.InputTargetReady;
             if (health.Failed || (health.Completed && (!routeHealthy || !transportHealthy))) sessionState = "fail";
-            else if (health.Success && levelHealthy && timingHealthy) sessionState = "pass";
+            else if (health.Success && levelHealthy && timingHealthy && inputTargetHealthy) sessionState = "pass";
             else sessionState = "warning";
             sessionDetail = "响应 " + FormatMilliseconds(health.TriggerToReadyMs) + " · 输出 " + FormatPercent(health.OutputRmsPercent) +
                 " · 蓝牙间隔 " + FormatMilliseconds(health.MaxGapMs) + " · 丢包 " + Math.Max(0, health.QueueDrops + health.SinkQueueDrops) +
-                (health.Success ? " · 音频已送达" : " · " + health.NextAction);
+                (health.Success ? " · 音频已送达" + (provider == "wechat" && health.InputTargetObserved ? health.InputTargetReady ? " · 回填目标已恢复" : " · 回填目标待恢复" : "") :
+                " · " + health.NextAction);
             if (sessionState != "pass")
             {
                 sessionAction = "test-dictation";
@@ -3248,6 +3470,15 @@ internal sealed class VibeMicForm : Form
         UpdateCaptureUi();
         if (stopIndex >= 0)
         {
+            SessionHealth latest = UsesLongDictation(config.voiceMode) ? GetLatestSessionHealth() : null;
+            if (latest != null && latest.AudioMs > 0)
+            {
+                activityLabel.Text = "上一段连续听写 " + FormatMillisecondsAsSeconds(latest.AudioMs) +
+                    (latest.SegmentCount > 1 ? "  ·  " + latest.SegmentCount + " 个音频分段" : "") +
+                    "  ·  输出电平 " + FormatPercent(latest.OutputRmsPercent);
+                activityLabel.ForeColor = muted;
+                return;
+            }
             string duration = ExtractMetric(lines[stopIndex], "audio_ms");
             string level = ExtractMetric(lines[stopIndex], "output_rms_pct");
             int milliseconds;
@@ -3349,11 +3580,11 @@ internal sealed class VibeMicForm : Form
         }
         if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = text;
         if (toastPanel == null || toastPanel.IsDisposed) return;
-        Color accent = kind == "error" ? Color.FromArgb(202, 76, 76) : kind == "success" ? green : violet;
-        toastIcon.Text = kind == "error" ? "\uEA39" : kind == "success" ? "\uE73E" : "\uE946";
+        Color accent = kind == "error" ? Color.FromArgb(202, 76, 76) : kind == "success" ? green : kind == "warning" ? amber : violet;
+        toastIcon.Text = kind == "error" ? "\uEA39" : kind == "success" ? "\uE73E" : kind == "warning" ? "\uE7BA" : "\uE946";
         toastIcon.ForeColor = accent;
         toastPanel.BorderColor = Color.FromArgb(accent.R, accent.G, accent.B);
-        toastPanel.BackColor = kind == "error" ? Color.FromArgb(255, 247, 247) : kind == "success" ? Color.FromArgb(244, 252, 248) : Color.White;
+        toastPanel.BackColor = kind == "error" ? Color.FromArgb(255, 247, 247) : kind == "success" ? Color.FromArgb(244, 252, 248) : kind == "warning" ? Color.FromArgb(255, 250, 239) : Color.White;
         toastLabel.Text = text;
         toastPanel.Visible = true;
         toastPanel.BringToFront();
@@ -3365,24 +3596,28 @@ internal sealed class VibeMicForm : Form
     {
         try
         {
-            dictationCompleteSound = CreateFeedbackWave(true);
-            dictationErrorSound = CreateFeedbackWave(false);
+            dictationStopSound = CreateFeedbackWave("stop");
+            dictationCompleteSound = CreateFeedbackWave("success");
+            dictationErrorSound = CreateFeedbackWave("error");
+            dictationStopPlayer = new SoundPlayer(dictationStopSound);
             dictationCompletePlayer = new SoundPlayer(dictationCompleteSound);
             dictationErrorPlayer = new SoundPlayer(dictationErrorSound);
+            dictationStopPlayer.Load();
             dictationCompletePlayer.Load();
             dictationErrorPlayer.Load();
         }
         catch
         {
+            dictationStopPlayer = null;
             dictationCompletePlayer = null;
             dictationErrorPlayer = null;
         }
     }
 
-    private static MemoryStream CreateFeedbackWave(bool success)
+    private static MemoryStream CreateFeedbackWave(string cue)
     {
         const int sampleRate = 22050;
-        int durationMs = success ? 320 : 260;
+        int durationMs = cue == "stop" ? 320 : cue == "success" ? 180 : 260;
         int sampleCount = sampleRate * durationMs / 1000;
         var stream = new MemoryStream(44 + sampleCount * 2);
         using (var writer = new BinaryWriter(stream, Encoding.ASCII, true))
@@ -3399,19 +3634,99 @@ internal sealed class VibeMicForm : Form
             writer.Write((short)16);
             writer.Write(Encoding.ASCII.GetBytes("data"));
             writer.Write(sampleCount * 2);
+            double phase = 0.0;
             for (int i = 0; i < sampleCount; i++)
             {
                 double elapsed = i * 1000.0 / sampleRate;
-                double frequency = success ? (elapsed < 145 ? 660.0 : 880.0) : (elapsed < 130 ? 420.0 : 315.0);
-                double attack = Math.Min(1.0, elapsed / 24.0);
-                double release = Math.Min(1.0, (durationMs - elapsed) / 70.0);
-                double envelope = Math.Max(0.0, Math.Min(attack, release));
-                short sample = (short)(Math.Sin(2.0 * Math.PI * frequency * i / sampleRate) * 3600.0 * envelope);
+                double progress = elapsed / durationMs;
+                double frequency;
+                double envelope;
+                double amplitude;
+                double harmonic;
+                if (cue == "stop")
+                {
+                    frequency = elapsed < 145.0 ? 660.0 : 880.0;
+                    envelope = Math.Max(0.0, Math.Min(Math.Min(1.0, elapsed / 24.0),
+                        (durationMs - elapsed) / 70.0));
+                    amplitude = 3600.0;
+                    harmonic = 0.0;
+                }
+                else if (cue == "success")
+                {
+                    frequency = 610.0;
+                    envelope = Math.Max(0.0, Math.Min(Math.Min(1.0, elapsed / 10.0),
+                        (durationMs - elapsed) / 70.0));
+                    amplitude = 1500.0;
+                    harmonic = 0.06;
+                }
+                else
+                {
+                    frequency = elapsed < 130 ? 420.0 : 315.0;
+                    envelope = Math.Max(0.0, Math.Min(Math.Min(1.0, elapsed / 18.0),
+                        (durationMs - elapsed) / 58.0));
+                    amplitude = 3600.0;
+                    harmonic = 0.08;
+                }
+                phase += 2.0 * Math.PI * frequency / sampleRate;
+                double shimmer = harmonic * Math.Sin(phase * 2.0 + 0.25);
+                short sample = (short)((Math.Sin(phase) + shimmer) * amplitude * envelope);
                 writer.Write(sample);
             }
         }
         stream.Position = 0;
         return stream;
+    }
+
+    private void StartRecordingCueWorker()
+    {
+        recordingCueThread = new Thread(new ThreadStart(delegate
+        {
+            try
+            {
+                WaitHandle[] handles = { recordingStartCueEvent, recordingStopCueEvent };
+                while (!applicationExiting)
+                {
+                    int signal = WaitHandle.WaitAny(handles);
+                    if (applicationExiting) return;
+                    if (signal == 0)
+                    {
+                        HostLog("RECORDING CUE kind=start playback=suppressed reason=end_only_feedback");
+                        continue;
+                    }
+                    if (!config.soundFeedbackEnabled) continue;
+                    PlayRecordingCueSync(false);
+                }
+            }
+            catch { }
+        }));
+        recordingCueThread.IsBackground = true;
+        recordingCueThread.Name = "Vibe Flow recording cue player";
+        recordingCueThread.Start();
+    }
+
+    private void PlayRecordingCueSync(bool starting)
+    {
+        try
+        {
+            if (starting)
+            {
+                HostLog("RECORDING CUE kind=start playback=suppressed reason=end_only_feedback");
+                return;
+            }
+            SoundPlayer player = dictationStopPlayer;
+            if (player == null) return;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            HostLog("RECORDING CUE kind=" + (starting ? "start" : "stop") + " playback=begin");
+            player.PlaySync();
+            timer.Stop();
+            HostLog("RECORDING CUE kind=" + (starting ? "start" : "stop") +
+                " playback=end duration_ms=" + timer.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            HostLog("RECORDING CUE kind=" + (starting ? "start" : "stop") +
+                " playback=failed error=" + SafeLogValue(ex.GetType().Name));
+        }
     }
 
     private void PollRuntimeFeedback()
@@ -3483,8 +3798,15 @@ internal sealed class VibeMicForm : Form
         {
             lastFeedbackGeneration = generation;
             bool delivered = lineText.IndexOf("audio_delivered=True", StringComparison.OrdinalIgnoreCase) >= 0;
-            SetSessionFeedback(delivered ? "completed" : "error",
-                delivered ? "听写已完成，文字正在回填" : "本次听写没有送出音频");
+            bool weTypeSession = lineText.IndexOf("WETYPE SESSION END", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool deliveryFailed = lineText.IndexOf("delivery_mode=provider_direct_unconfirmed", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                lineText.IndexOf("delivery_mode=not_submitted", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool targetReady = !weTypeSession ||
+                lineText.IndexOf("input_target_ready=True", StringComparison.OrdinalIgnoreCase) >= 0;
+            bool completed = delivered && targetReady && !deliveryFailed;
+            SetSessionFeedback(completed ? "completed" : "error",
+                completed ? "听写已完成，文字已由工具直接写入原输入框" :
+                delivered ? "转写完成，但工具未能直接写入原输入框" : "本次听写没有送出音频");
             return;
         }
 
@@ -3511,8 +3833,8 @@ internal sealed class VibeMicForm : Form
         ApplyVisualState(state);
         UpdateOverviewStatus();
         ShowToast(text, state == "completed" ? "success" : "error");
-        if (config.soundFeedbackEnabled)
-            PlayFeedbackSound(state == "completed");
+        if (config.soundFeedbackEnabled && state != "completed")
+            PlayFeedbackSound(false);
     }
 
     private void PlayFeedbackSound(bool success)
@@ -3521,6 +3843,158 @@ internal sealed class VibeMicForm : Form
         {
             if (success && dictationCompletePlayer != null) dictationCompletePlayer.Play();
             else if (!success && dictationErrorPlayer != null) dictationErrorPlayer.Play();
+        }
+        catch { }
+    }
+
+    private void ScheduleAutomaticUpdateCheck()
+    {
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            Thread.Sleep(8000);
+            if (!applicationExiting && config.autoCheckUpdates) CheckForUpdates(false);
+        });
+    }
+
+    private void CheckForUpdates(bool userInitiated)
+    {
+        if (Interlocked.CompareExchange(ref updateOperationActive, 1, 0) != 0)
+        {
+            if (userInitiated) ShowToast("更新检查正在进行，请稍候", "info");
+            return;
+        }
+        DispatchUi(delegate
+        {
+            if (userInitiated) ShowToast("正在从 GitHub 安全检查最新正式版", "info");
+        });
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            try
+            {
+                SecureUpdateInfo update = SecureUpdateClient.GetLatest(ProductRelease);
+                DispatchUi(delegate { HandleUpdateCheckResult(update, userInitiated); });
+            }
+            catch (Exception ex)
+            {
+                HostLog("UPDATE CHECK failed=" + SafeLogValue(ex.Message));
+                Interlocked.Exchange(ref updateOperationActive, 0);
+                DispatchUi(delegate
+                {
+                    if (userInitiated) ShowToast("暂时无法检查更新，请稍后重试", "error");
+                });
+            }
+        });
+    }
+
+    private void HandleUpdateCheckResult(SecureUpdateInfo update, bool userInitiated)
+    {
+        if (applicationExiting)
+        {
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            return;
+        }
+        if (update == null || !update.IsNewer)
+        {
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            if (userInitiated) ShowToast("当前已是最新正式版 V" + ProductRelease, "success");
+            HostLog("UPDATE CHECK current=" + ProductRelease + " result=up_to_date");
+            return;
+        }
+
+        HostLog("UPDATE CHECK current=" + ProductRelease + " latest=" + update.Version + " result=available");
+        DialogResult choice = MessageBox.Show(this,
+            "发现新版本 V" + update.Version + "。\r\n\r\n" +
+            "言灵将从官方 GitHub Release 下载安装包与 SHA256SUMS.txt，校验一致后才允许安装。是否继续？",
+            "言灵安全更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
+        if (choice != DialogResult.Yes)
+        {
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            ShowToast("已暂缓本次更新", "info");
+            return;
+        }
+        ShowToast("正在下载并校验 V" + update.Version + "，请稍候", "info");
+        ThreadPool.QueueUserWorkItem(delegate { DownloadVerifiedUpdate(update); });
+    }
+
+    private void DownloadVerifiedUpdate(SecureUpdateInfo update)
+    {
+        try
+        {
+            string updatesRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Vibe Flow Remote", "Updates");
+            string installer = SecureUpdateClient.DownloadAndVerify(update, updatesRoot);
+            HostLog("UPDATE DOWNLOAD version=" + update.Version + " sha256=" + update.ExpectedSha256 + " verified=True");
+            DispatchUi(delegate { ConfirmAndInstallVerifiedUpdate(update, installer); });
+        }
+        catch (Exception ex)
+        {
+            HostLog("UPDATE DOWNLOAD version=" + update.Version + " verified=False error=" + SafeLogValue(ex.Message));
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            DispatchUi(delegate { ShowToast("更新包校验失败，未运行任何文件", "error"); });
+        }
+    }
+
+    private void ConfirmAndInstallVerifiedUpdate(SecureUpdateInfo update, string installerPath)
+    {
+        if (applicationExiting)
+        {
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            return;
+        }
+        DialogResult choice = MessageBox.Show(this,
+            "V" + update.Version + " 已下载，SHA-256 校验通过。\r\n\r\n" +
+            "现在安装？言灵会安全退出，安装完成后自动重新打开；现有配置会保留。",
+            "更新已验证", MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
+        if (choice != DialogResult.Yes)
+        {
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            ShowToast("安装包已验证，可稍后再次检查更新", "info");
+            return;
+        }
+
+        try
+        {
+            var start = new ProcessStartInfo(installerPath,
+                "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /VIBEFLOWUPDATE");
+            start.UseShellExecute = true;
+            Process.Start(start);
+            HostLog("UPDATE INSTALL version=" + update.Version + " launched=True");
+            config.minimizeToTray = false;
+            applicationExiting = true;
+            Application.Exit();
+        }
+        catch (Exception ex)
+        {
+            HostLog("UPDATE INSTALL version=" + update.Version + " launched=False error=" + SafeLogValue(ex.Message));
+            Interlocked.Exchange(ref updateOperationActive, 0);
+            ShowToast("无法启动安装程序，更新未应用", "error");
+        }
+    }
+
+    private void DispatchUi(Action action)
+    {
+        if (action == null || applicationExiting || IsDisposed) return;
+        try
+        {
+            if (InvokeRequired) BeginInvoke(action);
+            else action();
+        }
+        catch { }
+    }
+
+    private static string SafeLogValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "unknown";
+        return value.Replace('\r', '_').Replace('\n', '_').Replace(' ', '_');
+    }
+
+    private void PlayRecordingCue(bool starting)
+    {
+        try
+        {
+            EventWaitHandle cue = starting ? recordingStartCueEvent : recordingStopCueEvent;
+            if (cue != null) cue.Set();
+            else PlayRecordingCueSync(starting);
         }
         catch { }
     }
@@ -3611,22 +4085,22 @@ internal sealed class VibeMicForm : Form
     private static string VoiceReadyInstruction(string value)
     {
         return UsesLongDictation(value)
-            ? "单击录音键开始长听写，再按一次结束"
-            : "聚焦输入框后按住录音键";
+            ? "短按录音键并立即松开，再短按一次结束"
+            : "聚焦输入框后按住说话，松开提交";
     }
 
     private static string VoiceModeHelp(string value)
     {
         return UsesLongDictation(value)
-            ? "自动跨越遥控器 60 秒分段，安全上限 10 分钟。"
-            : "保持真机验证交互；松开即提交，单次最长 60 秒。";
+            ? "实验模式；启动后必须立即松开，不能持续按住。"
+            : "确定的按下/松开边界；RC003 单次长按约 60 秒硬件上限。";
     }
 
     private static string VoiceStartInstruction(string value)
     {
         return UsesLongDictation(value)
-            ? "聚焦输入框，单击录音键开始；完成后再按一次"
-            : "聚焦输入框，按住录音键开始说话";
+            ? "聚焦输入框，短按并立即松开；完成后再短按一次"
+            : "聚焦输入框，按住录音键说话，松开结束";
     }
 
     private static string ProviderDisplayName(string provider)
@@ -3649,7 +4123,7 @@ internal sealed class VibeMicForm : Form
             case "windows": return "Windows 自带，无需安装额外客户端，适合快速开始和基础听写。";
             case "voquill": return "开源桌面听写工具，适合希望自行托管或进一步定制工作流的用户。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
-            default: return "适合中文输入与结构化整理。言灵优先调用已验证的微信输入法工具栏入口。";
+            default: return "适合中文输入与结构化整理。推荐使用微信 AI 整理模式，直接回填清理后的文字。";
         }
     }
 
@@ -3661,7 +4135,7 @@ internal sealed class VibeMicForm : Form
             case "windows": return "Windows 语音输入使用 Win + H。首次使用时请先在任意输入框中手动按一次完成系统初始化。";
             case "voquill": return "在 Voquill 中确认 Push-to-talk 快捷键。当前开源 Windows 默认是 Ctrl + Win 按住触发。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
-            default: return "先启动微信输入法，并确认工具栏麦克风可以手动打开。Ctrl + Win 仅作为工具栏不可用时的回退。";
+            default: return "在微信输入法中开启“语音智能整理”。推荐 Ctrl + Win + Shift 单击切换；Ctrl + Win 按住说话作为兼容模式。";
         }
     }
 
@@ -3671,6 +4145,21 @@ internal sealed class VibeMicForm : Form
         return DefaultHotkeyForProvider(provider).Replace("+", " + ") + " · " + trigger;
     }
 
+    private static void PopulateTriggerModeOptions(ComboBox target, string provider)
+    {
+        target.Items.Clear();
+        if (NormalizeProviderKey(provider) == "wechat")
+            target.Items.AddRange(new object[] { "AI 整理（推荐）", "按住说话（兼容）" });
+        else
+            target.Items.AddRange(new object[] { "单击切换", "按住触发" });
+    }
+
+    private static string ProviderHotkeyHelp(string provider, string trigger)
+    {
+        if (NormalizeProviderKey(provider) != "wechat") return "须与所选工具中的快捷键一致";
+        return trigger == "hold" ? "兼容模式，不启用 AI 整理" : "去口头词并自动分段";
+    }
+
     private static string DefaultHotkeyForProvider(string provider)
     {
         switch (NormalizeProviderKey(provider))
@@ -3678,7 +4167,8 @@ internal sealed class VibeMicForm : Form
             case "typeless": return "rightalt";
             case "windows": return "win+h";
             case "voquill": return "ctrl+win";
-            default: return "ctrl+win";
+            case "custom": return "ctrl+win";
+            default: return WeChatAiHotkey;
         }
     }
 
@@ -3695,7 +4185,7 @@ internal sealed class VibeMicForm : Form
             case "typeless": return 120;
             case "voquill": return 120;
             case "custom": return 150;
-            default: return 80;
+            default: return 180;
         }
     }
 
@@ -3849,9 +4339,15 @@ internal sealed class VibeMicForm : Form
             value.voiceMode = normalizedVoiceMode;
             changed = true;
         }
+        if (previousSchema < 19 && normalizedVoiceMode == "continuous")
+        {
+            value.voiceMode = "hold";
+            normalizedVoiceMode = "hold";
+            changed = true;
+        }
         if (string.IsNullOrWhiteSpace(value.audioEndpointName)) { value.audioEndpointName = "CABLE Input"; changed = true; }
         if (string.IsNullOrWhiteSpace(value.inputMethod)) { value.inputMethod = "wechat"; changed = true; }
-        if (string.IsNullOrWhiteSpace(value.inputMethodHotkey)) { value.inputMethodHotkey = "ctrl+win"; changed = true; }
+        if (string.IsNullOrWhiteSpace(value.inputMethodHotkey)) { value.inputMethodHotkey = DefaultHotkeyForProvider(value.inputMethod); changed = true; }
         string normalizedProvider = NormalizeProviderKey(value.inputMethod);
         if (!normalizedProvider.Equals(value.inputMethod, StringComparison.OrdinalIgnoreCase))
         {
@@ -3866,6 +4362,14 @@ internal sealed class VibeMicForm : Form
         if (value.inputMethodTrigger != "toggle" && value.inputMethodTrigger != "hold")
         {
             value.inputMethodTrigger = DefaultTriggerForProvider(value.inputMethod);
+            changed = true;
+        }
+        if (previousSchema < 18 && normalizedProvider == "wechat" &&
+            string.Equals(value.inputMethodHotkey, WeChatCompatibilityHotkey, StringComparison.OrdinalIgnoreCase) &&
+            value.inputMethodTrigger == "toggle")
+        {
+            value.inputMethodHotkey = WeChatAiHotkey;
+            value.providerStartupDelayMs = DefaultStartupDelayForProvider("wechat");
             changed = true;
         }
         if (value.providerStartupDelayMs < 20 || value.providerStartupDelayMs > 2000)
@@ -3889,6 +4393,11 @@ internal sealed class VibeMicForm : Form
         {
             value.soundFeedbackEnabled = true;
             value.onboardingVersion = CurrentOnboardingVersion;
+            changed = true;
+        }
+        if (previousSchema < 17)
+        {
+            value.autoCheckUpdates = true;
             changed = true;
         }
         if (value.drainMs <= 0) { value.drainMs = 180; changed = true; }
@@ -4043,25 +4552,44 @@ internal sealed class VibeMicForm : Form
                 choices.Add(new ShortcutChoice("开发工具 · Windsurf", "launch-client:windsurf"));
                 choices.Add(new ShortcutChoice("系统工具 · Windows Terminal", "launch-client:terminal"));
             }
-            choices.Add(new ShortcutChoice("确认 / 换行", "enter"));
-            choices.Add(new ShortcutChoice("复制", "ctrl+c"));
-            choices.Add(new ShortcutChoice("剪切", "ctrl+x"));
-            choices.Add(new ShortcutChoice("粘贴", "ctrl+v"));
-            choices.Add(new ShortcutChoice("撤销", "ctrl+z"));
-            choices.Add(new ShortcutChoice("重做", "ctrl+shift+z"));
-            choices.Add(new ShortcutChoice("命令面板", "ctrl+shift+p"));
-            choices.Add(new ShortcutChoice("查找", "ctrl+f"));
+            choices.Add(new ShortcutChoice("通用 · 确认 / 换行", "enter"));
+            choices.Add(new ShortcutChoice("编辑 · 复制", "ctrl+c"));
+            choices.Add(new ShortcutChoice("编辑 · 剪切", "ctrl+x"));
+            choices.Add(new ShortcutChoice("编辑 · 粘贴", "ctrl+v"));
+            choices.Add(new ShortcutChoice("编辑 · 撤销", "ctrl+z"));
+            choices.Add(new ShortcutChoice("编辑 · 重做", "ctrl+shift+z"));
+            choices.Add(new ShortcutChoice("编辑 · 保存", "ctrl+s"));
+            choices.Add(new ShortcutChoice("编辑 · 全选", "ctrl+a"));
+            choices.Add(new ShortcutChoice("代码 · 命令面板", "ctrl+shift+p"));
+            choices.Add(new ShortcutChoice("代码 · 快速打开文件", "ctrl+p"));
+            choices.Add(new ShortcutChoice("代码 · 新建终端", "ctrl+oemtilde"));
+            choices.Add(new ShortcutChoice("代码 · 删除当前行", "ctrl+shift+k"));
+            choices.Add(new ShortcutChoice("代码 · 运行 / 调试", "f5"));
+            choices.Add(new ShortcutChoice("导航 · 查找", "ctrl+f"));
+            choices.Add(new ShortcutChoice("导航 · 关闭标签页", "ctrl+w"));
             if (key == "TV") choices.Add(new ShortcutChoice("任务切换器（左右选择）", "task-switcher"));
-            choices.Add(new ShortcutChoice("快速切换应用", "alt+tab"));
-            choices.Add(new ShortcutChoice("切换标签页", "ctrl+tab"));
-            choices.Add(new ShortcutChoice("显示桌面", "win+d"));
-            choices.Add(new ShortcutChoice("返回上一页", "alt+left"));
-            choices.Add(new ShortcutChoice("Esc / 取消", "escape"));
+            choices.Add(new ShortcutChoice("导航 · 快速切换应用", "alt+tab"));
+            choices.Add(new ShortcutChoice("导航 · 切换标签页", "ctrl+tab"));
+            choices.Add(new ShortcutChoice("系统 · 显示桌面", "win+d"));
+            choices.Add(new ShortcutChoice("导航 · 返回上一页", "alt+left"));
+            choices.Add(new ShortcutChoice("通用 · Esc / 取消", "escape"));
         }
         bool found = false;
         foreach (ShortcutChoice choice in choices) if (choice.Shortcut.Equals(current ?? "", StringComparison.OrdinalIgnoreCase)) found = true;
         if (!found && !string.IsNullOrWhiteSpace(current)) choices.Add(new ShortcutChoice("自定义 · " + current, current));
         return choices;
+    }
+
+    private string FindMappingConflict(string key, string shortcut)
+    {
+        if (config.mappings == null || string.IsNullOrWhiteSpace(shortcut)) return "";
+        string[] configurable = { "确认键", "Home", "TV", "功能键" };
+        foreach (string candidate in configurable)
+        {
+            if (candidate == key || !config.mappings.ContainsKey(candidate)) continue;
+            if (string.Equals(config.mappings[candidate], shortcut, StringComparison.OrdinalIgnoreCase)) return candidate;
+        }
+        return "";
     }
 
     private static int FindShortcutChoice(List<ShortcutChoice> choices, string shortcut)
@@ -4120,8 +4648,11 @@ internal sealed class VibeMicForm : Form
             return;
         }
 
+        string diagnosticGesture = UsesLongDictation(config.voiceMode)
+            ? "下一次单击录音键开始后"
+            : "下一次按住录音键时";
         DialogResult consent = MessageBox.Show(this,
-            "仅下一次按住录音键时，言灵会在本机保存三份音频：遥控器解码原声、处理后声音和 CABLE Output。最长 30 秒，完成后自动关闭，可随时删除。\r\n\r\n请说：测试麦克风，一二三四五六，期待效果。",
+            "仅" + diagnosticGesture + "，言灵会在本机保存三份音频：遥控器解码原声、处理后声音和 CABLE Output。最长 30 秒，完成后自动关闭，可随时删除。\r\n\r\n请说：测试麦克风，一二三四五六，期待效果。",
             "采集下一段诊断音频", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
         if (consent != DialogResult.OK) return;
 
@@ -4130,7 +4661,9 @@ internal sealed class VibeMicForm : Form
             using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicCaptureAudioDiagnostic"))
                 handle.Set();
             Log("One-shot audio diagnostic armed by user.");
-            Toast("已就绪，请按住录音键说提示短句");
+            Toast(UsesLongDictation(config.voiceMode)
+                ? "已就绪，请单击录音键开始并说提示短句"
+                : "已就绪，请按住录音键说提示短句");
         }
         catch (WaitHandleCannotBeOpenedException)
         {
@@ -4335,9 +4868,15 @@ internal sealed class VibeMicForm : Form
         public bool RouteRestorePending;
         public bool Completed;
         public bool AudioDelivered;
+        public bool InputTargetObserved;
+        public bool InputTargetCaptured;
+        public bool InputTargetReady;
+        public bool DeliveryFailed;
+        public string DeliveryMode = "";
         public bool Success;
         public bool Failed;
         public int AudioMs;
+        public int SegmentCount;
         public int TriggerToReadyMs;
         public int MaxGapMs;
         public int QueueDrops;
@@ -4373,6 +4912,7 @@ internal sealed class VibeMicForm : Form
         public string audioProcessingMode { get; set; }
         public bool autoRouteVirtualMicrophone { get; set; }
         public bool soundFeedbackEnabled { get; set; }
+        public bool autoCheckUpdates { get; set; }
         public int drainMs { get; set; }
         public string mappingPreset { get; set; }
         public Dictionary<string, string> mappings { get; set; }
@@ -4393,12 +4933,13 @@ internal sealed class VibeMicForm : Form
             c.minimizeToTray = true;
             c.audioEndpointName = "CABLE Input";
             c.inputMethod = "wechat";
-            c.inputMethodHotkey = "ctrl+win";
+            c.inputMethodHotkey = WeChatAiHotkey;
             c.inputMethodTrigger = "toggle";
-            c.providerStartupDelayMs = 80;
+            c.providerStartupDelayMs = 180;
             c.audioProcessingMode = "speech";
             c.autoRouteVirtualMicrophone = true;
             c.soundFeedbackEnabled = true;
+            c.autoCheckUpdates = true;
             c.drainMs = 180;
             c.mappingPreset = "coding";
             c.mappings = new Dictionary<string, string>();
@@ -4417,6 +4958,262 @@ internal sealed class VibeMicForm : Form
         public readonly string Shortcut;
         public ShortcutChoice(string label, string shortcut) { Label = label; Shortcut = shortcut; }
         public override string ToString() { return Label; }
+    }
+}
+
+internal sealed class SecureUpdateInfo
+{
+    public string Version;
+    public string InstallerUrl;
+    public string ChecksumUrl;
+    public string ExpectedSha256;
+    public bool IsNewer;
+}
+
+internal static class SecureUpdateClient
+{
+    private const string LatestReleaseApi = "https://api.github.com/repos/richlearntodo-debug/vibe-flow/releases/latest";
+    private const string InstallerAssetName = "VibeFlow-Setup.exe";
+    private const string ChecksumAssetName = "SHA256SUMS.txt";
+
+    public static SecureUpdateInfo GetLatest(string currentVersion)
+    {
+        ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
+        try
+        {
+            string payload;
+            using (TimeoutWebClient client = CreateClient(20000)) payload = client.DownloadString(LatestReleaseApi);
+            GitHubRelease release = new JavaScriptSerializer().Deserialize<GitHubRelease>(payload);
+            if (release == null || release.draft || release.prerelease || string.IsNullOrWhiteSpace(release.tag_name))
+                throw new InvalidDataException("GitHub latest release metadata is invalid");
+
+            string latestVersion = NormalizeVersion(release.tag_name);
+            string installedVersion = NormalizeVersion(currentVersion);
+            GitHubAsset installer = FindAsset(release.assets, InstallerAssetName);
+            GitHubAsset checksums = FindAsset(release.assets, ChecksumAssetName);
+            if (installer == null || checksums == null)
+                throw new InvalidDataException("Latest release is missing the installer or checksum manifest");
+            ValidateAssetUrl(installer.browser_download_url);
+            ValidateAssetUrl(checksums.browser_download_url);
+
+            return new SecureUpdateInfo
+            {
+                Version = latestVersion,
+                InstallerUrl = installer.browser_download_url,
+                ChecksumUrl = checksums.browser_download_url,
+                IsNewer = ParseVersion(latestVersion).CompareTo(ParseVersion(installedVersion)) > 0
+            };
+        }
+        catch (WebException)
+        {
+            return GetLatestFromReleaseRedirect(currentVersion);
+        }
+    }
+
+    private static SecureUpdateInfo GetLatestFromReleaseRedirect(string currentVersion)
+    {
+        const string latestPage = "https://github.com/richlearntodo-debug/vibe-flow/releases/latest";
+        Uri resolved = ResolveRedirect(latestPage);
+        string marker = "/releases/tag/";
+        int markerIndex = resolved.AbsolutePath.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0) throw new InvalidDataException("GitHub latest release redirect did not contain a tag");
+        string tag = Uri.UnescapeDataString(resolved.AbsolutePath.Substring(markerIndex + marker.Length));
+        string latestVersion = NormalizeVersion(tag);
+        string installerUrl = latestPage + "/download/" + InstallerAssetName;
+        string checksumUrl = latestPage + "/download/" + ChecksumAssetName;
+        EnsureAssetAvailable(installerUrl);
+        EnsureAssetAvailable(checksumUrl);
+        return new SecureUpdateInfo
+        {
+            Version = latestVersion,
+            InstallerUrl = installerUrl,
+            ChecksumUrl = checksumUrl,
+            IsNewer = ParseVersion(latestVersion).CompareTo(ParseVersion(currentVersion)) > 0
+        };
+    }
+
+    private static Uri ResolveRedirect(string value)
+    {
+        HttpWebRequest request = (HttpWebRequest)WebRequest.Create(value);
+        request.Method = "HEAD";
+        request.AllowAutoRedirect = true;
+        request.Timeout = 20000;
+        request.ReadWriteTimeout = 20000;
+        request.UserAgent = "Vibe-Flow-Remote-Updater/1.0";
+        using (HttpWebResponse response = (HttpWebResponse)request.GetResponse()) return response.ResponseUri;
+    }
+
+    private static void EnsureAssetAvailable(string value)
+    {
+        Uri final = ResolveRedirect(value);
+        if (final == null || final.Scheme != Uri.UriSchemeHttps)
+            throw new InvalidDataException("Release asset did not resolve over HTTPS");
+    }
+
+    public static string DownloadAndVerify(SecureUpdateInfo update, string updatesRoot)
+    {
+        if (update == null || string.IsNullOrWhiteSpace(update.Version))
+            throw new ArgumentException("Update metadata is missing");
+        ValidateAssetUrl(update.InstallerUrl);
+        ValidateAssetUrl(update.ChecksumUrl);
+        Directory.CreateDirectory(updatesRoot);
+        string versionDirectory = Path.Combine(updatesRoot, "v" + NormalizeVersion(update.Version));
+        Directory.CreateDirectory(versionDirectory);
+        string installerPath = Path.Combine(versionDirectory, InstallerAssetName);
+        string checksumPath = Path.Combine(versionDirectory, ChecksumAssetName);
+        string installerDownload = installerPath + ".download";
+        string checksumDownload = checksumPath + ".download";
+
+        TryDelete(installerDownload);
+        TryDelete(checksumDownload);
+        try
+        {
+            using (TimeoutWebClient client = CreateClient(120000))
+            {
+                client.DownloadFile(update.ChecksumUrl, checksumDownload);
+                client.DownloadFile(update.InstallerUrl, installerDownload);
+            }
+            var checksumFile = new FileInfo(checksumDownload);
+            var installerFile = new FileInfo(installerDownload);
+            if (checksumFile.Length <= 0 || checksumFile.Length > 1024 * 1024)
+                throw new InvalidDataException("Checksum manifest size is invalid");
+            if (installerFile.Length < 250000)
+                throw new InvalidDataException("Downloaded installer is unexpectedly small");
+
+            string expected = ReadExpectedSha256(File.ReadAllText(checksumDownload, Encoding.UTF8), InstallerAssetName);
+            string actual = ComputeSha256(installerDownload);
+            if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Installer SHA-256 does not match the release manifest");
+            update.ExpectedSha256 = expected.ToUpperInvariant();
+
+            TryDelete(installerPath);
+            TryDelete(checksumPath);
+            File.Move(installerDownload, installerPath);
+            File.Move(checksumDownload, checksumPath);
+            if (!ComputeSha256(installerPath).Equals(expected, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Installer changed after verification");
+            return installerPath;
+        }
+        finally
+        {
+            TryDelete(installerDownload);
+            TryDelete(checksumDownload);
+        }
+    }
+
+    internal static string ReadExpectedSha256(string manifest, string fileName)
+    {
+        foreach (string rawLine in (manifest ?? "").Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string[] fields = rawLine.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length < 2) continue;
+            string candidate = fields[fields.Length - 1].TrimStart('*');
+            if (!candidate.Equals(fileName, StringComparison.OrdinalIgnoreCase)) continue;
+            string hash = fields[0].Trim();
+            if (hash.Length != 64 || !IsHexString(hash))
+                throw new InvalidDataException("Installer checksum is malformed");
+            return hash;
+        }
+        throw new InvalidDataException("Installer checksum is missing from the manifest");
+    }
+
+    internal static Version ParseVersion(string value)
+    {
+        string normalized = NormalizeVersion(value);
+        string[] parts = normalized.Split('.');
+        int[] numbers = new int[4];
+        if (parts.Length == 0 || parts.Length > 4) throw new InvalidDataException("Release version is invalid");
+        for (int i = 0; i < parts.Length; i++)
+            if (!int.TryParse(parts[i], out numbers[i]) || numbers[i] < 0)
+                throw new InvalidDataException("Release version is invalid");
+        return new Version(numbers[0], numbers[1], numbers[2], numbers[3]);
+    }
+
+    private static string NormalizeVersion(string value)
+    {
+        string normalized = (value ?? "").Trim();
+        if (normalized.StartsWith("v", StringComparison.OrdinalIgnoreCase)) normalized = normalized.Substring(1);
+        int suffix = normalized.IndexOf('-');
+        if (suffix >= 0) normalized = normalized.Substring(0, suffix);
+        if (string.IsNullOrWhiteSpace(normalized)) throw new InvalidDataException("Release version is missing");
+        return normalized;
+    }
+
+    private static GitHubAsset FindAsset(GitHubAsset[] assets, string name)
+    {
+        if (assets == null) return null;
+        foreach (GitHubAsset asset in assets)
+            if (asset != null && string.Equals(asset.name, name, StringComparison.OrdinalIgnoreCase)) return asset;
+        return null;
+    }
+
+    private static void ValidateAssetUrl(string value)
+    {
+        Uri uri;
+        if (!Uri.TryCreate(value, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps ||
+            !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Release asset URL is not an official GitHub HTTPS URL");
+    }
+
+    private static TimeoutWebClient CreateClient(int timeoutMs)
+    {
+        var client = new TimeoutWebClient(timeoutMs);
+        client.Headers[HttpRequestHeader.UserAgent] = "Vibe-Flow-Remote-Updater/1.0";
+        client.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
+        return client;
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using (FileStream stream = File.OpenRead(path))
+        using (SHA256 algorithm = SHA256.Create())
+            return BitConverter.ToString(algorithm.ComputeHash(stream)).Replace("-", "");
+    }
+
+    private static bool IsHexCharacter(char value)
+    {
+        return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
+    }
+
+    private static bool IsHexString(string value)
+    {
+        foreach (char character in value) if (!IsHexCharacter(character)) return false;
+        return true;
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
+        catch { }
+    }
+
+    private sealed class GitHubRelease
+    {
+        public string tag_name { get; set; }
+        public bool draft { get; set; }
+        public bool prerelease { get; set; }
+        public GitHubAsset[] assets { get; set; }
+    }
+
+    private sealed class GitHubAsset
+    {
+        public string name { get; set; }
+        public string browser_download_url { get; set; }
+    }
+
+    private sealed class TimeoutWebClient : WebClient
+    {
+        private readonly int timeoutMs;
+        public TimeoutWebClient(int timeout) { timeoutMs = timeout; }
+
+        protected override WebRequest GetWebRequest(Uri address)
+        {
+            WebRequest request = base.GetWebRequest(address);
+            request.Timeout = timeoutMs;
+            HttpWebRequest http = request as HttpWebRequest;
+            if (http != null) http.ReadWriteTimeout = timeoutMs;
+            return request;
+        }
     }
 }
 
@@ -4862,6 +5659,356 @@ internal sealed class RemoteVisual : Control
     {
         return Color.FromArgb(color.A, Math.Min(255, color.R + amount), Math.Min(255, color.G + amount), Math.Min(255, color.B + amount));
     }
+}
+
+internal sealed class WindowsAudioDuckingLease : IDisposable
+{
+    private const string RegistryPath = "Software\\Microsoft\\Multimedia\\Audio";
+    private const string PreferenceName = "UserDuckingPreference";
+    private const int DoNothingPreference = 3;
+
+    private readonly object sync = new object();
+    private readonly string markerPath;
+    private readonly Action<string> log;
+    private System.Threading.Timer restoreTimer;
+    private bool active;
+    private bool changedPreference;
+    private bool originalExists;
+    private int originalValue;
+    private int leaseVersion;
+    private bool disposed;
+
+    public WindowsAudioDuckingLease(string recoveryMarkerPath, Action<string> logger)
+    {
+        markerPath = recoveryMarkerPath;
+        log = logger ?? delegate { };
+        RecoverStaleLease();
+    }
+
+    public bool Acquire(string reason)
+    {
+        lock (sync)
+        {
+            if (disposed) return false;
+            CancelRestoreTimer();
+            leaseVersion++;
+
+            if (active)
+            {
+                int current;
+                bool exists;
+                if (TryReadPreference(out exists, out current) && exists && current == DoNothingPreference)
+                {
+                    log("WINDOWS AUDIO DUCKING PROTECTED retained=True reason=" + Safe(reason));
+                    return true;
+                }
+
+                log("WINDOWS AUDIO DUCKING PROTECTION LOST reason=user_or_system_changed_preference");
+                DeleteMarker();
+                active = false;
+                changedPreference = false;
+                return false;
+            }
+
+            if (!TryReadPreference(out originalExists, out originalValue))
+            {
+                log("WINDOWS AUDIO DUCKING PROTECTION FAILED phase=read_preference reason=" + Safe(reason));
+                return false;
+            }
+
+            if (originalExists && originalValue == DoNothingPreference)
+            {
+                active = true;
+                changedPreference = false;
+                log("WINDOWS AUDIO DUCKING PROTECTED changed=False original=do_nothing reason=" + Safe(reason));
+                return true;
+            }
+
+            if (!WriteMarker())
+            {
+                log("WINDOWS AUDIO DUCKING PROTECTION FAILED phase=write_recovery_marker reason=" + Safe(reason));
+                return false;
+            }
+
+            if (!TryWritePreference(DoNothingPreference))
+            {
+                DeleteMarker();
+                log("WINDOWS AUDIO DUCKING PROTECTION FAILED phase=write_preference reason=" + Safe(reason));
+                return false;
+            }
+
+            bool verifyExists;
+            int verifyValue;
+            if (!TryReadPreference(out verifyExists, out verifyValue) || !verifyExists || verifyValue != DoNothingPreference)
+            {
+                RestoreOriginalPreference("acquire_verify_failed");
+                log("WINDOWS AUDIO DUCKING PROTECTION FAILED phase=verify_preference reason=" + Safe(reason));
+                return false;
+            }
+
+            active = true;
+            changedPreference = true;
+            log("WINDOWS AUDIO DUCKING PROTECTED changed=True original=" +
+                (originalExists ? originalValue.ToString() : "missing") + " reason=" + Safe(reason));
+            return true;
+        }
+    }
+
+    public void ReleaseAfter(int delayMs, string reason)
+    {
+        lock (sync)
+        {
+            if (!active || disposed) return;
+            CancelRestoreTimer();
+            int version = ++leaseVersion;
+            restoreTimer = new System.Threading.Timer(delegate { RestoreIfCurrent(version, reason); }, null,
+                Math.Max(0, delayMs), Timeout.Infinite);
+            log("WINDOWS AUDIO DUCKING RESTORE SCHEDULED delay_ms=" + Math.Max(0, delayMs) +
+                " reason=" + Safe(reason));
+        }
+    }
+
+    public void ReleaseNow(string reason)
+    {
+        lock (sync)
+        {
+            leaseVersion++;
+            CancelRestoreTimer();
+            RestoreOriginalPreference(reason);
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (sync)
+        {
+            if (disposed) return;
+            leaseVersion++;
+            CancelRestoreTimer();
+            RestoreOriginalPreference("dispose");
+            disposed = true;
+        }
+    }
+
+    private void RestoreIfCurrent(int version, string reason)
+    {
+        lock (sync)
+        {
+            if (disposed || version != leaseVersion) return;
+            CancelRestoreTimer();
+            RestoreOriginalPreference(reason);
+        }
+    }
+
+    private void RestoreOriginalPreference(string reason)
+    {
+        if (!active)
+        {
+            DeleteMarker();
+            return;
+        }
+
+        if (!changedPreference)
+        {
+            active = false;
+            log("WINDOWS AUDIO DUCKING RESTORED changed=False reason=" + Safe(reason));
+            return;
+        }
+
+        bool currentExists;
+        int currentValue;
+        bool read = TryReadPreference(out currentExists, out currentValue);
+        if (!read || !currentExists || currentValue != DoNothingPreference)
+        {
+            log("WINDOWS AUDIO DUCKING RESTORE SKIPPED reason=user_or_system_changed_preference current=" +
+                (!read ? "unreadable" : currentExists ? currentValue.ToString() : "missing"));
+        }
+        else if (RestorePreference(originalExists, originalValue))
+        {
+            log("WINDOWS AUDIO DUCKING PREFERENCE RESTORED original=" +
+                (originalExists ? originalValue.ToString() : "missing") + " reason=" + Safe(reason));
+        }
+        else
+        {
+            log("WINDOWS AUDIO DUCKING RESTORE FAILED reason=" + Safe(reason));
+            return;
+        }
+
+        active = false;
+        changedPreference = false;
+        DeleteMarker();
+    }
+
+    private void RecoverStaleLease()
+    {
+        lock (sync)
+        {
+            if (string.IsNullOrWhiteSpace(markerPath) || !File.Exists(markerPath)) return;
+            try
+            {
+                DuckingMarker marker = new JavaScriptSerializer().Deserialize<DuckingMarker>(File.ReadAllText(markerPath));
+                if (marker == null) throw new InvalidDataException("empty marker");
+
+                bool currentExists;
+                int currentValue;
+                if (!TryReadPreference(out currentExists, out currentValue))
+                {
+                    log("WINDOWS AUDIO DUCKING STARTUP RECOVERY FAILED phase=read_preference");
+                    return;
+                }
+
+                if (currentExists && currentValue == DoNothingPreference)
+                {
+                    bool restored = RestorePreference(marker.OriginalExists, marker.OriginalValue);
+                    log("WINDOWS AUDIO DUCKING STARTUP RECOVERY restored=" + restored + " original=" +
+                        (marker.OriginalExists ? marker.OriginalValue.ToString() : "missing"));
+                    if (!restored) return;
+                }
+                else
+                {
+                    log("WINDOWS AUDIO DUCKING STARTUP RECOVERY skipped=user_or_system_changed_preference current=" +
+                        (currentExists ? currentValue.ToString() : "missing"));
+                }
+                DeleteMarker();
+            }
+            catch (Exception ex)
+            {
+                log("WINDOWS AUDIO DUCKING STARTUP RECOVERY FAILED phase=marker error=" + Safe(ex.Message));
+            }
+        }
+    }
+
+    private bool WriteMarker()
+    {
+        try
+        {
+            string directory = Path.GetDirectoryName(markerPath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            string json = new JavaScriptSerializer().Serialize(new DuckingMarker
+            {
+                OriginalExists = originalExists,
+                OriginalValue = originalValue
+            });
+            using (var stream = new FileStream(markerPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                writer.Write(json);
+                writer.Flush();
+                stream.Flush(true);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log("WINDOWS AUDIO DUCKING MARKER WRITE FAILED error=" + Safe(ex.Message));
+            return false;
+        }
+    }
+
+    private bool RestorePreference(bool exists, int value)
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+            {
+                if (key == null) return false;
+                if (exists) key.SetValue(PreferenceName, value, RegistryValueKind.DWord);
+                else key.DeleteValue(PreferenceName, false);
+            }
+            BroadcastPreferenceChange();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log("WINDOWS AUDIO DUCKING PREFERENCE RESTORE FAILED error=" + Safe(ex.Message));
+            return false;
+        }
+    }
+
+    private bool TryReadPreference(out bool exists, out int value)
+    {
+        exists = false;
+        value = 0;
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RegistryPath, false))
+            {
+                if (key == null) return true;
+                object raw = key.GetValue(PreferenceName, null, RegistryValueOptions.DoNotExpandEnvironmentNames);
+                if (raw == null) return true;
+                value = Convert.ToInt32(raw, CultureInfo.InvariantCulture);
+                exists = true;
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            log("WINDOWS AUDIO DUCKING PREFERENCE READ FAILED error=" + Safe(ex.Message));
+            return false;
+        }
+    }
+
+    private bool TryWritePreference(int value)
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath))
+            {
+                if (key == null) return false;
+                key.SetValue(PreferenceName, value, RegistryValueKind.DWord);
+            }
+            BroadcastPreferenceChange();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            log("WINDOWS AUDIO DUCKING PREFERENCE WRITE FAILED error=" + Safe(ex.Message));
+            return false;
+        }
+    }
+
+    private void CancelRestoreTimer()
+    {
+        if (restoreTimer == null) return;
+        restoreTimer.Dispose();
+        restoreTimer = null;
+    }
+
+    private void DeleteMarker()
+    {
+        try { if (!string.IsNullOrWhiteSpace(markerPath) && File.Exists(markerPath)) File.Delete(markerPath); }
+        catch (Exception ex) { log("WINDOWS AUDIO DUCKING MARKER DELETE FAILED error=" + Safe(ex.Message)); }
+    }
+
+    private static string Safe(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "none" : value.Replace('\r', '_').Replace('\n', '_').Replace(' ', '_');
+    }
+
+    private sealed class DuckingMarker
+    {
+        public bool OriginalExists { get; set; }
+        public int OriginalValue { get; set; }
+    }
+
+    private void BroadcastPreferenceChange()
+    {
+        try
+        {
+            UIntPtr result;
+            IntPtr sent = SendMessageTimeout(new IntPtr(0xFFFF), 0x001A, UIntPtr.Zero, RegistryPath,
+                0x0002, 250, out result);
+            log("WINDOWS AUDIO DUCKING PREFERENCE BROADCAST sent=" + (sent != IntPtr.Zero));
+        }
+        catch (Exception ex)
+        {
+            log("WINDOWS AUDIO DUCKING PREFERENCE BROADCAST FAILED error=" + Safe(ex.Message));
+        }
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, UIntPtr wParam,
+        string lParam, uint flags, uint timeout, out UIntPtr result);
 }
 
 internal static class GraphicsExtensions

@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.1.0 - 2026-08-26
+
+- Made hold-to-talk the stable default: press and hold Record to capture, then
+  release to submit. Existing schema 18 continuous defaults migrate to schema 19
+  hold mode without changing the validated voice profile or button mappings.
+- Added a dedicated `VibeMicVoiceKeyReleased` event. Release first waits 260 ms
+  for the RC003 natural stop, then uses one generation-safe close and a bounded
+  700 ms fallback. A hold-mode release can never enter the reopen path, preventing
+  a second transcription microphone after the user has finished.
+- Confirmed and documented the RC003 firmware boundary: one physical hold emits
+  F5 UP and ATVV stop at roughly 60 seconds. Host MIC_OPEN, MIC_EXTEND, exact
+  close/reopen, and wildcard close/reopen cannot restore real audio within that
+  same physical hold.
+- Kept short-press continuous dictation as an experimental, non-default option
+  with a 10-minute safety limit. Removed the unsupported claim that one sustained
+  physical hold can reliably exceed 60 seconds.
+- Preserved stable profile v11, gain `1.0`, speech processing, 180 ms drain,
+  provider timing, endpoint routing, BLE retry behavior, and verified single-key
+  defaults unchanged.
+- Updated the overview, dictation screen, onboarding, and diagnostics for the
+  hold/release interaction, with duration, output-level, remote-light, toast, and
+  state feedback. Experimental sessions retain logical total and segment metrics.
+- Added Save, Select All, Quick Open File, New Terminal, Delete Line,
+  Run/Debug, and Close Tab shortcut choices.
+- Added visible duplicate-assignment warnings while preserving intentional
+  duplicate mappings.
+- Preserved the exact Windows UI Automation text control around WeChat sessions,
+  retaining the latest editable focus and checking the editor under the pointer
+  so a Chromium page `Group` cannot replace the real input target. The default
+  WeChat AI profile now taps `Ctrl+Win+Shift` after routing is ready and again after
+  virtual audio has drained, without entering the toolbar clipboard mode. The provider path passively
+  verifies the existing editor focus without activating windows, calling UI
+  Automation `SetFocus`, monitoring the clipboard, or synthesizing paste.
+- Confirmed the WeChat trigger root cause with the same captured RC003 audio: local
+  Whisper recovered the full sentence from raw and processed audio, while the legacy
+  `Ctrl+Win` hold path omitted its tail. The `Ctrl+Win+Shift` AI toggle preserved the
+  complete sentence and applied WeChat's structured organization. Provider shutdown
+  now precedes microphone-route restoration, with a 350 ms completion window.
+- Prevented WeChat communication sessions from temporarily lowering the Windows
+  playback volume. A recoverable per-session lease applies the user's "do nothing"
+  communications-ducking policy during provider startup, broadcasts the change
+  before the hotkey is pressed, and restores the exact prior preference after the
+  session. Startup recovery handles an interrupted lease and never overwrites a
+  preference that the user changed while dictation was active.
+- Kept recording start silent with immediate visual feedback, and restored the
+  proven short two-note completion cue for recording stop. Normal completion
+  does not add a second sound; errors retain an alert cue. State transitions use
+  named events rather than 500 ms log polling, and long-dictation segment
+  renewal cannot replay recording cues.
+- Added user-confirmed in-app updates from GitHub Releases with semantic version
+  comparison, API rate-limit fallback, HTTPS-only assets, and SHA-256 verification.
+- Added optional Authenticode signing and verification for all first-party EXEs
+  and the installer, including GitHub Actions PFX secret support.
+- Bumped the app, capture helper, input bridge, installer, configuration schema,
+  and onboarding metadata to 1.1.0 / schema 19 / onboarding 5.
+- Rebuilt the beginner tutorial, quick start, release notes, recording-mode guide,
+  reusable screenshots, and community QR section for GitHub publication.
+
 ## 1.0.3 - 2026-08-25
 
 - Fixed the Windows-login race where the remote key bridge could start before

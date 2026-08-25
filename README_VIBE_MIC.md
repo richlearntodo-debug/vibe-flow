@@ -1,49 +1,61 @@
 # Vibe Flow Remote / 言灵
 
-Vibe Flow Remote turns the microphone in a Xiaomi RC003 / MI RC Bluetooth remote into a Windows voice-input source. It sends remote audio through VB-CABLE to WeChat Input Method, Typeless, Windows Voice Typing, Voquill, or a configurable hotkey-driven dictation client. The selected client continues to own speech-to-text and text structuring. Its Chinese product name is 言灵.
+Vibe Flow Remote turns the microphone in a Xiaomi RC003 / MI RC Bluetooth remote into a Windows voice-input source. It routes remote audio through VB-CABLE to WeChat Input Method, Typeless, Windows Voice Typing, Voquill, or another global-hotkey dictation client. The selected client owns speech-to-text and text structuring.
 
-## User flow
+## v1.1.0 user flow
 
-1. Select the transcription client used every day.
+1. Select a transcription client.
 2. Install and verify both VB-CABLE endpoints.
-3. Pair `MI RC` or `RC003` and wait for the live voice bridge.
-4. Match and test the provider shortcut and trigger mode.
-5. Complete one real remote dictation in the setup window, then focus any text field and hold the record button to speak.
+3. Pair RC003 and wait for the voice bridge.
+4. Match and test the provider hotkey and trigger mode.
+5. Focus a text field, hold Record while speaking, then release it to finish.
 
-VB-CABLE is the only required extra local driver. It is not bundled; the setup
-window opens the official download only when `CABLE Input` or `CABLE Output` is
-missing.
+Hold-to-talk is the default stable mode. A dedicated release event ends exactly one provider session and never reopens the microphone after release. RC003 firmware forces a key-up and ATVV stop after roughly 60 seconds of one physical hold, so stable hold sessions use that hardware boundary. Short-press continuous dictation remains experimental and non-default.
 
-Vibe Flow writes decoded remote audio to the playback endpoint named `CABLE Input`. Before dictation it temporarily makes the corresponding `CABLE Output` recording endpoint the Windows default for all capture roles, then restores the user's original endpoints after the audio drains. Manual client configuration is needed only when automatic routing is disabled.
+Vibe Flow records the exact Windows UI Automation text control before opening the WeChat voice panel, then verifies that it remains focused without activating windows or calling UI Automation `SetFocus`. The default WeChat AI profile taps `Ctrl+Win+Shift` after the virtual microphone is routed and again after the final audio drain. Toolbar activation is prohibited. The WeChat path does not monitor or modify the clipboard and never sends a synthetic paste; WeChat writes directly into the original editor.
+
+Recording start stays silent with visual feedback. Stop uses the proven short two-note completion cue; failures retain an alert. Physical RC003 segment renewal does not replay the stop cue.
+
+VB-CABLE is the only required extra local driver and is not bundled. Vibe Flow writes audio to `CABLE Input`, temporarily routes the Windows default capture roles to the corresponding `CABLE Output`, then restores the previous endpoints after drain.
 
 ## Default buttons
 
 | Remote button | Default action |
 | --- | --- |
-| Record | Hold to capture remote audio; release to transcribe through the selected client |
+| Record | Hold to speak; release to finish |
 | OK | Enter / confirm |
 | Direction pad | Native arrows; hold Up/Down for system volume |
 | Home | `Win + D` |
 | TV | Open task switcher; Left/Right select, OK confirms |
-| Menu | Open or focus the selected Agent/development client, configurable in the app |
+| Menu | Open or focus ChatGPT; configurable for other clients and shortcuts |
 
-Only distinctive RC003 keys are remapped by default. Vibe Flow uses a Windows low-level keyboard hook and device-scoped Raw Input without installing a driver. Short direction presses remain native; only RC003-scoped repeated Up/Down events activate the volume fallback. On the validated RC003 Windows stack, the independent Back and Volume +/- buttons expose no Keyboard, Raw Input, or Consumer HID event. Vibe Flow intentionally exposes only hardware-validated single-tap and long-press controls; Menu is a single-tap shortcut, not a combo leader.
+Configurable actions include common edit commands, save, select all, command palette, quick file open, new terminal, delete line, run/debug, tab navigation, and installed Agent/development clients. Duplicate assignments remain valid but produce a visible warning.
 
-## Privacy and safety
+The independent Back and Volume +/- buttons expose no stable Keyboard, Raw Input, or Consumer HID event on the validated RC003 Windows stack. Vibe Flow intentionally does not claim them or unsupported multi-key combinations.
 
-- Audio is decoded locally and routed directly to the selected Windows audio endpoint.
-- Vibe Flow does not perform cloud transcription, inspect the resulting text, or upload audio.
-- Normal diagnostic logs contain only BLE event metadata and aggregate timing/level metrics, never audio payloads or recognized text.
-- A shareable health summary translates trigger latency, signal level, BLE gaps, queue drops, drain timing, and endpoint restoration into a user-facing conclusion.
-- A seven-part local self-check validates packaged components, both VB-CABLE endpoints, v11 stable-profile drift, bridge services, RC003/ATVV readiness, the provider shortcut, and the latest end-to-end session. Failed checks link directly to the relevant repair action.
-- Audio is saved only when the user explicitly confirms **Capture next audio segment**. That one-shot diagnostic writes the next session's decoded, processed, and `CABLE Output` WAV files locally for comparison, caps them at 30 seconds, and then disables itself. The files can be deleted from `remote-voice-session`.
-- The app runs without administrator rights and does not inject code into WeChat or other processes. The separate VB-CABLE installer requests administrator approval for its virtual-audio driver.
-- Automatic microphone routing records the original Windows Console, Multimedia, and Communications capture endpoints in a local recovery marker. It restores them after every session and retries restoration on the next start after an unexpected exit.
-- Startup registration uses the current user's `HKCU` Run key and can be disabled in Settings.
+## Stable voice baseline
+
+- Voice state machine profile v11.
+- Gain `1.0`.
+- Speech processing enabled.
+- Drain `180 ms`.
+- WeChat `Ctrl + Win + Shift`, AI toggle trigger, `180 ms` startup profile.
+- Automatic reversible `CABLE Output` routing.
+- Hold-to-talk enabled for new installations and schema 18 upgrades.
+- Natural release wait `260 ms`; bounded close fallback `700 ms`.
+- Approximately 60-second RC003 physical-hold firmware boundary.
+
+The v1.1.0 UI and documentation release does not change the validated capture, BLE retry, packet ordering, WASAPI clock, or endpoint recovery behavior.
+
+## Privacy and diagnostics
+
+- Normal dictation audio is decoded and forwarded locally without being saved by Vibe Flow.
+- Vibe Flow does not inspect recognized text or provide its own cloud transcription.
+- Normal logs contain timing, level, queue, route, and BLE metadata, not audio payloads or recognized text.
+- A seven-part self-check covers components, VB-CABLE, stable-profile drift, bridge services, RC003/ATVV, provider configuration, and the latest end-to-end session.
+- One-shot WAV diagnostics require explicit confirmation, capture only the next session for up to 30 seconds, and remain local.
 
 ## Build
-
-Requirements: Windows 10/11, .NET Framework 4.x compiler, Node.js for repository validation, and the Windows SDK metadata already referenced by the build script.
 
 ```bat
 BUILD_INPUT_BRIDGE.cmd
@@ -52,24 +64,12 @@ BUILD_VIBE_MIC.cmd
 npm test
 ```
 
-The development build outputs are `VibeMic.exe`, `VibeMicAtvvCapture.exe`, and `VoxDeckInputBridge.exe`. The public release packages the main app as `VibeFlow.exe`; all three components run without a console window.
+The release outputs `VibeFlow.exe`, `VibeMicAtvvCapture.exe`, and `VoxDeckInputBridge.exe`. Build the installer and portable package with:
 
-## Architecture
-
-```text
-RC003 ATVV BLE notifications
-  -> VibeMicAtvvCapture (120-byte framing and ADPCM decode)
-  -> one generation-aware provider session coordinator
-  -> ordered BLE packet worker + robust quiet-speech leveling or transparent mode
-  -> bounded live PCM output after the selected client is ready
-  -> event-driven WASAPI virtual microphone output (48 kHz stereo, 20 ms blocks)
-  -> CABLE Input / CABLE Output
-  -> selected transcription client
-  -> focused editor
+```powershell
+powershell -ExecutionPolicy Bypass -File .\BUILD_RELEASE.ps1
 ```
 
-The ATVV protocol behavior was validated against real RC003 hardware and informed by the open-source `HD838A/remote-mic-app` implementation. See that project's license before reusing its source directly. VB-CABLE is third-party software and is not bundled; its own license applies.
+The in-app updater reads the official latest GitHub Release, falls back from API rate limits to the official release redirect, verifies `VibeFlow-Setup.exe` against `SHA256SUMS.txt`, and requires user confirmation before installation. Release builds optionally sign and verify all first-party EXEs and the installer when a certificate thumbprint or PFX is configured.
 
-## Status
-
-Version 1.0.3 is the current stable Windows release. It fixes the Windows-login race between the input bridge, RC003 ATVV readiness, and the configured transcription client. Early recording requests are recovered only while the physical key remains held, and the selected local provider is warmed in the background. It also adds a five-step onboarding flow, actionable seven-part self-check, persistent recovery diagnostics, and a redesigned RC003 overview and shortcut workspace. The v11 audio pipeline remains unchanged. Real RC003 audio capture, ADPCM decoding, VB-CABLE timing, endpoint recovery, and the WeChat and Typeless paths have been validated on physical hardware. Windows Voice Typing and generic hotkey clients use the documented system path. Voquill is implemented from its current open-source Windows default shortcut and still requires validation with the user's installed client version.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/CONTINUOUS_DICTATION_ZH.md](docs/CONTINUOUS_DICTATION_ZH.md), [docs/CODE_SIGNING_ZH.md](docs/CODE_SIGNING_ZH.md), and [docs/USER_GUIDE_ZH.md](docs/USER_GUIDE_ZH.md).

@@ -1,42 +1,55 @@
-# 言灵 · Vibe Flow Remote 1.0.3
+# 言灵 · Vibe Flow Remote 1.1.0
 
-Vibe Flow Remote turns the RC003 / MI RC microphone into a live Windows input source.
-The release keeps transcription ownership in the user's selected client and
-does not record audio or inspect recognized text during normal use. An explicit
-one-shot diagnostic can save only the next session locally for stage comparison.
+Release date: 2026-08-26
 
-Voice path:
+## Release identity
+
+- Product version: `1.1.0`
+- Configuration schema: `19`
+- Onboarding version: `5`
+- Stable voice profile: `v11`
+- New-install voice mode: `hold`
+
+## Voice path
 
 ```text
-RC003 ATVV -> ordered 16 kHz ADPCM decode -> optional robust speech leveling
--> event-driven WASAPI -> CABLE Input / CABLE Output -> transcription client
+RC003 ATVV
+  -> ordered 16 kHz ADPCM decode
+  -> robust speech leveling
+  -> event-driven 48 kHz stereo WASAPI
+  -> CABLE Input / CABLE Output
+  -> selected transcription client
 ```
 
-Supported provider profiles are WeChat Input Method, Typeless, Windows Voice
-Typing, Voquill, and a configurable hotkey-driven client. Configuration schema
-15 stores the provider, shortcut, toggle/hold trigger, startup delay, audio
-processing mode, automatic virtual-microphone routing preference, onboarding
-version, completion-sound preference, and the validated voice-profile version.
+## Validated baseline
 
-The capture helper uses voice state machine v11. Before a provider starts, Vibe
-Flow temporarily assigns `CABLE Output` to all three Windows default capture
-roles. It restores the original endpoints after the audio drains and uses a local
-recovery marker after an unexpected exit. WeChat opens through its validated
-toolbar first instead of waiting 1.2 seconds for a failing injected shortcut.
-Generic providers use `SendInput`, and all audio is drained before the provider is
-stopped or submitted. A newer recording preempts an older WeChat completion wait
-so buffered speech is never replayed seconds late.
+- Gain: `1.0`
+- Processing: `speech`
+- Drain: `180 ms`
+- WeChat provider startup: `180 ms`
+- WeChat trigger: `Ctrl + Win + Shift`, AI toggle
+- Automatic reversible `CABLE Output` routing: enabled
+- Hold-release natural-stop window: `260 ms`
+- Hold-release bounded close fallback: `700 ms`
+- RC003 physical hold boundary: approximately 60 seconds
 
-The 1.0.3 stable release keeps the current v11 settings as a guarded,
-recoverable stable profile and does not change voice transport, timing, or hardware mappings.
-It coordinates the input bridge, ATVV capture readiness, and selected local
-transcription client during Windows login. An early record-key request is handed
-off only while the physical key remains held, preventing both a lost first press
-and delayed activation after release. Existing users keep their voice-provider
-and button choices; advanced audio tuning requires an explicit confirmation,
-is reported as a warning when changed, and can be restored with one click. The
-five-step onboarding now uses explicit startup consent and matching tutorial
-screenshots for each required setup stage.
-The overview and shortcut workspace use a code-rendered RC003 reference with
-physical proportions, restrained button icons, live state feedback, and a clean
-configuration/preview layout. The source reference photograph is not distributed.
+## v1.1.0 changes
+
+- Hold Record to start and release it to finish.
+- Emit a dedicated release event and never reopen the microphone after a hold-mode release.
+- Prefer the natural RC003 stop, then use one generation-safe bounded close fallback.
+- Keep short-press continuous dictation as an experimental, non-default mode.
+- Display logical total duration and segment count in the UI.
+- Add high-frequency coding shortcuts and duplicate-assignment feedback.
+- Retain the latest editable UI Automation target, also inspect the editor under
+  the pointer, and reject non-text page containers as delivery targets.
+- Use the validated WeChat AI profile, tapping `Ctrl+Win+Shift` after routing is
+  ready and again after final audio drain; stop the provider before restoring the
+  original microphone, and never use toolbar or clipboard delivery.
+- Keep recording start silent with visual feedback and play the proven short
+  two-note cue only when recording stops. Cue playback is driven by named state
+  events rather than runtime-log polling.
+- Add verified in-app updates and an optional Authenticode release-signing pipeline.
+- Refresh onboarding, release docs, screenshots, and troubleshooting guidance.
+
+The capture timing, BLE retry policy, audio processing, endpoint routing, and validated single-key defaults remain unchanged from the stable v11 baseline.

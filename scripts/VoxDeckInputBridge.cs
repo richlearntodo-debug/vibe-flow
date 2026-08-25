@@ -13,9 +13,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.0.3.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.0.3.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.0.3")]
+[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.1.0")]
 
 internal static class VoxDeckInputBridge
 {
@@ -50,6 +50,7 @@ internal static class VoxDeckInputBridge
     private static Mutex singleInstance;
     private static EventWaitHandle stopEvent;
     private static EventWaitHandle voiceKeyHeldEvent;
+    private static EventWaitHandle voiceKeyReleasedEvent;
     private static EventWaitHandle voiceWakeRequestEvent;
     private static int voiceKeyHeldState;
     private static readonly BlockingCollection<MappingEvent> mappingQueue = new BlockingCollection<MappingEvent>();
@@ -96,6 +97,7 @@ internal static class VoxDeckInputBridge
             mappingWorker.Start();
             stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicStopKeyboardBridge");
             voiceKeyHeldEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicVoiceKeyHeld");
+            voiceKeyReleasedEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceKeyReleased");
             voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
             voiceKeyHeldEvent.Reset();
             ThreadPool.QueueUserWorkItem(delegate
@@ -124,6 +126,7 @@ internal static class VoxDeckInputBridge
             try { stopEvent.Set(); } catch { }
             stopEvent.Dispose();
             voiceKeyHeldEvent.Dispose();
+            voiceKeyReleasedEvent.Dispose();
             voiceWakeRequestEvent.Dispose();
         }
     }
@@ -354,6 +357,7 @@ internal static class VoxDeckInputBridge
     {
         int next = held ? 1 : 0;
         int previous = Interlocked.Exchange(ref voiceKeyHeldState, next);
+        bool changed = previous != next;
         try
         {
             if (voiceKeyHeldEvent != null)
@@ -361,9 +365,14 @@ internal static class VoxDeckInputBridge
                 if (held) voiceKeyHeldEvent.Set();
                 else voiceKeyHeldEvent.Reset();
             }
+            if (changed && !held && voiceKeyReleasedEvent != null)
+            {
+                bool delivered = voiceKeyReleasedEvent.Set();
+                Log("Voice key release signal delivered=" + delivered);
+            }
         }
         catch (Exception ex) { Log("Voice key held state failed: " + ex.Message); }
-        return previous != next;
+        return changed;
     }
 
     private static void SignalVoiceWakeRequested(string reason)

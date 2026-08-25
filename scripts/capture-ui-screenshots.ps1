@@ -25,6 +25,17 @@ public static class VibeScreenshotNative
         public int Bottom;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct COMBOBOXINFO
+    {
+        public int cbSize;
+        public RECT rcItem;
+        public RECT rcButton;
+        public IntPtr hwndCombo;
+        public IntPtr hwndItem;
+        public IntPtr hwndList;
+    }
+
     [DllImport("user32.dll")]
     public static extern bool EnumChildWindows(IntPtr parent, WindowCallback callback, IntPtr parameter);
 
@@ -42,6 +53,9 @@ public static class VibeScreenshotNative
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr handle, out RECT rectangle);
+
+    [DllImport("user32.dll")]
+    public static extern bool GetComboBoxInfo(IntPtr combo, ref COMBOBOXINFO info);
 
     [DllImport("user32.dll")]
     public static extern bool PrintWindow(IntPtr handle, IntPtr deviceContext, uint flags);
@@ -208,6 +222,57 @@ function Save-ScreenRegion([IntPtr]$Handle, [string]$Path) {
     }
 }
 
+function Save-WindowWithComboDropdown([IntPtr]$Handle, [IntPtr]$Combo, [string]$Path) {
+    $mainRectangle = New-Object VibeScreenshotNative+RECT
+    [VibeScreenshotNative]::GetWindowRect($Handle, [ref]$mainRectangle) | Out-Null
+    $width = $mainRectangle.Right - $mainRectangle.Left
+    $height = $mainRectangle.Bottom - $mainRectangle.Top
+    if ($width -lt 100 -or $height -lt 100) { throw "Window is not visible: $Path" }
+
+    $bitmap = New-Object System.Drawing.Bitmap $width, $height
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $deviceContext = $graphics.GetHdc()
+    try {
+        if (-not [VibeScreenshotNative]::PrintWindow($Handle, $deviceContext, 2)) {
+            throw "PrintWindow failed: $Path"
+        }
+    }
+    finally {
+        $graphics.ReleaseHdc($deviceContext)
+    }
+
+    $comboInfo = New-Object VibeScreenshotNative+COMBOBOXINFO
+    $comboInfo.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][VibeScreenshotNative+COMBOBOXINFO])
+    if (-not [VibeScreenshotNative]::GetComboBoxInfo($Combo, [ref]$comboInfo) -or
+        $comboInfo.hwndList -eq [IntPtr]::Zero) {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+        throw "Unable to locate the expanded transcription-tool list."
+    }
+
+    $comboRectangle = New-Object VibeScreenshotNative+RECT
+    $listRectangle = New-Object VibeScreenshotNative+RECT
+    [VibeScreenshotNative]::GetWindowRect($Combo, [ref]$comboRectangle) | Out-Null
+    [VibeScreenshotNative]::GetWindowRect($comboInfo.hwndList, [ref]$listRectangle) | Out-Null
+    $overlayLeft = [Math]::Min($comboRectangle.Left, $listRectangle.Left)
+    $overlayTop = [Math]::Min($comboRectangle.Top, $listRectangle.Top)
+    $overlayRight = [Math]::Max($comboRectangle.Right, $listRectangle.Right)
+    $overlayBottom = [Math]::Max($comboRectangle.Bottom, $listRectangle.Bottom)
+    $overlayWidth = $overlayRight - $overlayLeft
+    $overlayHeight = $overlayBottom - $overlayTop
+    try {
+        $graphics.CopyFromScreen($overlayLeft, $overlayTop,
+            $overlayLeft - $mainRectangle.Left, $overlayTop - $mainRectangle.Top,
+            (New-Object System.Drawing.Size $overlayWidth, $overlayHeight),
+            [System.Drawing.CopyPixelOperation]::SourceCopy)
+        $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    }
+    finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $showWindow = $null
 try {
@@ -256,7 +321,7 @@ foreach ($page in $pages) {
         $providerCombo = Find-TopmostComboBox $main
         [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]1, [IntPtr]::Zero) | Out-Null
         Start-Sleep -Milliseconds 350
-        Save-ScreenRegion $main (Join-Path $OutputDirectory "06-transcription-tools.png")
+        Save-WindowWithComboDropdown $main $providerCombo (Join-Path $OutputDirectory "06-transcription-tools.png")
         [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
     }
 }

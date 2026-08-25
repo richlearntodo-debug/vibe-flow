@@ -1,5 +1,5 @@
 #define MyAppName "言灵 Vibe Flow Remote"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Vibe Flow Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases/latest
-VersionInfoVersion=1.0.3.0
+VersionInfoVersion=1.1.0.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
@@ -58,7 +58,7 @@ Name: "{group}\卸载言灵"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "启动言灵 Vibe Flow Remote"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "启动言灵 Vibe Flow Remote"; Flags: nowait postinstall
 
 [UninstallDelete]
 Type: files; Name: "{app}\vibe-mic-config.json"

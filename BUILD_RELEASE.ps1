@@ -6,6 +6,59 @@ $packageDir = Join-Path $releaseRoot $packageName
 $zipPath = Join-Path $releaseRoot ($packageName + ".zip")
 $installerPath = Join-Path $releaseRoot "VibeFlow-Setup.exe"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
+$signingThumbprint = if ($env:VIBE_FLOW_SIGN_THUMBPRINT) { $env:VIBE_FLOW_SIGN_THUMBPRINT.Trim() } else { "" }
+$signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } else { "" }
+$timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
+$signingRequested = -not [string]::IsNullOrWhiteSpace($signingThumbprint) -or -not [string]::IsNullOrWhiteSpace($signingPfx)
+
+function Resolve-SignTool {
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
+    if ($command -and (Test-Path -LiteralPath $command)) { return $command }
+    $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+    if (Test-Path -LiteralPath $kitsRoot) {
+        $candidate = Get-ChildItem -LiteralPath $kitsRoot -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            ForEach-Object { Join-Path $_.FullName "x64\signtool.exe" } |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+        if ($candidate) { return $candidate }
+    }
+    throw "Windows SDK signtool.exe was not found. Install the Windows 10/11 SDK before signing."
+}
+
+function Invoke-VibeFlowCodeSign([string]$Path) {
+    if (-not $script:signingRequested) { return }
+    if (-not (Test-Path -LiteralPath $Path)) { throw "Signing target not found: $Path" }
+    $arguments = @("sign", "/fd", "SHA256", "/tr", $script:timestampUrl, "/td", "SHA256")
+    if (-not [string]::IsNullOrWhiteSpace($script:signingThumbprint)) {
+        $arguments += @("/s", "My", "/sha1", $script:signingThumbprint.Replace(" ", ""))
+        if ($env:VIBE_FLOW_SIGN_STORE -and $env:VIBE_FLOW_SIGN_STORE.Equals("machine", [StringComparison]::OrdinalIgnoreCase)) {
+            $arguments += "/sm"
+        }
+    }
+    else {
+        if (-not (Test-Path -LiteralPath $script:signingPfx)) { throw "Signing PFX not found: $script:signingPfx" }
+        $arguments += @("/f", (Resolve-Path -LiteralPath $script:signingPfx).Path)
+        if ($null -ne $env:VIBE_FLOW_SIGN_PFX_PASSWORD) { $arguments += @("/p", $env:VIBE_FLOW_SIGN_PFX_PASSWORD) }
+    }
+    $arguments += (Resolve-Path -LiteralPath $Path).Path
+    & $script:signTool @arguments
+    if ($LASTEXITCODE -ne 0) { throw "Code signing failed: $Path" }
+    & $script:signTool verify /pa /all /v (Resolve-Path -LiteralPath $Path).Path
+    if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed: $Path" }
+    Write-Host "Signed and verified $Path"
+}
+
+if ($signingRequested) {
+    if (-not [string]::IsNullOrWhiteSpace($signingThumbprint) -and -not [string]::IsNullOrWhiteSpace($signingPfx)) {
+        throw "Choose either VIBE_FLOW_SIGN_THUMBPRINT or VIBE_FLOW_SIGN_PFX, not both."
+    }
+    $signTool = Resolve-SignTool
+    Write-Host "Authenticode signing enabled. Timestamp server: $timestampUrl"
+}
+else {
+    Write-Warning "Authenticode signing is not configured. Building unsigned local artifacts. See docs/CODE_SIGNING_ZH.md."
+}
 
 & cmd.exe /c (Join-Path $root "BUILD_INPUT_BRIDGE.cmd")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -13,6 +66,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & cmd.exe /c (Join-Path $root "BUILD_VIBE_MIC.cmd")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+@("VibeMic.exe", "VibeMicAtvvCapture.exe", "VoxDeckInputBridge.exe") |
+    ForEach-Object { Invoke-VibeFlowCodeSign (Join-Path $root $_) }
 
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 if (Test-Path $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force }
@@ -42,6 +98,8 @@ $packageImages = Join-Path $packageDocs "images"
 New-Item -ItemType Directory -Force -Path $packageImages | Out-Null
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\CONTINUOUS_DICTATION_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\images\*.png") $packageImages
 
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
@@ -60,6 +118,8 @@ if (-not $iscc) {
 
 & $iscc (Join-Path $root "installer\VibeFlow.iss")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Invoke-VibeFlowCodeSign $installerPath
 
 $hashLines = @($installerPath, $zipPath) | ForEach-Object {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_

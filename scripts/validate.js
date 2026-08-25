@@ -28,7 +28,10 @@ const requiredFiles = [
   "installer/languages/ChineseSimplified.isl",
   "docs/USER_GUIDE_ZH.md",
   "docs/RELEASE_NOTES_ZH.md",
+  "docs/CONTINUOUS_DICTATION_ZH.md",
+  "docs/CODE_SIGNING_ZH.md",
   "docs/ARCHITECTURE.md",
+  "docs/VOICE_PIPELINE_RESEARCH.md",
   "docs/images/00-first-run.png",
   "docs/images/00-setup-1-provider.png",
   "docs/images/00-setup-2-audio.png",
@@ -41,6 +44,7 @@ const requiredFiles = [
   "docs/images/04-diagnostics.png",
   "docs/images/05-settings.png",
   "docs/images/06-transcription-tools.png",
+  "docs/images/vibe-flow-community.png",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
   ".github/workflows/validate.yml",
 ];
@@ -70,6 +74,11 @@ const guide = read("docs/USER_GUIDE_ZH.md");
 const quickStart = read("QUICK_START_ZH.md");
 const installer = read("installer/VibeFlow.iss");
 const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
+const continuousGuide = read("docs/CONTINUOUS_DICTATION_ZH.md");
+const architecture = read("docs/ARCHITECTURE.md");
+const voiceResearch = read("docs/VOICE_PIPELINE_RESEARCH.md");
+const versionDoc = read("VIBE_MIC_VERSION.md");
+const englishReadme = read("README_VIBE_MIC.md");
 const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
 const workflow = read(".github/workflows/validate.yml");
 
@@ -81,23 +90,30 @@ for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/"
 }
 
 assert(app.includes('DisplayProductName = "言灵 · Vibe Flow Remote"') && app.includes("Text = DisplayProductName"), "Vibe Flow Remote window title is missing");
-assert(app.includes('ProductRelease = "1.0.3"') && packageJson.version === "1.0.3", "Application and package versions are not aligned");
-assert(app.includes('AssemblyFileVersion("1.0.3.0")') && app.includes('AssemblyInformationalVersion("1.0.3")'), "Windows executable version metadata is missing");
+assert(app.includes('ProductRelease = "1.1.0"') && packageJson.version === "1.1.0", "Application and package versions are not aligned");
+assert(app.includes('AssemblyFileVersion("1.1.0.0")') && app.includes('AssemblyInformationalVersion("1.1.0")'), "Windows executable version metadata is missing");
 assert(app.includes('brandLogoPath = Path.Combine(root, "vibe-flow-logo.png")'), "Brand logo is not wired into the app");
 assert(app.includes("ShowSetupWizard"), "First-run setup is missing");
 assert(app.includes("VibeMicExitForUpdate") && app.includes("ExistingInstanceUsesDifferentPath"), "Cross-directory update handoff is missing");
 assert(app.includes("CaptureExited(Process exitedCapture)") && app.includes("ReferenceEquals(captureProcess, exitedCapture)") && app.includes("CAPTURE EXIT superseded=true ignored=true"), "Superseded capture exits can corrupt the active capture lifecycle");
-assert(capture.includes('AssemblyFileVersion("1.0.3.0")') && bridge.includes('AssemblyFileVersion("1.0.3.0")'), "Shipped helper binaries must carry the release version");
+assert(capture.includes('AssemblyFileVersion("1.1.0.0")') && bridge.includes('AssemblyFileVersion("1.1.0.0")'), "Shipped helper binaries must carry the release version");
 assert(app.includes("CABLE Output"), "Setup must explain the transcription-client microphone endpoint");
 assert(app.includes("ExportDiagnostics"), "Redacted diagnostics export is missing");
 assert(app.includes("CaptureNextAudioDiagnostic") && app.includes("Local\\\\VibeMicCaptureAudioDiagnostic"), "Opt-in one-shot audio diagnostics UI is missing");
 assert(app.includes("BuildMappingsPage"), "Shortcut configuration page is missing");
-assert(app.includes("value.schemaVersion = ConfigSchemaVersion") && app.includes("ConfigSchemaVersion = 15"), "Configuration migration must target schema 15");
+assert(app.includes("value.schemaVersion = ConfigSchemaVersion") && app.includes("ConfigSchemaVersion = 19"), "Configuration migration must target schema 19");
 assert(app.includes("选择转写工具") && app.includes("安装音频通道") && app.includes("完成首次听写"), "Five-step onboarding flow is incomplete");
 assert(app.includes("firstDictationBaselineGeneration") && app.includes("言灵不会读取、保存或上传输入框中的文字"), "Privacy-safe first dictation validation is missing");
 assert(app.includes("if (!firstDictationSucceeded)") && app.includes("请先完成一次真实听写"), "Setup must require a real end-to-end dictation");
 assert(app.includes("soundFeedbackEnabled") && app.includes("CreateFeedbackWave") && app.includes("WETYPE SESSION END"), "Per-session sound feedback is missing");
+assert(!app.includes('CreateFeedbackWave("start")') && app.includes('CreateFeedbackWave("stop")') && app.includes("end_only_feedback"), "Recording feedback must be silent on start and audible only on stop");
+assert(app.includes("frequency = elapsed < 145.0 ? 660.0 : 880.0") && app.includes("amplitude = 3600.0"), "The proven completion cue profile changed");
+assert(app.includes("Local\\\\VibeMicRecordingStartCue") && app.includes("Local\\\\VibeMicRecordingStopCue") && app.includes("StartRecordingCueWorker") && app.includes("PlaySync"), "Recording state cues must use deterministic named events and a dedicated synchronous playback worker");
+assert(app.includes("Local\\\\VibeMicProviderHotkeyTapRequested") && app.includes("HandleProviderHotkeyTapRequest") && app.includes("keybd_event_vk_control") && app.includes("keybd_event(0x11, 0x1D, 0"), "WeChat provider triggering must use the validated host VK_CONTROL keybd_event path");
+assert(app.includes("SecureUpdateClient.GetLatest") && app.includes("DownloadAndVerify") && app.includes("SHA-256 校验通过"), "Verified in-app updates are missing");
+assert(app.includes("releases/latest") && app.includes("GetLatestFromReleaseRedirect") && app.includes("autoCheckUpdates"), "Automatic update checks lack the GitHub rate-limit fallback");
 assert(app.includes("BuildProblemSummary") && app.includes("复制问题摘要") && app.includes("GetLatestSessionHealth"), "User-readable shareable diagnostics are missing");
+assert(app.includes('item.IndexOf("delivery_ready=True"'), "Diagnostics can misreport a non-text container as a writable input target");
 assert(app.includes("BuildSelfCheckReport") && app.includes("AddSelfCheckRow") && app.includes("HandleSelfCheckAction"), "Actionable self-check center is missing");
 assert(app.includes("播放端点不是 CABLE Input") && app.includes("install-cable") && app.includes("restore-profile"), "Self-check repair actions do not cover audio endpoint failures");
 assert(app.includes("StableVoiceProfileVersion = 11") && app.includes("ApplyStableVoiceProfile") && app.includes("HasStableVoiceProfile"), "Validated voice profile is not pinned or recoverable");
@@ -112,9 +128,13 @@ assert(app.includes("ReplayLongDictationVoiceKeyAfterCaptureStart") && app.inclu
 assert(app.includes("WarmConfiguredProviderAsync") && app.includes("PROVIDER READY provider="), "Configured transcription provider is not warmed during startup");
 assert(app.includes("autoRouteVirtualMicrophone") && app.includes("听写时自动使用遥控器麦克风"), "Automatic virtual microphone routing must be configurable");
 assert(app.includes("audioProcessingMode") && app.includes("清晰增强（推荐）") && app.includes("原始直通"), "Audio processing modes must be configurable and understandable");
-assert(app.includes("长听写（单击开始，再次单击结束）") && app.includes("SafeCaptureArgument(config.voiceMode)"), "Long dictation mode is not exposed or passed to native capture");
-assert(app.includes("NormalizeVoiceMode") && app.includes("自动跨越遥控器 60 秒分段"), "Long dictation interaction guidance is incomplete");
+assert(app.includes("按住说话（推荐 · 松开即结束）") && app.includes("连续听写（实验 · 短按启动）") && app.includes("SafeCaptureArgument(config.voiceMode)"), "Hold-to-talk and experimental long-dictation modes are not exposed clearly");
+assert(app.includes("RC003 单次长按约 60 秒硬件上限") && app.includes("启动后必须立即松开"), "RC003 hold and experimental dictation boundaries are not explained honestly");
+assert(app.includes("SegmentCount") && app.includes("上一段连续听写") && app.includes('ExtractMetric(item, "segments")'), "Long dictation UI must report logical duration and segment count");
+assert(app.includes("编辑 · 保存") && app.includes("代码 · 快速打开文件") && app.includes("代码 · 新建终端"), "High-frequency coding shortcuts are incomplete");
+assert(app.includes("FindMappingConflict") && app.includes('"warning"'), "Duplicate shortcut feedback is missing");
 assert(app.includes("Typeless") && app.includes("Voquill（开源）") && app.includes("Windows 语音输入"), "Transcription provider choices are incomplete");
+assert(app.includes("AI 整理（推荐）") && app.includes('WeChatAiHotkey = "ctrl+win+shift"') && app.includes("按住说话（兼容）"), "WeChat AI and compatibility profiles are not exposed clearly");
 assert(app.includes("遥控器功能速查") && app.includes("独立音量 +/-：此型号未检测到稳定事件"), "Hardware-validated remote quick reference is missing");
 assert(!app.includes("功能组合键已按下"), "Unsupported Function leader UI remains");
 
@@ -127,20 +147,29 @@ assert(capture.includes("BluetoothCacheMode.Cached") && capture.includes("fallba
 assert(capture.includes("CommandWriteGate") && capture.includes("session_changed_before_write"), "ATVV commands must be serialized and generation guarded");
 assert(capture.includes("ATVV MIC_EXTEND not_armed") && capture.includes("long_dictation_uses_stream_reopen"), "Long dictation must not rely on ineffective RC003 MIC_EXTEND renewal");
 assert(capture.includes("LONG DICTATION CONTINUE") && capture.includes("mic_open_long_dictation") && capture.includes("LONG DICTATION REOPEN AUDIO READY"), "Long dictation cannot reopen each RC003 audio segment");
+assert(capture.includes("LONG DICTATION TRANSPORT RECOVERY START") && capture.includes("ATVV AUDIO NOTIFY RECOVERY") && capture.includes("sequence=mic_close_resubscribe_audio_mic_open"), "Control-only ATVV continuation lacks bounded audio-notification recovery");
+assert(capture.includes("LONG DICTATION TRANSPORT RECOVERY EXHAUSTED") && capture.includes("submit_partial_and_restart_capture"), "Unrecoverable ATVV continuation can remain silently half-open");
 assert(capture.includes("LONG DICTATION REOPEN CONTROL READY") && capture.includes("LONG DICTATION REOPEN AUDIO TIMEOUT") && capture.includes("mic_open_long_dictation_retry"), "Continuation readiness must require real audio and retry control-only streams");
+assert(capture.includes("LongDictationSegmentRotationMs = 48 * 1000") && capture.includes('WriteCommand(CloseCommand(lease.SessionId), "mic_close_long_dictation_rotation"') && capture.includes("close_before_expiry_then_reopen"), "RC003 segment rotation must retire the exact physical session before its 60-second firmware expiry");
+assert(capture.includes("LongDictationSegmentRotationPolicy") && capture.includes("pre-expiry segment rotation race policy failed") && capture.includes("stale_before_rotation"), "Pre-expiry segment rotation is not generation-safe or deterministically tested");
+assert(capture.includes("Long-dictation exact MIC_CLOSE encoding failed"), "Exact ATVV session-close encoding is not deterministically tested");
 assert(capture.includes("StreamFinalizationLock") && capture.includes("UsesLogicalFinalizer"), "Long-dictation stop callbacks are not serialized to one logical submission");
 assert(capture.includes("REMOTE STREAM SEGMENT STOP") && capture.includes("FinalizeLongDictation"), "Physical stream stops are not separated from logical transcription completion");
 assert(capture.includes("LongDictationSafetyLimitMs = 10 * 60 * 1000") && capture.includes("LongDictationReopenAttempts = 4"), "Long dictation safety or retry policy changed");
 assert(capture.includes("CloseAnyCommand") && capture.includes("new byte[] { 0x0D, 0xFF }") && capture.includes("mic_close_long_dictation"), "Second record-key press cannot close the active ATVV stream deterministically");
 assert(capture.includes("ClassifyLongDictationKey") && capture.includes("Long-dictation record-key transition policy failed"), "Long dictation key transitions lack deterministic tests");
+assert(capture.includes("HoldToTalkReleasePolicy") && capture.includes("mic_close_hold_release") && capture.includes("Hold-to-talk release finalization policy failed"), "Hold-to-talk release is not generation-safe or deterministically tested");
+assert(capture.includes("Local\\\\VibeMicVoiceKeyReleased") && capture.includes("HOLD RELEASE natural_stop_observed") && capture.includes("HOLD RELEASE force_finalize"), "Hold-to-talk release lacks a deterministic natural-stop and bounded fallback path");
 assert(capture.includes("latestVoiceControllerGeneration") && capture.includes("IsVoiceControllerSuperseded"), "Physical continuation segments can incorrectly supersede final audio drain");
 assert(capture.indexOf('StopLongDictationForShutdown("capture_shutdown_before_mic_close")') < capture.indexOf('WriteCommand(CloseCommand(), "mic_close")'), "Capture shutdown must finalize long dictation before MIC_CLOSE");
 
 assert(bridge.includes("WH_KEYBOARD_LL"), "Input bridge must use a low-level keyboard hook");
+assert(bridge.includes("LLKHF_INJECTED") && bridge.includes("if (!injected)"), "Injected coding shortcuts can feed back into RC003 key handling");
 assert(bridge.includes("RegisterRawInputDevices"), "Input bridge must register device-scoped Raw Input");
 assert(bridge.includes("keyboard.VKey == 0x74") && bridge.includes("SignalVoiceKeyPressed"), "Raw Input must provide a redundant RC003 voice-key signal");
 assert(bridge.includes("Voice key signal delivered=") && bridge.includes("capture_not_running"), "Voice-key delivery must be diagnosable in release logs");
-assert(bridge.includes("Local\\\\VibeMicVoiceKeyHeld") && bridge.includes("Local\\\\VibeMicVoiceWakeRequested"), "Voice-key startup handoff events are missing");
+assert(bridge.includes("Local\\\\VibeMicVoiceKeyHeld") && bridge.includes("Local\\\\VibeMicVoiceKeyReleased") && bridge.includes("Local\\\\VibeMicVoiceWakeRequested"), "Voice-key press, release, or startup handoff events are missing");
+assert(bridge.includes("Voice key release signal delivered=") && bridge.includes("changed && !held"), "Physical voice-key release is not emitted exactly once");
 assert(bridge.includes("EnsureVoiceHostRunning") && bridge.includes("Voice host recovery started"), "The input bridge cannot recover a missing background host");
 assert(!bridge.includes("wetype.statusbar.window") && !bridge.includes("VibeMicAtvvStream"), "The input bridge must not own WeType or ATVV session lifecycle");
 assert(!bridge.includes("LegacyKeyEvent") && !bridge.includes("source_f5_quiet"), "Obsolete Ctrl+Win/F5-release fallback remains in the bridge");
@@ -151,10 +180,28 @@ assert(!bridge.includes("https://chatgpt.com/") && !bridge.includes("https://cha
 assert(app.includes('"suppress", ""'), "Physical F5 must be suppressed without controlling the voice hotkey duration");
 assert(capture.includes("mode=live") && capture.includes("AUDIO LIVE START") && capture.includes("AUDIO LIVE STOP"), "RC003 audio must stream to the selected provider while the record key is held");
 assert(capture.includes("AUDIO LIVE FAILED"), "Failed live sessions must be discarded with a clear diagnostic");
-assert(capture.includes("WeTypeVoiceSessionController") && capture.includes("WETYPE PANEL READY"), "WeType and ATVV must share one generation-aware session coordinator");
+assert(capture.includes("WeTypeVoiceSessionController") && capture.includes("WETYPE SESSION READY"), "WeType and ATVV must share one generation-aware session coordinator");
+assert(capture.includes('SetVoiceHotkeyHeld(generation, true, "start_after_input_routed")') && capture.includes('TapVoiceHotkey(generation, "start_after_input_routed")') && capture.includes('holdMode ? "hotkey_hold" : "hotkey_toggle"'), "WeChat direct insertion must support both validated hold and AI toggle profiles");
+assert(capture.includes("InputFocusTarget.Capture") && capture.includes('CheckInputTarget(generation, "before_submit")') && capture.includes("input_target_ready="), "WeType does not preserve and verify the original input target");
+assert(capture.includes("CheckCurrent") && capture.includes("mode=passive") && capture.includes("GetGUIThreadInfo"), "Provider-direct focus checks are incomplete");
+assert(!capture.includes("AttachThreadInput") && !capture.includes("SetForegroundWindow") && !capture.includes("automationElement.SetFocus()"), "WeType must not rebuild the editor focus context during direct delivery");
+assert(capture.includes("AutomationElement.FocusedElement") && capture.includes("Automation.Compare") && capture.includes("uia_focus="), "Chromium and Electron text focus is not verified through Windows UI Automation");
+assert(capture.includes("EditableInputFocusTracker") && capture.includes("AddAutomationFocusChangedEventHandler") && capture.includes("CaptureUnderPointer") && capture.includes("recent_editable_focus"), "Editable input focus is not retained across provider activation");
+assert(capture.includes("IsEditableAutomationElement(currentElement, current, false)") && capture.includes("ValuePattern)pattern).Current.IsReadOnly"), "Pointer target discovery can accept a non-editable browser document");
+assert(capture.includes("delivery_ready=") && capture.includes("current_non_text_fallback"), "Non-text UIA containers can still be treated as writable delivery targets");
+assert(captureBuild.includes("WindowsBase.dll") && captureBuild.includes("UIAutomationClient.dll") && captureBuild.includes("UIAutomationTypes.dll"), "The native capture build is missing UI Automation references");
+assert(capture.includes("ProviderDirectDeliveryPolicy") && capture.includes("input_focus_return=v7_hotkey_profile") && capture.includes("focus_strategy=preserve_no_activation") && capture.includes("clipboard_interaction=disabled"), "WeType provider-direct delivery policy is missing");
+assert(!capture.includes("ClipboardDeliveryPolicy") && !capture.includes("GetClipboardSequenceNumber") && !capture.includes('KeyboardShortcutSender.Tap("ctrl+v"'), "WeType must not use clipboard fallback or synthetic paste");
 assert(capture.includes("HotkeyTranscriptionSessionController") && capture.includes("ITranscriptionSessionController"), "Generic transcription provider control is missing");
 assert(capture.includes("provider=\" + provider") && capture.includes("TRANSCRIPTION READY"), "Provider timing diagnostics are missing");
 assert(capture.includes("KeyboardShortcutSender") && capture.includes("SendInput"), "Provider shortcuts must use reliable SendInput injection");
+assert(capture.includes("VibeMicProviderHotkeyTapRequested") && capture.includes("VibeMicProviderHotkeyDownRequested") && capture.includes("VibeMicProviderHotkeyUpRequested") && capture.includes("host_keybd_event") && capture.includes("capture_sendinput_fallback"), "WeChat shortcut injection does not prefer the validated host path with a bounded fallback");
+assert(app.includes("VibeMicProviderHotkeyDownRequested") && app.includes("VibeMicProviderHotkeyUpRequested") && app.includes("PROVIDER HOTKEY HOLD"), "The host does not implement generation-safe provider key down/up requests");
+assert(app.includes("WindowsAudioDuckingLease") && app.includes("UserDuckingPreference") && app.includes("windows-audio-ducking-lease.json"), "Windows communications ducking protection is missing");
+assert(app.includes('audioDuckingLease.Acquire("provider_hotkey_hold")') && app.includes('audioDuckingLease.ReleaseAfter(1200, "provider_hotkey_hold_complete")'), "Windows ducking protection does not cover the full provider hotkey hold");
+assert(app.includes('audioDuckingLease.Acquire("voice_wake_request")') && app.includes("SendMessageTimeout") && app.includes("PREFERENCE BROADCAST"), "Windows ducking protection is not applied and broadcast before the provider session starts");
+assert(app.includes("DUCKING STARTUP RECOVERY") && app.includes("DUCKING PREFERENCE RESTORED"), "Windows ducking preference lacks crash recovery diagnostics");
+assert(capture.includes("RECORDING CUE SIGNAL") && capture.includes("recording_cues=named_event"), "Capture state transitions do not signal recording cues directly");
 assert(capture.includes("mic_open_recovery") && capture.includes("waiting_for_natural_stream_ms=120"), "A missing natural ATVV stream must use bounded MIC_OPEN recovery");
 assert(capture.includes("RecoverHeldVoiceRequestAtReady") && capture.includes("released_before_capture_ready") && capture.includes("delayed_after_release=false"), "Held voice requests are not safely recovered after startup");
 assert(capture.includes("AdpcmFrameAccumulator") && capture.includes("partial_frame_bytes"), "ATVV audio must be accumulated by the advertised 120-byte frame boundary");
@@ -168,10 +215,14 @@ assert(capture.includes("BlockingCollection<AudioNotification>(256)") && capture
 assert(capture.includes("ordered_codec_sync=true") && capture.includes("ApplyOrderedCodecSync"), "Codec sync and audio frames must share one ordered decode path");
 assert(capture.includes("SpeechLeveler") && capture.includes("raw_rms_pct") && capture.includes("output_rms_pct"), "Quiet speech must use bounded robust leveling with before/after diagnostics");
 assert(capture.includes("robustCeiling") && capture.includes("sample_limiter=true") && capture.includes("LastAppliedGain"), "Speech leveling must resist isolated peaks and limit samples independently");
-const toolbarStart = capture.indexOf('TryToolbarClick(generation, 1, true, "start")');
-const hotkeyFallback = capture.indexOf('TapVoiceHotkey(generation, "start_fallback")');
-assert(toolbarStart >= 0 && hotkeyFallback > toolbarStart, "WeType must use the validated toolbar before shortcut fallback");
-assert(capture.includes("WETYPE TRANSCRIPTION SUBMIT") && capture.includes('TapVoiceHotkey(generation, "submit_after_audio_drained")'), "WeType transcription must be submitted only after VB-CABLE audio drains");
+const providerStart = capture.indexOf('TapVoiceHotkey(generation, "start_after_input_routed")');
+const audioFinalize = capture.indexOf("if (audioDelivered) finalizeAudio(generation);", providerStart);
+const providerStop = capture.indexOf('audioDelivered ? "submit_after_audio_drained"', audioFinalize);
+const routeRelease = capture.indexOf("if (releaseInput != null) releaseInput(generation);", providerStop);
+assert(providerStart >= 0 && audioFinalize > providerStart && providerStop > audioFinalize && routeRelease > providerStop, "WeType must drain audio, stop the provider, then restore the microphone route");
+assert(!capture.includes("TryToolbarClick") && !capture.includes("WETYPE TOOLBAR CLICK"), "WeType must never enter the toolbar clipboard-delivery mode");
+assert(capture.includes("WETYPE TRANSCRIPTION SUBMIT") && capture.includes('"already_closed_no_toggle"') && capture.includes("route_release_order=after_provider_stop"), "WeType transcription must use a provider-state-aware completion action before restoring audio routing");
+assert(capture.includes("ProviderToggleStopPolicy") && capture.includes("voice_panel_already_closed") && capture.includes("avoids_toggle_reopen="), "A WeType panel that auto-closed can be reopened by the completion toggle");
 assert(capture.includes("--self-test") && capture.includes("voice pipeline self-test passed"), "The native voice pipeline must expose deterministic self-tests");
 assert(capture.includes("--sink-clock-test") && capture.includes("Virtual microphone clock test"), "The virtual microphone must expose a real endpoint clock benchmark");
 assert(capture.includes("--endpoint-route-test") && capture.includes("reversible_endpoint_test"), "Default microphone routing must expose a reversible Windows endpoint test");
@@ -195,15 +246,16 @@ assert(!bridge.includes('command == "smart-back"'), "Unsupported smart-return be
 
 const mappingKeys = Object.keys(defaultConfig.mappings).sort();
 const expectedKeys = ["Home", "TV", "上 / 下 / 左 / 右", "功能键", "确认键"].sort();
-assert(defaultConfig.schemaVersion === 15, "Release configuration must use schema 15");
+assert(defaultConfig.schemaVersion === 19, "Release configuration must use schema 19");
 assert(defaultConfig.stableVoiceProfileVersion === 11, "Release must identify the validated v11 voice profile");
-assert(defaultConfig.onboardingVersion === 3, "Release onboarding version is invalid");
+assert(defaultConfig.onboardingVersion === 5, "Release onboarding version is invalid");
 assert(defaultConfig.soundFeedbackEnabled === true, "Completion sound feedback must be enabled for new users");
+assert(defaultConfig.autoCheckUpdates === true, "Secure automatic update checks must be enabled for new users");
 assert(defaultConfig.autoRouteVirtualMicrophone === true, "Automatic virtual microphone routing must be enabled for new users");
 assert(defaultConfig.audioProcessingMode === "speech", "Robust quiet-speech leveling must be enabled for new users");
-assert(defaultConfig.audioEndpointName === "CABLE Input" && defaultConfig.autoLevel === true && defaultConfig.voiceMode === "hold", "Validated endpoint or capture mode changed");
-assert(defaultConfig.inputMethod === "wechat" && defaultConfig.inputMethodHotkey === "ctrl+win", "Default transcription provider is invalid");
-assert(defaultConfig.inputMethodTrigger === "toggle" && defaultConfig.providerStartupDelayMs === 80, "Default provider trigger profile is invalid");
+assert(defaultConfig.audioEndpointName === "CABLE Input" && defaultConfig.autoLevel === true && defaultConfig.voiceMode === "hold", "Validated endpoint or hold-to-talk release mode changed");
+assert(defaultConfig.inputMethod === "wechat" && defaultConfig.inputMethodHotkey === "ctrl+win+shift", "Default transcription provider is invalid");
+assert(defaultConfig.inputMethodTrigger === "toggle" && defaultConfig.providerStartupDelayMs === 180, "Default provider trigger profile is invalid");
 assert(defaultConfig.gain === 1.0 && defaultConfig.drainMs === 180 && defaultConfig.captureSeconds === 0, "Validated voice timing and sensitivity defaults changed");
 assert(defaultConfig.setupCompleted === false, "Release must show first-run setup");
 assert(defaultConfig.launchAtStartup === false, "Release must not register startup before consent");
@@ -223,24 +275,27 @@ assert(workflow.indexOf("Validate source and defaults") < workflow.indexOf("Buil
 assert(!release.includes('(Join-Path $packageDir "vibe-mic-config.json")'), "Release must not overwrite an existing user configuration during upgrade");
 assert(release.includes('"LICENSE"') && release.includes('"THIRD_PARTY_NOTICES.md"'), "Release must include license notices");
 assert(release.includes('"VibeFlow-Setup.exe"') && release.includes('"SHA256SUMS.txt"') && release.includes("ISCC.exe"), "Formal release must build an installer and checksum manifest");
-assert(release.includes('docs\\USER_GUIDE_ZH.md') && release.includes('docs\\RELEASE_NOTES_ZH.md') && release.includes('docs\\images\\*.png'), "Release must include the offline tutorial, current release notes, and screenshots");
+assert(release.includes("Invoke-VibeFlowCodeSign") && release.includes("signtool.exe") && release.includes("Authenticode verification failed"), "Optional Authenticode signing and verification are missing");
+assert(release.includes('docs\\USER_GUIDE_ZH.md') && release.includes('docs\\RELEASE_NOTES_ZH.md') && release.includes('docs\\CONTINUOUS_DICTATION_ZH.md') && release.includes('docs\\images\\*.png'), "Release must include the offline tutorials, current release notes, and screenshots");
 assert(!release.includes('RELEASE_NOTES*.md'), "Release must not package historical release-note files");
-assert(installer.includes('#define MyAppVersion "1.0.3"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
+assert(installer.includes('#define MyAppVersion "1.1.0"') && installer.includes("PrivilegesRequired=lowest"), "Installer version or per-user privilege policy is invalid");
 assert(installer.includes("[InstallDelete]") && installer.includes('RELEASE_NOTES_V*.md'), "Installer must remove legacy release notes during upgrades");
 assert(installer.includes("WaitForVibeFlowExit") && installer.includes("OpenMutex") && installer.includes("for Attempt := 1 to 48"), "Installer must wait for a clean background-service shutdown");
 assert(installer.includes("VibeMicExitForUpdate") && installer.includes("vibe-mic-config.json") && installer.includes("[UninstallDelete]"), "Installer update or uninstall behavior is incomplete");
+assert(installer.includes("Flags: nowait postinstall") && !installer.includes("postinstall skipifsilent"), "Verified silent updates cannot relaunch the app");
+assert(workflow.includes("WINDOWS_SIGNING_PFX_BASE64") && workflow.includes("WINDOWS_SIGNING_PFX_PASSWORD"), "GitHub Actions signing secrets are not wired into release builds");
 assert(readme.includes("docs/USER_GUIDE_ZH.md") && readme.includes("docs/images/01-overview.png"), "GitHub README must link the tutorial and screenshot");
-assert(readme.includes("一键自检与修复") && readme.includes("1.0.3"), "GitHub README does not describe the current self-check release");
+assert(readme.includes("一键自检与修复") && readme.includes("1.1.0"), "GitHub README does not describe the current self-check release");
 assert(readme.includes("VibeFlow-Setup.exe") && readme.includes("Source code (zip)"), "GitHub README does not distinguish the installer from source archives");
-assert(readme.includes("最新正式版 · v1.0.3") && readme.indexOf("最新正式版 · v1.0.3") < readme.indexOf("docs/images/01-overview.png"), "GitHub README must put the latest release before product screenshots");
+assert(readme.includes("最新正式版 · v1.1.0") && readme.indexOf("最新正式版 · v1.1.0") < readme.indexOf("docs/images/01-overview.png"), "GitHub README must put the latest release before product screenshots");
 assert(readme.includes("正式版时间线") && readme.includes("2026-08-25") && readme.includes("releases/tag/v1.0.0"), "GitHub README must include a dated stable-release timeline");
 assert(guide.includes("CABLE Input") && guide.includes("CABLE Output"), "Tutorial must explain the VB-CABLE route");
 assert(guide.includes("VBCABLE_Setup_x64.exe") && guide.includes("以管理员身份运行") && guide.includes("重启 Windows"), "Tutorial must provide beginner-safe VB-CABLE installation steps");
 assert(guide.includes("Typeless") && guide.includes("Voquill") && guide.includes("Windows 语音输入"), "Tutorial must explain supported transcription clients");
-assert(guide.includes("连接与自检") && guide.includes("七个检查项"), "Tutorial must explain actionable self-checks");
-assert(guide.includes("为什么没有组合键"), "Tutorial must explain the verified-control limitation");
+assert(guide.includes("连接与自检") && guide.includes("自检包含七项"), "Tutorial must explain actionable self-checks");
+assert(guide.includes("硬件边界") && guide.includes("功能键只支持单击操作"), "Tutorial must explain the verified-control limitation");
 assert(guide.includes("VibeFlow-Setup.exe") && guide.includes("两分钟验收") && guide.includes("教程截图复用"), "Tutorial does not cover installation, acceptance, and reusable screenshots");
-assert(guide.includes("按你的情况开始") && guide.includes("Source code (tar.gz)"), "Tutorial does not provide a beginner-safe download path");
+assert(guide.includes("快速导航") && guide.includes("Source code (tar.gz)"), "Tutorial does not provide a beginner-safe download path");
 assert(guide.includes("images/06-transcription-tools.png") && guide.includes("现象 | 先检查 | 处理方法"), "Tutorial lacks provider visuals or symptom-based troubleshooting");
 for (const step of ["provider", "audio", "remote", "hotkey", "dictation"]) {
   assert(guide.includes(`images/00-setup-${["provider", "audio", "remote", "hotkey", "dictation"].indexOf(step) + 1}-${step}.png`), `Tutorial lacks the ${step} onboarding screenshot`);
@@ -250,5 +305,13 @@ assert(screenshotScript.includes("AllowUnhealthyDiagnostics") && screenshotScrip
 assert(quickStart.includes("VibeFlow-Setup.exe") && quickStart.includes("Source code (zip)"), "Offline quick start does not distinguish the installer from source archives");
 assert(quickStart.includes("VBCABLE_Setup_x64.exe") && quickStart.includes("Install Driver"), "Offline quick start must explain the required VB-CABLE driver install");
 assert(releaseNotes.includes("VibeFlow-Setup.exe") && releaseNotes.includes("发布验证") && releaseNotes.includes("已知边界"), "V1 GitHub release notes are incomplete");
+assert(continuousGuide.includes("推荐：按住说话") && continuousGuide.includes("60 秒硬件边界") && continuousGuide.includes("持续按住到 60 秒的场景已确认无法可靠续接"), "Recording-mode guide does not document the verified RC003 hold boundary honestly");
+for (const [name, document] of Object.entries({ readme, guide, quickStart, releaseNotes, continuousGuide, architecture, versionDoc, englishReadme })) {
+  assert(document.includes("Ctrl + Win + Shift") || document.includes("Ctrl+Win+Shift"), `${name} does not document the validated WeChat AI hotkey`);
+}
+assert(!readme.includes("微信输入法 | `Ctrl + Win` · 单击切换") && !guide.includes("| 微信输入法 | `Ctrl + Win` | 单击切换"), "User documentation still recommends the legacy WeChat hold profile");
+assert(voiceResearch.includes("Confirmed root cause of missing sentence tails") && voiceResearch.includes("queue_drops=0") && voiceResearch.includes("wait 350 ms"), "The verified WeChat tail-loss root cause is not preserved in engineering documentation");
+assert(versionDoc.includes("Configuration schema: `19`") && versionDoc.includes("Onboarding version: `5`") && releaseNotes.includes("schema 19、onboarding 5"), "Release metadata documentation is stale");
+assert(readme.includes("vibe-flow-community.png") && guide.includes("vibe-flow-community.png"), "Community QR is missing from GitHub documentation");
 
 console.log("Vibe Flow validation passed.");

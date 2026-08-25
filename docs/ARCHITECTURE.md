@@ -19,18 +19,28 @@ RC003 BLE ATVV notifications
   -> transparent mode bypasses speech enhancement and applies only the user-selected fixed sensitivity
   -> one generation-aware provider controller supports WeChat, Typeless, Windows Voice Typing, Voquill and custom clients
   -> before provider activation, a generation-aware endpoint lease temporarily assigns CABLE Output to the Windows Console, Multimedia and Communications capture roles
-  -> WeChat uses the validated toolbar entry immediately and falls back to the configured shortcut only when the toolbar is unavailable
+  -> a UI Automation focus listener retains the most recent editable control; session start prefers the focused editor, an editor under the pointer, then a recent editor from the same application
+  -> focus verification is passive: the provider path never activates the target window or calls UI Automation `SetFocus`, preserving the text-service context used by direct insertion
+  -> non-text containers such as Chromium `Group` controls are never accepted as writable delivery targets
+  -> WeChat defaults to the validated AI profile: the long-lived host taps `Ctrl+Win+Shift` once after routing is ready and once after the final audio drain
+  -> WeChat writes directly into the preserved editor; toolbar activation, clipboard monitoring, synthetic paste, and delayed replay are prohibited
+  -> the compatibility profile may hold `Ctrl+Win` for older WeChat builds, while generic providers continue to use SendInput
   -> generic clients use SendInput with configurable toggle or hold semantics and a bounded startup delay
   -> physical stream START invokes the provider and buffers only the short interval until the provider is ready
   -> an audio notification that races ahead of STREAM_START creates the same generation instead of losing the first words
   -> decoded PCM enters a non-blocking 30-second safety ring in fixed 20 ms source blocks
   -> physical stream STOP accepts an 80 ms Bluetooth tail, appends the configured 180 ms silence tail and drains output
-  -> after the virtual audio drains, the endpoint lease restores all original default microphones; a local marker makes restoration recoverable after an unexpected exit
+  -> after virtual audio drains, the provider is stopped first; WeChat gets a 350 ms completion window before the endpoint lease restores all original default microphones, with a local marker for crash recovery
   -> if the WeType panel cannot open, that session is discarded and logged; audio is never replayed later
   -> stale generations cannot close or deliver audio into a newer session
   -> event-driven WASAPI follows the Windows endpoint clock while linearly converting 16 kHz mono to 48 kHz stereo for VB-CABLE
   -> CABLE Input / CABLE Output
   -> selected transcription client
+
+Recording state transitions
+  -> capture signals named start/stop events at the accepted stream transitions
+  -> a dedicated VibeFlow.exe sound worker consumes both events, suppresses start audio, and plays the preloaded stop cue synchronously
+  -> runtime-log polling updates visual state only and never schedules recording cues
 
 RC003 keyboard events
   -> low-level keyboard hook for distinctive keys
@@ -68,14 +78,14 @@ acquire CABLE Output as all default capture roles
 -> activate selected transcription provider
 -> deliver RC003 audio in real time
 -> append silence and drain all virtual-microphone blocks
--> restore every original capture role
 -> submit/end the provider session
+-> wait for provider completion, then restore every original capture role
 ```
 
 ## Configuration
 
 - `vibe-mic-config.json`: application settings and user-visible mappings.
-  Schema 15 stores the transcription provider, shortcut, toggle/hold mode, startup delay, audio-processing mode, automatic virtual-microphone routing, onboarding version, sound-feedback preference and stable-profile version.
+  Schema 19 stores the transcription provider, shortcut, toggle/hold mode, startup delay, audio-processing mode, automatic virtual-microphone routing, onboarding version, sound-feedback preference, update preference and stable-profile version. It migrates the default recording interaction to release-driven hold-to-talk.
 - `voxdeck-shortcuts.json`: generated input bridge mappings.
 - `remote-voice-session/`: local runtime diagnostics, ignored by Git.
 

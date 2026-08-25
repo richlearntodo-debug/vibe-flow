@@ -42,6 +42,47 @@ three original endpoints. A recovery marker handles unexpected exits, and an old
 generation cannot restore over a newer recording. This sequence is a permanent
 release invariant; changing gain or buffering cannot substitute for it.
 
+## Confirmed root cause of missing sentence tails and absent AI organization
+
+The later sentence-tail failure was a provider-control mismatch, not an audio-quality
+failure. A 19.755-second RC003 diagnostic measured `queue_drops=0`, a maximum BLE gap
+of 58 ms, 1.0 percent raw RMS, and 3.7 percent processed RMS. Local Whisper recovered
+the complete test sentence independently from both the raw decoded WAV and the
+processed WAV. This proved that Bluetooth transport, ADPCM decoding, gain, and
+VB-CABLE all retained the missing words.
+
+An A/B replay of that same captured audio isolated the provider behavior:
+
+- The legacy WeChat `Ctrl+Win` hold profile returned an unstructured sentence and
+  omitted its final clause.
+- The WeChat `Ctrl+Win+Shift` toggle profile returned the complete sentence and
+  applied the client's AI organization.
+
+The release default is therefore `Ctrl+Win+Shift` with toggle semantics. Completion
+order is a strict invariant: drain VB-CABLE, tap the provider shortcut a second time,
+wait 350 ms for WeChat to finalize, and only then restore the original Windows capture
+roles. `Ctrl+Win` hold remains an explicit compatibility profile for older client
+versions; it must not be silently selected or described as the AI profile. Toolbar
+and clipboard delivery remain prohibited.
+
+## Confirmed root cause of Windows playback-volume reduction
+
+WeChat starts a Windows communications audio session when its dictation shortcut
+activates. With no explicit `UserDuckingPreference`, Windows applied its default
+communications ducking policy: the active speaker endpoint visibly moved from
+81 percent to 72 percent and returned to 81 percent after the provider session.
+Every capture endpoint, including `CABLE Output`, stayed unchanged at the same
+time. The microphone route and speech gain were therefore not the cause.
+
+The release fix acquires a host-owned ducking-preference lease as soon as the
+remote wake request arrives, before provider hotkey injection. It writes the
+Windows "do nothing" preference, broadcasts `WM_SETTINGCHANGE`, retains the lease
+through the complete provider session, and restores the exact previous value after the
+session. A JSON marker recovers an interrupted lease on the next launch. Restore
+is skipped if the user or another system component changed the preference while
+dictation was active. In the matching Control Center test, no render or capture
+endpoint changed during the complete provider session.
+
 ## Industry-aligned design
 
 1. Keep the virtual microphone playback endpoint open and clocked continuously.
@@ -50,16 +91,33 @@ release invariant; changing gain or buffering cannot substitute for it.
 4. Buffer only for the bounded provider startup interval; never replay a completed
    session later.
 5. Drain all queued speech and a short silence tail before submitting transcription.
-6. Use the validated WeChat toolbar as the primary WeChat path. Use `SendInput` for
-   Typeless, Windows Voice Typing, Voquill and custom shortcuts.
-7. Support both toggle clients (tap to start/stop) and hold clients (keydown until
+6. Preserve the editor's existing focus context and verify it passively; do not
+   activate the window, call UI Automation `SetFocus`, or relay results through
+   the clipboard.
+7. For WeChat AI organization, route input first, tap `Ctrl+Win+Shift` to start,
+   drain all virtual audio, tap again to stop, wait for provider finalization, and
+   only then restore the original microphone. Do not enter toolbar or clipboard
+   delivery.
+8. Use `SendInput` for Typeless, Windows Voice Typing, Voquill and custom shortcuts.
+9. Support both toggle clients (tap to start/stop) and hold clients (keydown until
    all audio has drained, then keyup).
-8. Estimate speech gain from a winsorized frame level so an isolated codec spike
+10. Estimate speech gain from a winsorized frame level so an isolated codec spike
    cannot turn down an entire frame. Apply the limiter per sample, not per frame.
-9. Preserve a transparent fixed-gain mode for diagnosis and users who prefer no
+11. Preserve a transparent fixed-gain mode for diagnosis and users who prefer no
    speech enhancement.
-10. Log trigger-to-ready timing and signal statistics, never audio payloads or
+12. Log trigger-to-ready timing and signal statistics, never audio payloads or
     recognized text.
+
+Three interaction rules are also release invariants. WeChat hotkey taps or hold
+transitions are sent by the long-lived host because capture-process `SendInput` can
+report success while WeChat ignores the shortcut, and the toolbar path can switch to
+clipboard delivery.
+Input delivery may target only a writable UI Automation `Edit` or
+equivalent text control; a focusable Chromium `Group` is not sufficient. Recording
+state cues are emitted directly from accepted start/stop transitions through named
+events, not inferred later by polling runtime log lines. The host intentionally keeps
+start silent and plays only the accepted stop transition so speech begins without an
+audible interruption while the user still gets a clear completion signal.
 
 The endpoint writer uses shared-mode, event-driven WASAPI. The Windows Audio Engine
 requests each buffer from `BufferedWaveProvider` on the endpoint clock; `ReadFully`
@@ -78,7 +136,8 @@ band while avoiding the sample-and-hold imaging of simple sample repetition.
 
 Provider defaults are profiles, not hard dependencies:
 
-- WeChat Input Method: toolbar first; `Ctrl+Win` toggle fallback.
+- WeChat Input Method: `Ctrl+Win+Shift`, toggle start/stop, AI organization enabled;
+  `Ctrl+Win` hold is available only as an explicit compatibility profile.
 - Typeless: `Right Alt`, toggle start/stop.
 - Windows Voice Typing: `Win+H`, toggle start/stop.
 - Voquill: `Ctrl+Win`, hold until release, matching its current open-source Windows
@@ -116,11 +175,15 @@ following on the first attempt:
 - virtual-microphone drain below 600 ms including the configured silence tail;
 - no missing first or final phrase segment;
 - no delayed replay into the next recording.
+- no Windows render-endpoint volume change while the provider communication session
+  is active, and no ducking recovery marker after completion;
 
 ## References
 
 - VB-Audio, VB-CABLE: https://vb-audio.com/Cable/
 - Microsoft, Rendering a Stream: https://learn.microsoft.com/windows/win32/coreaudio/rendering-a-stream
+- Microsoft, Disabling the Default Ducking Experience: https://learn.microsoft.com/windows/win32/coreaudio/disabling-the-ducking-experience
+- Microsoft, IAudioSessionControl2::SetDuckingPreference: https://learn.microsoft.com/windows/win32/api/audiopolicy/nf-audiopolicy-iaudiosessioncontrol2-setduckingpreference
 - Microsoft, SysVAD virtual audio device sample: https://github.com/microsoft/Windows-driver-samples/tree/main/audio/sysvad
 - HD838A, remote-mic-app ATVV implementation: https://github.com/HD838A/remote-mic-app
 - Typeless first dictation: https://www.typeless.com/zh-cn/help/quickstart/first-dictation
