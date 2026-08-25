@@ -108,9 +108,12 @@ assert(app.includes("bool startupChoiceValue = config.launchAtStartup") && !app.
 assert(app.includes("PollInputFeedback") && app.includes("HighlightedControl") && app.includes("ShowCallouts"), "Remote button interaction feedback is missing");
 assert(app.includes("RotateLogFile") && app.includes("4 * 1024 * 1024"), "Runtime log rotation is missing");
 assert(app.includes("vibe-flow-host.log") && app.includes("VOICE WAKE recovery=restart_stalled_capture"), "Persistent startup recovery diagnostics are missing");
+assert(app.includes("ReplayLongDictationVoiceKeyAfterCaptureStart") && app.includes("VOICE WAKE replay mode=continuous"), "A long-dictation start press can be lost while the capture host boots");
 assert(app.includes("WarmConfiguredProviderAsync") && app.includes("PROVIDER READY provider="), "Configured transcription provider is not warmed during startup");
 assert(app.includes("autoRouteVirtualMicrophone") && app.includes("听写时自动使用遥控器麦克风"), "Automatic virtual microphone routing must be configurable");
 assert(app.includes("audioProcessingMode") && app.includes("清晰增强（推荐）") && app.includes("原始直通"), "Audio processing modes must be configurable and understandable");
+assert(app.includes("长听写（单击开始，再次单击结束）") && app.includes("SafeCaptureArgument(config.voiceMode)"), "Long dictation mode is not exposed or passed to native capture");
+assert(app.includes("NormalizeVoiceMode") && app.includes("自动跨越遥控器 60 秒分段"), "Long dictation interaction guidance is incomplete");
 assert(app.includes("Typeless") && app.includes("Voquill（开源）") && app.includes("Windows 语音输入"), "Transcription provider choices are incomplete");
 assert(app.includes("遥控器功能速查") && app.includes("独立音量 +/-：此型号未检测到稳定事件"), "Hardware-validated remote quick reference is missing");
 assert(!app.includes("功能组合键已按下"), "Unsupported Function leader UI remains");
@@ -121,6 +124,17 @@ assert(!capture.includes("WeChatHotkey"), "Capture must not inject keyboard shor
 assert(capture.includes("MonitorConnection"), "Capture must monitor BLE and ATVV health");
 assert(capture.includes("vibe-mic-runtime.log"), "Capture must write readable diagnostics");
 assert(capture.includes("BluetoothCacheMode.Cached") && capture.includes("fallback=uncached"), "ATVV startup must use cached characteristic discovery with an uncached fallback");
+assert(capture.includes("CommandWriteGate") && capture.includes("session_changed_before_write"), "ATVV commands must be serialized and generation guarded");
+assert(capture.includes("ATVV MIC_EXTEND not_armed") && capture.includes("long_dictation_uses_stream_reopen"), "Long dictation must not rely on ineffective RC003 MIC_EXTEND renewal");
+assert(capture.includes("LONG DICTATION CONTINUE") && capture.includes("mic_open_long_dictation") && capture.includes("LONG DICTATION REOPEN AUDIO READY"), "Long dictation cannot reopen each RC003 audio segment");
+assert(capture.includes("LONG DICTATION REOPEN CONTROL READY") && capture.includes("LONG DICTATION REOPEN AUDIO TIMEOUT") && capture.includes("mic_open_long_dictation_retry"), "Continuation readiness must require real audio and retry control-only streams");
+assert(capture.includes("StreamFinalizationLock") && capture.includes("UsesLogicalFinalizer"), "Long-dictation stop callbacks are not serialized to one logical submission");
+assert(capture.includes("REMOTE STREAM SEGMENT STOP") && capture.includes("FinalizeLongDictation"), "Physical stream stops are not separated from logical transcription completion");
+assert(capture.includes("LongDictationSafetyLimitMs = 10 * 60 * 1000") && capture.includes("LongDictationReopenAttempts = 4"), "Long dictation safety or retry policy changed");
+assert(capture.includes("CloseAnyCommand") && capture.includes("new byte[] { 0x0D, 0xFF }") && capture.includes("mic_close_long_dictation"), "Second record-key press cannot close the active ATVV stream deterministically");
+assert(capture.includes("ClassifyLongDictationKey") && capture.includes("Long-dictation record-key transition policy failed"), "Long dictation key transitions lack deterministic tests");
+assert(capture.includes("latestVoiceControllerGeneration") && capture.includes("IsVoiceControllerSuperseded"), "Physical continuation segments can incorrectly supersede final audio drain");
+assert(capture.indexOf('StopLongDictationForShutdown("capture_shutdown_before_mic_close")') < capture.indexOf('WriteCommand(CloseCommand(), "mic_close")'), "Capture shutdown must finalize long dictation before MIC_CLOSE");
 
 assert(bridge.includes("WH_KEYBOARD_LL"), "Input bridge must use a low-level keyboard hook");
 assert(bridge.includes("RegisterRawInputDevices"), "Input bridge must register device-scoped Raw Input");

@@ -439,7 +439,7 @@ internal sealed class VibeMicForm : Form
         heroTitle = NewLabel(IsCapturing ? "正在连接" : "语音桥接已暂停", 27f, FontStyle.Bold, ink);
         heroTitle.Location = new Point(50, 62);
         heroTitle.AutoSize = true;
-        heroSubtitle = NewLabel(IsCapturing ? "正在建立遥控器语音通道，请稍候" : "启动后，按住遥控器录音键即可在当前输入框听写", 10.5f, FontStyle.Regular, muted);
+        heroSubtitle = NewLabel(IsCapturing ? "正在建立遥控器语音通道，请稍候" : "启动后，" + VoiceStartInstruction(config.voiceMode), 10.5f, FontStyle.Regular, muted);
         heroSubtitle.Location = new Point(52, 111);
         heroSubtitle.Size = new Size(560, 30);
 
@@ -469,7 +469,9 @@ internal sealed class VibeMicForm : Form
         var scan = SecondaryButton("检查连接", new Point(216, 217), new Size(124, 44));
         scan.Click += delegate { ScanDevice(); };
 
-        var gestureHint = NewLabel("按住说话  ·  松开后交给转写工具整理", 8.7f, FontStyle.Regular, muted);
+        var gestureHint = NewLabel(UsesLongDictation(config.voiceMode)
+            ? "单击开始  ·  再按一次后交给转写工具整理"
+            : "按住说话  ·  松开后交给转写工具整理", 8.7f, FontStyle.Regular, muted);
         gestureHint.Location = new Point(52, 276);
         gestureHint.Size = new Size(420, 24);
 
@@ -489,7 +491,9 @@ internal sealed class VibeMicForm : Form
         var flow = NewCard(new Point(34, 430), new Size(470, 178));
         flow.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         flow.Controls.Add(SectionTitle("开始一次听写", "\uE720", new Point(24, 18)));
-        string[] steps = { "按住录音键", "说出内容", "自动回填文字" };
+        string[] steps = UsesLongDictation(config.voiceMode)
+            ? new string[] { "单击录音键", "持续说出内容", "再按一次并回填" }
+            : new string[] { "按住录音键", "说出内容", "自动回填文字" };
         string[] icons = { "\uE720", "\uE9D2", "\uE724" };
         for (int i = 0; i < 3; i++)
         {
@@ -530,7 +534,7 @@ internal sealed class VibeMicForm : Form
         shortcuts.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         shortcuts.Controls.Add(SectionTitle("常用按键", "\uE765", new Point(24, 18)));
         string[,] quick = {
-            { "录音", "按住听写" }, { "确认", "确认 / 发送" },
+            { "录音", UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写" }, { "确认", "确认 / 发送" },
             { "Home", "显示桌面" }, { "TV", "任务切换" },
             { "功能键", "打开客户端" }, { "方向键", "导航 / 调音量" }
         };
@@ -621,7 +625,7 @@ internal sealed class VibeMicForm : Form
     private void BuildVoicePage()
     {
         AddPageTitle("语音听写", "遥控器负责收音，所选语音工具负责转写与整理");
-        var card = NewCard(new Point(34, 100), new Size(960, 590));
+        var card = NewCard(new Point(34, 100), new Size(960, 650));
         card.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         card.Controls.Add(SectionTitle("听写通道", "\uE720", new Point(30, 24)));
 
@@ -629,7 +633,7 @@ internal sealed class VibeMicForm : Form
         stateBand.Location = new Point(30, 64);
         stateBand.Size = new Size(900, 62);
         stateBand.BackColor = IsCapturing ? Color.FromArgb(238, 250, 244) : Color.FromArgb(246, 248, 252);
-        voiceBridgeStateLabel = NewLabel(IsCapturing ? "●  已就绪 · 聚焦输入框后按住录音键" : "●  语音桥接已暂停", 10.5f, FontStyle.Bold,
+        voiceBridgeStateLabel = NewLabel(IsCapturing ? "●  已就绪 · " + VoiceReadyInstruction(config.voiceMode) : "●  语音桥接已暂停", 10.5f, FontStyle.Bold,
             IsCapturing ? green : muted);
         voiceBridgeStateLabel.Location = new Point(22, 19);
         voiceBridgeStateLabel.AutoSize = true;
@@ -667,8 +671,18 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(triggerMode);
         card.Controls.Add(hotkeyHelp);
 
-        AddFieldLabel(card, "声音处理", 260);
-        var processing = StyledCombo(new Point(220, 256), new Size(260, 38));
+        AddFieldLabel(card, "遥控器录音", 260);
+        var voiceMode = StyledCombo(new Point(220, 256), new Size(330, 38));
+        voiceMode.Items.AddRange(new object[] { "按住说话（最长 60 秒）", "长听写（单击开始，再次单击结束）" });
+        voiceMode.SelectedIndex = NormalizeVoiceMode(config.voiceMode) == "continuous" ? 1 : 0;
+        var voiceModeHelp = NewLabel(VoiceModeHelp(config.voiceMode), 9f, FontStyle.Regular, muted);
+        voiceModeHelp.Location = new Point(570, 263);
+        voiceModeHelp.Size = new Size(330, 25);
+        card.Controls.Add(voiceMode);
+        card.Controls.Add(voiceModeHelp);
+
+        AddFieldLabel(card, "声音处理", 314);
+        var processing = StyledCombo(new Point(220, 310), new Size(260, 38));
         processing.Items.AddRange(new object[] { "清晰增强（推荐）", "原始直通" });
         processing.SelectedIndex = config.audioProcessingMode == "transparent" ? 1 : 0;
         processing.Enabled = advancedAudioUnlocked;
@@ -677,37 +691,37 @@ internal sealed class VibeMicForm : Form
             : config.audioProcessingMode == "transparent"
             ? "仅做格式转换，适合排查原始音频。"
             : "稳定补偿轻声，孤立尖峰不会压低整段语音。", 9f, FontStyle.Regular, muted);
-        processingHelp.Location = new Point(505, 263);
+        processingHelp.Location = new Point(505, 317);
         processingHelp.Size = new Size(390, 25);
         card.Controls.Add(processing);
         card.Controls.Add(processingHelp);
 
-        AddFieldLabel(card, "收音灵敏度", 314);
+        AddFieldLabel(card, "收音灵敏度", 368);
         var gainHelp = NewLabel(stableVoiceProfile
             ? "已锁定为真机验证值 1.0×；普通使用无需调整。"
             : "建议保持 1.0×；仅在排障时小幅调整。", 9.2f, FontStyle.Regular, muted);
-        gainHelp.Location = new Point(220, 316);
+        gainHelp.Location = new Point(220, 370);
         gainHelp.Size = new Size(520, 24);
         card.Controls.Add(gainHelp);
         var gain = new TrackBar();
-        gain.Location = new Point(212, 342);
+        gain.Location = new Point(212, 396);
         gain.Size = new Size(390, 44);
         gain.Minimum = 5;
         gain.Maximum = 40;
         gain.Value = Math.Max(5, Math.Min(40, (int)(config.gain * 10)));
         gain.Enabled = advancedAudioUnlocked;
         var gainValue = NewLabel((gain.Value / 10.0).ToString("0.0") + "×", 10f, FontStyle.Bold, violet);
-        gainValue.Location = new Point(620, 350);
+        gainValue.Location = new Point(620, 404);
         gainValue.Size = new Size(70, 28);
         gain.Scroll += delegate { gainValue.Text = (gain.Value / 10.0).ToString("0.0") + "×"; };
         card.Controls.Add(gain);
         card.Controls.Add(gainValue);
 
-        var autoRoute = StyledCheck("听写时自动使用遥控器麦克风（推荐）", config.autoRouteVirtualMicrophone, new Point(212, 390));
+        var autoRoute = StyledCheck("听写时自动使用遥控器麦克风（推荐）", config.autoRouteVirtualMicrophone, new Point(212, 444));
         autoRoute.Size = new Size(330, 34);
         autoRoute.Enabled = advancedAudioUnlocked;
         var routeHelp = NewLabel("结束听写后自动恢复原来的 Windows 麦克风", 8.9f, FontStyle.Regular, muted);
-        routeHelp.Location = new Point(548, 397);
+        routeHelp.Location = new Point(548, 451);
         routeHelp.Size = new Size(350, 24);
         card.Controls.Add(autoRoute);
         card.Controls.Add(routeHelp);
@@ -715,18 +729,18 @@ internal sealed class VibeMicForm : Form
         bool cableReady = HasCableInput() && HasCableOutput();
         var cableState = NewLabel(cableReady ? "●  CABLE 音频通道已就绪" : "●  需要安装或检查 VB-CABLE", 10f, FontStyle.Bold,
             cableReady ? green : Color.FromArgb(202, 76, 76));
-        cableState.Location = new Point(220, 432);
+        cableState.Location = new Point(220, 486);
         cableState.AutoSize = true;
         card.Controls.Add(cableState);
 
-        var start = PrimaryButton(IsCapturing ? "暂停语音桥接" : "启动语音桥接", new Point(220, 470), new Size(152, 44));
+        var start = PrimaryButton(IsCapturing ? "暂停语音桥接" : "启动语音桥接", new Point(220, 524), new Size(152, 44));
         start.Click += delegate { ToggleCapture(); start.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接"; };
-        var test = SecondaryButton("测试所选工具", new Point(386, 470), new Size(148, 44));
+        var test = SecondaryButton("测试所选工具", new Point(386, 524), new Size(148, 44));
         test.Click += delegate { TestVoiceHotkey(); };
         var sound = SecondaryButton(config.inputMethod == "typeless" || config.inputMethod == "voquill" ? "获取所选工具" : "检查麦克风设置",
-            new Point(548, 470), new Size(158, 44));
+            new Point(548, 524), new Size(158, 44));
         sound.Click += delegate { OpenProviderHelp(config.inputMethod); };
-        var profileAction = SecondaryButton(stableVoiceProfile ? "调整高级参数" : "恢复稳定参数", new Point(720, 470), new Size(170, 44));
+        var profileAction = SecondaryButton(stableVoiceProfile ? "调整高级参数" : "恢复稳定参数", new Point(720, 524), new Size(170, 44));
         profileAction.Tag = stableVoiceProfile ? "unlock" : "restore";
         profileAction.Click += delegate
         {
@@ -759,7 +773,7 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(profileAction);
 
         var note = NewLabel(ProviderRouteInstruction(config.inputMethod, config.autoRouteVirtualMicrophone) + "。言灵只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。", 9.3f, FontStyle.Regular, muted);
-        note.Location = new Point(30, 526);
+        note.Location = new Point(30, 580);
         note.Size = new Size(880, 44);
         card.Controls.Add(note);
 
@@ -814,6 +828,18 @@ internal sealed class VibeMicForm : Form
             config.inputMethodTrigger = value;
             SaveConfig();
             RestartCaptureForAudioSettings();
+        };
+        voiceMode.SelectedIndexChanged += delegate
+        {
+            string value = voiceMode.SelectedIndex == 1 ? "continuous" : "hold";
+            if (value == NormalizeVoiceMode(config.voiceMode)) return;
+            config.voiceMode = value;
+            voiceModeHelp.Text = VoiceModeHelp(value);
+            SaveConfig();
+            RestartCaptureForAudioSettings();
+            ShowToast(value == "continuous"
+                ? "长听写已开启：单击录音开始，再次单击结束"
+                : "按住说话已开启：松开录音键即结束", "success");
         };
         processing.SelectedIndexChanged += delegate
         {
@@ -885,7 +911,7 @@ internal sealed class VibeMicForm : Form
         previewRemote.ShowCallouts = true;
         previewRemote.AccentColor = violet;
         previewRemote.HighlightedControl = "voice";
-        var mappingSelection = NewLabel("录音键\r\n按住听写", 9.2f, FontStyle.Bold, violet);
+        var mappingSelection = NewLabel("录音键\r\n" + (UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写"), 9.2f, FontStyle.Bold, violet);
         mappingSelection.Location = new Point(24, 454);
         mappingSelection.Size = new Size(276, 54);
         mappingSelection.TextAlign = ContentAlignment.MiddleCenter;
@@ -946,7 +972,7 @@ internal sealed class VibeMicForm : Form
                 rowBand.BackColor = Color.FromArgb(248, 247, 255);
                 previewRemote.HighlightedControl = previewControl;
                 ShortcutChoice selected = input.SelectedItem as ShortcutChoice;
-                string selectedText = rowIndex == 0 ? "按住听写" : rowIndex == 5 ? "短按导航 · 长按上下调音量" : selected == null ? rows[rowIndex, 2] : selected.Label;
+                string selectedText = rowIndex == 0 ? (UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写") : rowIndex == 5 ? "短按导航 · 长按上下调音量" : selected == null ? rows[rowIndex, 2] : selected.Label;
                 mappingSelection.Text = rows[rowIndex, 0] + "\r\n" + selectedText;
                 previewRemote.Invalidate();
             };
@@ -1523,7 +1549,8 @@ internal sealed class VibeMicForm : Form
                     config.gain.ToString(CultureInfo.InvariantCulture) + " " + config.drainMs + " " + config.autoLevel + " " +
                     SafeCaptureArgument(config.inputMethod) + " " + SafeCaptureArgument(config.inputMethodHotkey) + " " +
                     SafeCaptureArgument(config.inputMethodTrigger) + " " + config.providerStartupDelayMs + " " +
-                    SafeCaptureArgument(config.audioProcessingMode) + " " + config.autoRouteVirtualMicrophone;
+                    SafeCaptureArgument(config.audioProcessingMode) + " " + config.autoRouteVirtualMicrophone + " " +
+                    SafeCaptureArgument(config.voiceMode);
             }
             else
             {
@@ -1552,7 +1579,8 @@ internal sealed class VibeMicForm : Form
             captureStartedAt = DateTime.Now;
             captureProcess.BeginOutputReadLine();
             captureProcess.BeginErrorReadLine();
-            HostLog("CAPTURE START pid=" + captureProcess.Id + " provider=" + NormalizeProviderKey(config.inputMethod));
+            HostLog("CAPTURE START pid=" + captureProcess.Id + " provider=" + NormalizeProviderKey(config.inputMethod) +
+                " voice_mode=" + NormalizeVoiceMode(config.voiceMode));
             UpdateCaptureUi();
             Toast("正在连接遥控器麦克风，请稍候");
         }
@@ -1693,6 +1721,8 @@ internal sealed class VibeMicForm : Form
         {
             HostLog("VOICE WAKE recovery=start_capture");
             StartCapture();
+            if (UsesLongDictation(config.voiceMode) && IsCapturing)
+                ReplayLongDictationVoiceKeyAfterCaptureStart(captureProcess);
             return;
         }
         if (bridgeReady || !held || captureStartedAt == DateTime.MinValue) return;
@@ -1719,6 +1749,35 @@ internal sealed class VibeMicForm : Form
                 return handle.WaitOne(0);
         }
         catch { return false; }
+    }
+
+    private void ReplayLongDictationVoiceKeyAfterCaptureStart(Process expectedCapture)
+    {
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            for (int attempt = 0; attempt < 100 && !applicationExiting; attempt++)
+            {
+                try
+                {
+                    if (expectedCapture == null || expectedCapture.HasExited || !ReferenceEquals(captureProcess, expectedCapture)) return;
+                    using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyPressed"))
+                    {
+                        bool delivered = handle.Set();
+                        HostLog("VOICE WAKE replay mode=continuous delivered=" + delivered +
+                            " waited_ms=" + (attempt * 25));
+                        return;
+                    }
+                }
+                catch (WaitHandleCannotBeOpenedException) { }
+                catch (Exception ex)
+                {
+                    HostLog("VOICE WAKE replay failed mode=continuous error=" + ex.Message);
+                    return;
+                }
+                Thread.Sleep(25);
+            }
+            HostLog("VOICE WAKE replay failed mode=continuous reason=capture_event_timeout");
+        });
     }
 
     private void WarmConfiguredProviderAsync(bool launchImmediately)
@@ -2589,7 +2648,7 @@ internal sealed class VibeMicForm : Form
         if (heroTitle != null && !heroTitle.IsDisposed)
             heroTitle.Text = !IsCapturing ? "语音桥接已暂停" : bridgeReady ? "已准备好" : "正在连接";
         if (heroSubtitle != null && !heroSubtitle.IsDisposed)
-            heroSubtitle.Text = !IsCapturing ? "启动后，按住遥控器录音键即可在当前输入框听写" : bridgeReady ? "聚焦输入框，按住遥控器录音键开始说话" : "正在建立遥控器语音通道，请稍候";
+            heroSubtitle.Text = !IsCapturing ? "启动后，" + VoiceStartInstruction(config.voiceMode) : bridgeReady ? VoiceStartInstruction(config.voiceMode) : "正在建立遥控器语音通道，请稍候";
         if (heroStateLabel != null && !heroStateLabel.IsDisposed)
             heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady ? "READY" : "CONNECTING";
         connectionBadge.Text = !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接";
@@ -2631,7 +2690,7 @@ internal sealed class VibeMicForm : Form
         {
             accent = green;
             surface = Color.FromArgb(238, 250, 244);
-            voiceText = "●  已就绪 · 聚焦输入框后按住录音键";
+            voiceText = "●  已就绪 · " + VoiceReadyInstruction(config.voiceMode);
         }
         else if (state == "connecting")
         {
@@ -2719,7 +2778,9 @@ internal sealed class VibeMicForm : Form
     {
         var health = new SessionHealth();
         health.Provider = NormalizeProviderKey(config.inputMethod);
-        health.NextAction = "按住遥控器录音键完成一次测试";
+        health.NextAction = UsesLongDictation(config.voiceMode)
+            ? "单击录音键开始测试，说完后再按一次"
+            : "按住遥控器录音键完成一次测试";
         string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         if (!File.Exists(path)) return health;
 
@@ -2728,9 +2789,11 @@ internal sealed class VibeMicForm : Form
         catch { return health; }
         int searchStart = Math.Max(0, lines.Length - 2400);
         int sessionStart = -1;
+        bool longHealth = UsesLongDictation(config.voiceMode);
+        string sessionStartMarker = longHealth ? "LONG DICTATION START generation=" : "REMOTE STREAM START session=";
         for (int i = lines.Length - 1; i >= searchStart; i--)
         {
-            if (lines[i].IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            if (lines[i].IndexOf(sessionStartMarker, StringComparison.OrdinalIgnoreCase) < 0) continue;
             int generation;
             if (!int.TryParse(ExtractMetric(lines[i], "generation"), out generation)) continue;
             health.Generation = generation;
@@ -2745,10 +2808,13 @@ internal sealed class VibeMicForm : Form
         for (int i = sessionStart; i < lines.Length; i++)
         {
             string item = lines[i];
-            if (i > sessionStart && item.IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) >= 0) break;
+            if (i > sessionStart && item.IndexOf(sessionStartMarker, StringComparison.OrdinalIgnoreCase) >= 0) break;
             int itemGeneration;
             bool hasGeneration = int.TryParse(ExtractMetric(item, "generation"), out itemGeneration);
-            if (hasGeneration && itemGeneration != health.Generation) continue;
+            int itemLogicalGeneration;
+            bool hasLogicalGeneration = int.TryParse(ExtractMetric(item, "logical_generation"), out itemLogicalGeneration);
+            if (hasGeneration && itemGeneration != health.Generation &&
+                (!hasLogicalGeneration || itemLogicalGeneration != health.Generation)) continue;
 
             if (item.IndexOf("TRANSCRIPTION READY", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -2759,15 +2825,25 @@ internal sealed class VibeMicForm : Form
             else if (item.IndexOf("DEFAULT CAPTURE ROUTE ACQUIRED", StringComparison.OrdinalIgnoreCase) >= 0) health.RouteAcquired = true;
             else if (item.IndexOf("DEFAULT CAPTURE ROUTE RESTORED", StringComparison.OrdinalIgnoreCase) >= 0) health.RouteRestored = true;
             else if (item.IndexOf("DEFAULT CAPTURE ROUTE RESTORE PENDING", StringComparison.OrdinalIgnoreCase) >= 0) health.RouteRestorePending = true;
-            else if (item.IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0)
+            else if (item.IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                item.IndexOf("REMOTE STREAM SEGMENT STOP session=", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                health.StreamStopped = true;
-                int.TryParse(ExtractMetric(item, "audio_ms"), out health.AudioMs);
+                if (item.IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0)
+                    health.StreamStopped = true;
+                int segmentAudioMs;
+                if (int.TryParse(ExtractMetric(item, "audio_ms"), out segmentAudioMs)) health.AudioMs += segmentAudioMs;
                 int.TryParse(ExtractMetric(item, "max_gap_ms"), out health.MaxGapMs);
                 int.TryParse(ExtractMetric(item, "queue_drops"), out health.QueueDrops);
                 int.TryParse(ExtractMetric(item, "sink_queue_drops"), out health.SinkQueueDrops);
                 double.TryParse(ExtractMetric(item, "raw_rms_pct"), NumberStyles.Float, CultureInfo.InvariantCulture, out health.RawRmsPercent);
                 double.TryParse(ExtractMetric(item, "output_rms_pct"), NumberStyles.Float, CultureInfo.InvariantCulture, out health.OutputRmsPercent);
+            }
+            else if (item.IndexOf("LONG DICTATION END generation=", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                health.StreamStopped = true;
+                int totalAudioMs;
+                if (int.TryParse(ExtractMetric(item, "audio_ms"), out totalAudioMs)) health.AudioMs = totalAudioMs;
+                TryParseRuntimeTimestamp(item, out health.EndedAt);
             }
             else if (item.IndexOf("VIRTUAL MIC DRAIN COMPLETE", StringComparison.OrdinalIgnoreCase) >= 0)
             {
@@ -2796,7 +2872,9 @@ internal sealed class VibeMicForm : Form
         health.Success = health.Completed && health.AudioDelivered && health.StreamStopped && !health.Failed;
         if (health.Failed) health.NextAction = "打开诊断记录并复制问题摘要";
         else if (!health.Ready) health.NextAction = "转写工具没有进入听写状态，请先测试工具快捷键";
-        else if (!health.StreamStopped) health.NextAction = "仍在听写；说完后松开录音键并等待完成";
+        else if (!health.StreamStopped) health.NextAction = UsesLongDictation(config.voiceMode)
+            ? "仍在长听写；完成后再按一次录音键"
+            : "仍在听写；说完后松开录音键并等待完成";
         else if (health.AudioMs > 0 && health.AudioMs < 700) health.NextAction = "按住时间太短，请完整说完一句话后再松开";
         else if (health.QueueDrops > 0 || health.SinkQueueDrops > 0) health.NextAction = "音频队列出现丢包，请重新连接蓝牙后再试";
         else if (health.OutputRmsPercent > 0 && health.OutputRmsPercent < 0.8) health.NextAction = "声音偏小，请靠近遥控器麦克风并自然说话";
@@ -2815,7 +2893,7 @@ internal sealed class VibeMicForm : Form
         if (!health.Started)
         {
             result.AppendLine("最近一次听写：尚无测试记录");
-            result.AppendLine("下一步：聚焦输入框，按住遥控器录音键说一句完整的话。 ");
+            result.AppendLine("下一步：" + VoiceStartInstruction(config.voiceMode) + "，说一句完整的话。 ");
             return result.ToString();
         }
 
@@ -2841,6 +2919,7 @@ internal sealed class VibeMicForm : Form
         result.AppendLine("版本：" + ProductRelease + "  ·  时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         result.AppendLine("系统：" + Environment.OSVersion.VersionString);
         result.AppendLine("转写工具：" + ProviderDisplayName(config.inputMethod) + "  ·  快捷键：" + config.inputMethodHotkey + "  ·  " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换"));
+        result.AppendLine("遥控器录音：" + (UsesLongDictation(config.voiceMode) ? "长听写 · 单击开始 / 再次单击结束" : "按住说话 · 松开结束 · 最长 60 秒"));
         result.AppendLine("语音桥接：" + (IsCapturing ? "运行中" : "已暂停") + "  ·  遥控器语音：" + (bridgeReady ? "已就绪" : "未就绪"));
         result.AppendLine("VB-CABLE：Input " + (HasCableInput() ? "已检测" : "未检测") + " / Output " + (HasCableOutput() ? "已检测" : "未检测"));
         result.AppendLine("稳定语音档案：" + (HasStableVoiceProfile(config) ? "v" + StableVoiceProfileVersion + " 已应用" : "参数已自定义"));
@@ -2939,7 +3018,9 @@ internal sealed class VibeMicForm : Form
         if (!health.Started)
         {
             sessionState = "warning";
-            sessionDetail = "尚无真实听写记录；需要按住录音键说一句话才能验证完整链路";
+            sessionDetail = UsesLongDictation(config.voiceMode)
+                ? "尚无真实听写记录；请单击录音键开始，说一句话后再按一次结束"
+                : "尚无真实听写记录；需要按住录音键说一句话才能验证完整链路";
             sessionAction = "test-dictation";
             sessionActionText = "开始测试";
         }
@@ -3067,7 +3148,9 @@ internal sealed class VibeMicForm : Form
         else if (action == "test-dictation")
         {
             ShowPage(0);
-            ShowToast("聚焦任意输入框，按住遥控器录音键说完一句话后松开", "info");
+            ShowToast(UsesLongDictation(config.voiceMode)
+                ? "聚焦任意输入框，单击录音键开始，说完后再按一次"
+                : "聚焦任意输入框，按住遥控器录音键说完一句话后松开", "info");
         }
     }
 
@@ -3121,21 +3204,29 @@ internal sealed class VibeMicForm : Form
         string[] lines = ReadLogTailLines(path, 256 * 1024);
         int startIndex = -1;
         int stopIndex = -1;
-        for (int i = Math.Max(0, lines.Length - 200); i < lines.Length; i++)
+        int longStartIndex = -1;
+        int longEndIndex = -1;
+        for (int i = Math.Max(0, lines.Length - 500); i < lines.Length; i++)
         {
             if (lines[i].IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) >= 0) startIndex = i;
             if (lines[i].IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) stopIndex = i;
+            if (lines[i].IndexOf("LONG DICTATION START generation=", StringComparison.OrdinalIgnoreCase) >= 0) longStartIndex = i;
+            if (lines[i].IndexOf("LONG DICTATION END generation=", StringComparison.OrdinalIgnoreCase) >= 0) longEndIndex = i;
         }
 
-        if (IsCapturing && startIndex > stopIndex)
+        bool longSessionActive = UsesLongDictation(config.voiceMode) && longStartIndex > longEndIndex;
+        if (IsCapturing && (longSessionActive || startIndex > stopIndex))
         {
             DateTime parsed;
-            if (TryParseRuntimeTimestamp(lines[startIndex], out parsed)) activeStreamStarted = parsed;
+            int timingIndex = longSessionActive ? longStartIndex : startIndex;
+            if (TryParseRuntimeTimestamp(lines[timingIndex], out parsed)) activeStreamStarted = parsed;
             TimeSpan elapsed = activeStreamStarted == DateTime.MinValue ? TimeSpan.Zero : DateTime.Now - activeStreamStarted;
             activityLabel.Text = "●  正在听写  " + Math.Max(0, (int)elapsed.TotalMinutes).ToString("00") + ":" + Math.Max(0, elapsed.Seconds).ToString("00") + "  ·  遥控器收音中";
             activityLabel.ForeColor = violet;
             if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "正在听写";
-            if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = "请自然说话，松开录音键后由 " + ProviderDisplayName(config.inputMethod) + " 整理文字";
+            if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = UsesLongDictation(config.voiceMode)
+                ? "请自然说话，完成后再按一次录音键，由 " + ProviderDisplayName(config.inputMethod) + " 整理文字"
+                : "请自然说话，松开录音键后由 " + ProviderDisplayName(config.inputMethod) + " 整理文字";
             if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "LISTENING";
             ApplyVisualState("recording");
             return;
@@ -3363,6 +3454,17 @@ internal sealed class VibeMicForm : Form
             ApplyVisualState("recording");
             return;
         }
+        if (lineText.IndexOf("LONG DICTATION FINALIZING", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            transientFeedbackUntil = DateTime.Now.AddSeconds(12);
+            transientFeedbackState = "processing";
+            transientFeedbackText = "长听写已结束 · 正在整理并回填文字";
+            if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "正在整理文字";
+            if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = transientFeedbackText;
+            if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "PROCESSING";
+            ApplyVisualState("processing");
+            return;
+        }
         if (lineText.IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             transientFeedbackUntil = DateTime.Now.AddSeconds(12);
@@ -3492,6 +3594,39 @@ internal sealed class VibeMicForm : Form
         if (provider == "windows" || provider == "win+h") return "windows";
         if (provider == "voquill" || provider == "vokie") return "voquill";
         return provider == "custom" ? "custom" : "wechat";
+    }
+
+    private static string NormalizeVoiceMode(string value)
+    {
+        return string.Equals((value ?? "").Trim(), "continuous", StringComparison.OrdinalIgnoreCase)
+            ? "continuous"
+            : "hold";
+    }
+
+    private static bool UsesLongDictation(string value)
+    {
+        return NormalizeVoiceMode(value) == "continuous";
+    }
+
+    private static string VoiceReadyInstruction(string value)
+    {
+        return UsesLongDictation(value)
+            ? "单击录音键开始长听写，再按一次结束"
+            : "聚焦输入框后按住录音键";
+    }
+
+    private static string VoiceModeHelp(string value)
+    {
+        return UsesLongDictation(value)
+            ? "自动跨越遥控器 60 秒分段，安全上限 10 分钟。"
+            : "保持真机验证交互；松开即提交，单次最长 60 秒。";
+    }
+
+    private static string VoiceStartInstruction(string value)
+    {
+        return UsesLongDictation(value)
+            ? "聚焦输入框，单击录音键开始；完成后再按一次"
+            : "聚焦输入框，按住录音键开始说话";
     }
 
     private static string ProviderDisplayName(string provider)
@@ -3679,7 +3814,6 @@ internal sealed class VibeMicForm : Form
         return value.captureSeconds == 0 &&
             Math.Abs(value.gain - StableVoiceGain) < 0.001 &&
             value.autoLevel &&
-            string.Equals(value.voiceMode, "hold", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(value.audioEndpointName, StableVoiceEndpoint, StringComparison.OrdinalIgnoreCase) &&
             string.Equals(value.audioProcessingMode, StableVoiceProcessing, StringComparison.OrdinalIgnoreCase) &&
             value.autoRouteVirtualMicrophone &&
@@ -3692,7 +3826,6 @@ internal sealed class VibeMicForm : Form
         value.captureSeconds = 0;
         value.gain = StableVoiceGain;
         value.autoLevel = true;
-        value.voiceMode = "hold";
         value.audioEndpointName = StableVoiceEndpoint;
         value.audioProcessingMode = StableVoiceProcessing;
         value.autoRouteVirtualMicrophone = true;
@@ -3710,7 +3843,12 @@ internal sealed class VibeMicForm : Form
         if (value.captureSeconds < 0) { value.captureSeconds = 0; changed = true; }
         if (value.gain <= 0 || value.gain > 4) { value.gain = 1.0; changed = true; }
         if (previousSchema < 11) { value.autoLevel = true; changed = true; }
-        if (string.IsNullOrWhiteSpace(value.voiceMode)) { value.voiceMode = "hold"; changed = true; }
+        string normalizedVoiceMode = NormalizeVoiceMode(value.voiceMode);
+        if (!string.Equals(value.voiceMode, normalizedVoiceMode, StringComparison.OrdinalIgnoreCase))
+        {
+            value.voiceMode = normalizedVoiceMode;
+            changed = true;
+        }
         if (string.IsNullOrWhiteSpace(value.audioEndpointName)) { value.audioEndpointName = "CABLE Input"; changed = true; }
         if (string.IsNullOrWhiteSpace(value.inputMethod)) { value.inputMethod = "wechat"; changed = true; }
         if (string.IsNullOrWhiteSpace(value.inputMethodHotkey)) { value.inputMethodHotkey = "ctrl+win"; changed = true; }
