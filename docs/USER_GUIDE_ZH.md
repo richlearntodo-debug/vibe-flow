@@ -7,6 +7,12 @@
 > [!NOTE]
 > RC003 固件会在一次物理长按约 60 秒时主动结束按键和音频流，因此稳定按住模式单次以约 60 秒为硬件上限；这不是微信输入法的时长限制。
 
+## 加入用户社区
+
+开始配置前可以扫码加入 Vibe Flow 用户社区，遇到安装、连接或转写问题时可随时交流。
+
+<img src="images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
+
 ## 快速导航
 
 | 你的情况 | 直接查看 |
@@ -379,9 +385,7 @@ VB-CABLE 是独立驱动。只有不再使用任何虚拟麦克风工具时，�
 
 ## 获取帮助
 
-先运行自检并准备问题摘要，再提交 [GitHub Issue](https://github.com/richlearntodo-debug/vibe-flow/issues)。也可以扫码加入 Vibe Flow 用户社区：
-
-<img src="images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="860">
+先运行自检并准备问题摘要，再提交 [GitHub Issue](https://github.com/richlearntodo-debug/vibe-flow/issues)。问题摘要默认不包含录音或识别文字。
 
 ## 教程截图复用
 

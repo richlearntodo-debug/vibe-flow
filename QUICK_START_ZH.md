@@ -8,6 +8,12 @@
 
 免安装版请下载 `Vibe-Flow-Windows-x64.zip`，完整解压后打开 `VibeFlow.exe`。不要下载 GitHub 自动生成的 `Source code (zip)` 或 `Source code (tar.gz)`，它们不是 Windows 安装包。
 
+## 加入用户社区
+
+首次配置遇到问题时，可扫码加入 Vibe Flow 用户社区获取帮助。
+
+<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
+
 ## 首次五步
 
 1. **选择转写工具**

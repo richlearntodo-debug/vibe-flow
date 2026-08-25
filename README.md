@@ -10,15 +10,20 @@
 | --- | --- |
 | 推荐安装版 | [**下载 VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe) |
 | 免安装版 | [下载 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) |
-| 零基础教程 | [打开完整中文使用教程](docs/USER_GUIDE_ZH.md) |
-| 2 分钟快速开始 | [查看快速开始](QUICK_START_ZH.md) |
-| 本版说明 | [查看 v1.1.0 更新与边界](docs/RELEASE_NOTES_ZH.md) |
 | 下载校验 | [下载 SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/SHA256SUMS.txt) |
 
 > [!IMPORTANT]
 > 普通用户只需下载 **VibeFlow-Setup.exe**。GitHub 发布页自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 是源码，不是 Windows 安装程序。
 
-[最新版发布页](https://github.com/richlearntodo-debug/vibe-flow/releases/latest) · [首次安装](docs/USER_GUIDE_ZH.md#从零开始) · [快捷键配置](docs/USER_GUIDE_ZH.md#配置遥控器快捷键) · [问题排查](docs/USER_GUIDE_ZH.md#按现象排查)
+## 加入用户社区
+
+扫码加入 Vibe Flow 用户社区，获取配置帮助、交流使用体验与 Vibe Coding 工作流。
+
+<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
+
+## 教程与帮助
+
+[2 分钟快速开始](QUICK_START_ZH.md) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [快捷键配置](docs/USER_GUIDE_ZH.md#配置遥控器快捷键) · [问题排查](docs/USER_GUIDE_ZH.md#按现象排查) · [v1.1.0 更新说明](docs/RELEASE_NOTES_ZH.md) · [最新版发布页](https://github.com/richlearntodo-debug/vibe-flow/releases/latest)
 
 ![言灵 v1.1.0 总览](docs/images/01-overview.png)
 
@@ -156,12 +161,6 @@ powershell -ExecutionPolicy Bypass -File .\BUILD_RELEASE.ps1
 ```
 
 架构说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，连续听写实现与边界见 [连续听写专题](docs/CONTINUOUS_DICTATION_ZH.md)，签名与安全更新见 [Windows 代码签名与安全更新](docs/CODE_SIGNING_ZH.md)，贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 社区
-
-遇到问题可先运行应用内自检，再携带“问题摘要”提交 GitHub Issue。也可以扫码加入 Vibe Flow 用户社区，交流使用体验与 Vibe Coding 工作流。
-
-<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="860">
 
 ## 开源与第三方
 

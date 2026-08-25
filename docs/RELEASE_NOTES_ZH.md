@@ -16,6 +16,12 @@
 
 不要下载 GitHub 自动生成的 `Source code` 压缩包，它们不是 Windows 安装程序。
 
+## 加入用户社区
+
+扫码加入 Vibe Flow 用户社区，获取配置帮助并交流使用体验。
+
+<img src="images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
+
 ## 本次亮点
 
 ### 1. 按住开始，松开结束
@@ -142,7 +148,3 @@
 - 原输入框焦点捕获/恢复、结束提示音、更新清单解析与签名流水线均纳入自动验证。
 
 完整教程见 [USER_GUIDE_ZH.md](USER_GUIDE_ZH.md)，连续听写细节见 [CONTINUOUS_DICTATION_ZH.md](CONTINUOUS_DICTATION_ZH.md)，签名与更新说明见 [CODE_SIGNING_ZH.md](CODE_SIGNING_ZH.md)。
-
-## 社区
-
-<img src="images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="860">
