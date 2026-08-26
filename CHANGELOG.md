@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.2.0 - 2026-08-26
+
+- Promoted continuous dictation to the recommended default for new installs:
+  press Record once to start, release it, and press it again to finish. Existing
+  installations retain their selected voice mode during schema 20 migration.
+- Rebuilt the long-session controller around one logical generation. After the
+  RC003 `start_reason=0x03` physical stream ends, the host opens a
+  `start_reason=0x00` stream and sends `MIC_EXTEND 0x0E` every eight seconds to
+  the exact active session. First-open control-only responses use bounded retry.
+- Added transport-health monitoring for real audio coverage, packet intervals,
+  BLE and VB-CABLE queue loss, WASAPI and endpoint state, route ownership, and
+  process memory. The UI enters its live state only after real audio arrives;
+  stalled streams receive one bounded recovery and fail visibly if it cannot
+  restore audio. Sub-700 ms accidental sessions now require a retest instead of
+  being counted as a complete 7/7 self-check pass.
+- Added a 30-minute safety limit for forgotten continuous sessions. This is a
+  protection boundary, not a claim that every third-party transcription tool has
+  the same duration support.
+- Completed RC003 hardware regressions at 124 seconds, 6 minutes, and 15 minutes
+  22 seconds. The longest run delivered 918.2 seconds of real audio over a
+  921.8-second logical session (99.6% coverage), renewed 114/114 times, dropped
+  zero BLE or VB-CABLE packets, and held private memory near 49-51 MB.
+- Revalidated hold-to-talk compatibility independently: a 6.66-second hold
+  stopped naturally within 80 ms of release, sent no MIC_EXTEND commands,
+  opened one transcription microphone, restored routing, and retained native
+  provider input without clipboard or synthetic paste behavior.
+- Preserved stable voice profile v11, gain `1.0`, speech processing, 180 ms
+  startup and drain timing, WeChat `Ctrl+Win+Shift` AI toggle, automatic reversible
+  `CABLE Output` routing, completion sound, and verified shortcut mappings.
+- Fixed GitHub update metadata decoding by using UTF-8 explicitly. API metadata
+  parse failures now fall back to GitHub's official `releases/latest` redirect;
+  downloads still require HTTPS, user confirmation, and matching SHA-256 data.
+- Updated the overview, dictation settings, onboarding, diagnostics, beginner
+  tutorial, quick start, release notes, and recording-mode guide for continuous
+  dictation. Bumped all components to 1.2.0, schema 20, and onboarding 6.
+
 ## 1.1.0 - 2026-08-26
 
 - Made hold-to-talk the stable default: press and hold Record to capture, then

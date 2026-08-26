@@ -1,11 +1,14 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $releaseRoot = Join-Path $root "release"
+$releaseVersion = (Get-Content -LiteralPath (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
 $packageName = "Vibe-Flow-Windows-x64"
 $packageDir = Join-Path $releaseRoot $packageName
 $zipPath = Join-Path $releaseRoot ($packageName + ".zip")
 $installerPath = Join-Path $releaseRoot "VibeFlow-Setup.exe"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
+$releaseBodySource = Join-Path $root "docs\GITHUB_RELEASE_BODY_ZH.md"
+$releaseBodyPath = Join-Path $releaseRoot ("RELEASE_BODY_v" + $releaseVersion + ".md")
 $signingThumbprint = if ($env:VIBE_FLOW_SIGN_THUMBPRINT) { $env:VIBE_FLOW_SIGN_THUMBPRINT.Trim() } else { "" }
 $signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } else { "" }
 $timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
@@ -71,6 +74,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     ForEach-Object { Invoke-VibeFlowCodeSign (Join-Path $root $_) }
 
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
+Get-ChildItem -LiteralPath $releaseRoot -Filter "RELEASE_BODY_v*.md" -File -ErrorAction SilentlyContinue |
+    Remove-Item -Force
 if (Test-Path $packageDir) { Remove-Item -LiteralPath $packageDir -Recurse -Force }
 if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
 if (Test-Path $installerPath) { Remove-Item -LiteralPath $installerPath -Force }
@@ -126,7 +131,9 @@ $hashLines = @($installerPath, $zipPath) | ForEach-Object {
     $hash.Hash + "  " + (Split-Path -Leaf $_)
 }
 [System.IO.File]::WriteAllLines($checksumPath, $hashLines, [System.Text.UTF8Encoding]::new($false))
+Copy-Item -LiteralPath $releaseBodySource -Destination $releaseBodyPath
 
 Write-Host "Built $installerPath"
 Write-Host "Built $zipPath"
 Write-Host "Built $checksumPath"
+Write-Host "Built $releaseBodyPath"

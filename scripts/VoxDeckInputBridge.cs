@@ -13,9 +13,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.1.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.1.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0")]
 
 internal static class VoxDeckInputBridge
 {
