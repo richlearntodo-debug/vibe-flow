@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Automation;
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using Windows.Devices.Bluetooth;
@@ -18,9 +17,9 @@ using Windows.Storage.Streams;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 voice capture")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.1.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.1")]
 
 internal sealed class VibeMicAtvvCapture
 {
@@ -29,16 +28,13 @@ internal sealed class VibeMicAtvvCapture
     private static readonly Guid AudioUuid = new Guid("ab5e0003-5a21-4f05-bc7d-af01f617b664");
     private static readonly Guid ControlUuid = new Guid("ab5e0004-5a21-4f05-bc7d-af01f617b664");
     private static readonly object FileLock = new object();
-    private static readonly SemaphoreSlim CommandWriteGate = new SemaphoreSlim(1, 1);
-    private static readonly SemaphoreSlim AudioSubscriptionRecoveryGate = new SemaphoreSlim(1, 1);
-    private static readonly object MicExtendLock = new object();
     private static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
     private static string eventPath;
     private static string reportPath;
+    private static string captureHealthPath;
     private static string runtimeLogPath;
     private static string diagnosticDirectory;
     private static GattCharacteristic writeCharacteristic;
-    private static GattCharacteristic activeAudioCharacteristic;
     private static int audioCount;
     private static int controlCount;
     private static int micOpen;
@@ -46,7 +42,6 @@ internal sealed class VibeMicAtvvCapture
     private static byte selectedCodec = 0x02;
     private static byte sessionId;
     private static readonly object StreamLock = new object();
-    private static readonly object StreamFinalizationLock = new object();
     private static ImaAdpcmDecoder decoder;
     private static SpeechLeveler leveler;
     private static ClockedVirtualMicSink audioSink;
@@ -56,7 +51,6 @@ internal sealed class VibeMicAtvvCapture
     private static EventWaitHandle stopEvent;
     private static EventWaitHandle voiceKeyEvent;
     private static EventWaitHandle voiceKeyHeldEvent;
-    private static EventWaitHandle voiceKeyReleasedEvent;
     private static EventWaitHandle audioDiagnosticEvent;
     private static ManualResetEvent connectionLostEvent;
     private static ManualResetEventSlim capabilitiesReadyEvent;
@@ -67,15 +61,13 @@ internal sealed class VibeMicAtvvCapture
     private static bool automaticLeveling = true;
     private static int drainMs = 180;
     private static string transcriptionProvider = "wechat";
-    private static string transcriptionHotkey = "ctrl+win+shift";
+    private static string transcriptionHotkey = "ctrl+win";
     private static string transcriptionTrigger = "toggle";
     private static int providerStartupDelayMs = 100;
     private static string audioProcessingMode = "speech";
     private static bool routeDefaultCaptureDuringDictation = true;
-    private static string voiceMode = "hold";
     private static long lastStreamTicks;
     private static long lastAudioTicks;
-    private static int lastAudioGeneration;
     private static int streamPacketCount;
     private static int streamActive;
     private static double streamSquareSum;
@@ -86,8 +78,6 @@ internal sealed class VibeMicAtvvCapture
     private static double streamAppliedGainSum;
     private static int streamAppliedGainFrames;
     private static int streamGeneration;
-    private static int streamVoiceGeneration;
-    private static int latestVoiceControllerGeneration;
     private static bool streamLiveStarted;
     private static readonly List<short> streamAudioBuffer = new List<short>();
     private static long lastVoiceKeyTicks;
@@ -105,66 +95,16 @@ internal sealed class VibeMicAtvvCapture
     private static int audioQueueMaxDepth;
     private static int audioQueueDrops;
     private static int audioDiagnosticArmed;
-    private static MicExtendLease micExtendLease;
-    private static readonly object LongDictationLock = new object();
-    private static int longDictationActive;
-    private static int longDictationGeneration;
-    private static int longDictationStartKeyAcknowledged;
-    private static int longDictationStartRequested;
-    private static int longDictationStopRequested;
-    private static int longDictationStopWorkerStarted;
-    private static int longDictationAudioDelivered;
-    private static int longDictationSegmentCount;
-    private static int longDictationTransportRecoveryGeneration;
-    private static int longDictationTransportRecoveryCount;
-    private static long longDictationAudioMs;
-    private static long longDictationStartedTicks;
-    private static Timer longDictationSafetyTimer;
-    private static Timer longDictationHealthTimer;
-    private static int longDictationHealthTickCount;
-    private static int longDictationLastAudioLive = -1;
-    private static int longDictationStallRecoveryGeneration;
+    private static readonly object CaptureHealthLock = new object();
+    private static Timer captureHealthTimer;
+    private static DateTime captureStartedUtc = DateTime.MinValue;
+    private static string captureHealthState = "starting";
+    private static int atvvReadyState;
+    private static int bleConnectedState;
     private static readonly ConcurrentDictionary<int, AudioDiagnosticSession> AudioDiagnostics =
         new ConcurrentDictionary<int, AudioDiagnosticSession>();
     private const int PreRollLimitSamples = 16000 * 5;
-    private const int LongDictationStartAckWindowMs = 1500;
-    private const int LongDictationSafetyLimitMs = 30 * 60 * 1000;
-    private const int LongDictationReopenAttempts = 4;
-    private const int LongDictationOpenAttemptsBeforeTransportRecovery = LongDictationReopenAttempts;
-    private const int LongDictationMaximumTransportRecoveries = 1;
-    private const int LongDictationReopenTimeoutMs = 1800;
-    private const int LongDictationFirstReopenDelayMs = 40;
-    private const int LongDictationContinuationSilenceMs = 240;
-    private const int LongDictationTransportSettleMs = 350;
-    private const int LongDictationHealthIntervalMs = 1000;
-    private const int LongDictationHealthLogIntervalTicks = 5;
-    private const int LongDictationAudioLiveThresholdMs = 2500;
-    private const int LongDictationAudioStallRecoveryMs = 3500;
-    private const int HoldReleaseNaturalStopWaitMs = 260;
-    private const int HoldReleaseCloseWaitMs = 700;
-
-    private sealed class MicExtendLease
-    {
-        public int Generation;
-        public byte SessionId;
-        public byte StartReason;
-        public long StartedTicks;
-        public Timer Timer;
-        public int Stopped;
-        public int WriteInFlight;
-        public int Attempts;
-        public int Successes;
-        public int Failures;
-        public int SessionWrites;
-        public int StopLogged;
-    }
-
-    private enum LongDictationKeyAction
-    {
-        Start,
-        AcknowledgeStartedStream,
-        Stop
-    }
+    private const string RecordingKernelVersion = "v1.0.3";
 
     private static int Main(string[] args)
     {
@@ -213,13 +153,18 @@ internal sealed class VibeMicAtvvCapture
             if (audioProcessingMode != "speech" && audioProcessingMode != "transparent")
                 audioProcessingMode = automaticLeveling ? "speech" : "transparent";
             if (args.Length > 11) bool.TryParse(args[11], out routeDefaultCaptureDuringDictation);
-            if (args.Length > 12 && !string.IsNullOrWhiteSpace(args[12])) voiceMode = args[12].Trim().ToLowerInvariant();
-            if (voiceMode != "hold" && voiceMode != "continuous") voiceMode = "hold";
             Directory.CreateDirectory(outDir);
             eventPath = Path.Combine(outDir, "remote-voice-events.jsonl");
             reportPath = Path.Combine(outDir, "remote-voice-report.json");
+            captureHealthPath = Path.Combine(outDir, "capture-health.json");
             runtimeLogPath = Path.Combine(outDir, "vibe-mic-runtime.log");
             diagnosticDirectory = outDir;
+            captureStartedUtc = DateTime.UtcNow;
+            Volatile.Write(ref atvvReadyState, 0);
+            Volatile.Write(ref bleConnectedState, 0);
+            SetCaptureHealthState("starting");
+            captureHealthTimer = new Timer(delegate { WriteCaptureHealth(null); }, null, 0, 2000);
+            WriteReport("running", "");
             if (routeDefaultCaptureDuringDictation)
                 defaultCaptureEndpointLease = new DefaultCaptureEndpointLease("CABLE Output",
                     Path.Combine(outDir, "default-capture-endpoint-lease.txt"), RuntimeLog);
@@ -236,20 +181,26 @@ internal sealed class VibeMicAtvvCapture
             audioPacketWorker.Start();
             Action<int> finalizeAudio = delegate(int generation)
             {
-                int pendingBefore = audioSink.PendingBlocks;
-                var drainTimer = System.Diagnostics.Stopwatch.StartNew();
-                audioSink.Flush();
-                bool drained = audioSink.Drain(5000, delegate
+                try
                 {
-                    return IsVoiceControllerSuperseded(generation,
-                        Volatile.Read(ref latestVoiceControllerGeneration));
-                });
-                if (!drained) audioSink.DiscardPending();
-                drainTimer.Stop();
-                RuntimeLog("VIRTUAL MIC DRAIN COMPLETE pending_before=" + pendingBefore +
-                    " pending_after=" + audioSink.PendingBlocks + " waited_ms=" + drainTimer.ElapsedMilliseconds +
-                    " queue_drops=" + audioSink.DroppedBlocks + " superseded=" + (!drained));
-                CompleteAudioDiagnostic(generation, drained ? "audio_drained" : "superseded_by_new_recording", false);
+                    int pendingBefore = audioSink.PendingBlocks;
+                    var drainTimer = System.Diagnostics.Stopwatch.StartNew();
+                    audioSink.Flush();
+                    bool drained = audioSink.Drain(5000, delegate
+                    {
+                        return Volatile.Read(ref streamGeneration) > generation;
+                    });
+                    if (!drained) audioSink.DiscardPending();
+                    drainTimer.Stop();
+                    RuntimeLog("VIRTUAL MIC DRAIN COMPLETE pending_before=" + pendingBefore +
+                        " pending_after=" + audioSink.PendingBlocks + " waited_ms=" + drainTimer.ElapsedMilliseconds +
+                        " queue_drops=" + audioSink.DroppedBlocks + " superseded=" + (!drained));
+                    CompleteAudioDiagnostic(generation, drained ? "audio_drained" : "superseded_by_new_recording", false);
+                }
+                finally
+                {
+                    if (defaultCaptureEndpointLease != null) defaultCaptureEndpointLease.Release(generation, "audio_finalized");
+                }
             };
             Func<int, bool> prepareTranscriptionInput = delegate(int generation)
             {
@@ -257,7 +208,7 @@ internal sealed class VibeMicAtvvCapture
             };
             Action<int> releaseTranscriptionInput = delegate(int generation)
             {
-                if (defaultCaptureEndpointLease != null) defaultCaptureEndpointLease.Release(generation, "provider_session_complete");
+                if (defaultCaptureEndpointLease != null) defaultCaptureEndpointLease.Release(generation, "session_without_audio");
             };
             voiceController = TranscriptionSessionControllerFactory.Create(transcriptionProvider, transcriptionHotkey,
                 transcriptionTrigger, providerStartupDelayMs, IsVoiceSessionActive, RuntimeLog, finalizeAudio,
@@ -265,25 +216,26 @@ internal sealed class VibeMicAtvvCapture
             stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicStopCapture");
             voiceKeyEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceKeyPressed");
             voiceKeyHeldEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicVoiceKeyHeld");
-            voiceKeyReleasedEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceKeyReleased");
             audioDiagnosticEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicCaptureAudioDiagnostic");
             connectionLostEvent = new ManualResetEvent(false);
             RuntimeLog("START endpoint=" + audioSink.DeviceName + " source_format=16000_mono virtual_mic_format=48000_stereo_16bit sensitivity=" + audioGain.ToString("0.00") +
                 " processing=" + audioProcessingMode + " drain_ms=" + drainMs + " provider=" + transcriptionProvider +
                 " provider_hotkey=" + transcriptionHotkey.Replace(' ', '_') + " provider_trigger=" + transcriptionTrigger +
                 " provider_startup_ms=" + providerStartupDelayMs +
-                " voice_mode=" + voiceMode +
-                " voice_state_machine=v11 long_dictation_state_machine=v2 ordered_audio_queue=true ordered_codec_sync=true sample_limiter=true" +
-                " transcription_submit=true input_focus_return=v7_hotkey_profile provider_control=host_keybd_hold_or_toggle_no_toolbar" +
-                " recording_cues=named_event audio_clock=wasapi_event nonblocking_sink=true block_ms=20" +
-                " audio_diagnostics=opt_in_next_session default_capture_route=" + routeDefaultCaptureDuringDictation +
-                " continuous_strategy=natural_stop_reopen host_mic_extend=true liveness_watchdog=true" +
-                " wasapi_state=" + audioSink.PlaybackStateName + " endpoint_state=" + audioSink.EndpointStateName);
+                " recording_kernel=" + RecordingKernelVersion +
+                " voice_state_machine=v11 ordered_audio_queue=true ordered_codec_sync=true sample_limiter=true" +
+                " transcription_submit=true audio_clock=wasapi_event nonblocking_sink=true block_ms=20" +
+                " audio_diagnostics=opt_in_next_session default_capture_route=" + routeDefaultCaptureDuringDictation);
             try { RunAsync(seconds).GetAwaiter().GetResult(); }
             finally
             {
-                StopLongDictationForShutdown("capture_shutdown");
-                StopMicExtendHeartbeat(0, "capture_shutdown");
+                if (captureHealthTimer != null)
+                {
+                    try { captureHealthTimer.Change(Timeout.Infinite, Timeout.Infinite); } catch { }
+                    try { captureHealthTimer.Dispose(); } catch { }
+                    captureHealthTimer = null;
+                }
+                SetCaptureHealthState("stopped");
                 if (audioPacketQueue != null)
                 {
                     audioPacketQueue.CompleteAdding();
@@ -296,7 +248,6 @@ internal sealed class VibeMicAtvvCapture
                 if (stopEvent != null) stopEvent.Dispose();
                 if (voiceKeyEvent != null) voiceKeyEvent.Dispose();
                 if (voiceKeyHeldEvent != null) voiceKeyHeldEvent.Dispose();
-                if (voiceKeyReleasedEvent != null) voiceKeyReleasedEvent.Dispose();
                 if (audioDiagnosticEvent != null) audioDiagnosticEvent.Dispose();
                 if (connectionLostEvent != null) connectionLostEvent.Dispose();
                 if (capabilitiesReadyEvent != null) capabilitiesReadyEvent.Dispose();
@@ -309,6 +260,7 @@ internal sealed class VibeMicAtvvCapture
         {
             Console.Error.WriteLine(ex.Message);
             RuntimeLog("ERROR " + ex.Message);
+            SetCaptureHealthState("error");
             if (!string.IsNullOrEmpty(reportPath)) WriteReport("error", ex.Message);
             return 1;
         }
@@ -316,6 +268,7 @@ internal sealed class VibeMicAtvvCapture
 
     private static async Task RunAsync(int seconds)
     {
+        SetCaptureHealthState("connecting");
         DeviceInformationCollection infos = await DeviceInformation.FindAllAsync(BluetoothLEDevice.GetDeviceSelector()).AsTask();
         DeviceInformation candidate = infos
             .Where(i => Score(i.Name) > 0)
@@ -329,6 +282,7 @@ internal sealed class VibeMicAtvvCapture
             Console.WriteLine("Device: " + candidate.Name);
             Console.WriteLine("Connection: " + ble.ConnectionStatus);
             RuntimeLog("BLE device=" + candidate.Name + " status=" + ble.ConnectionStatus);
+            Volatile.Write(ref bleConnectedState, ble.ConnectionStatus == BluetoothConnectionStatus.Connected ? 1 : 0);
             connectionLostEvent.Reset();
             ble.ConnectionStatusChanged += OnConnectionStatusChanged;
 
@@ -352,12 +306,9 @@ internal sealed class VibeMicAtvvCapture
                     if (writes.Status != GattCommunicationStatus.Success || writes.Characteristics.Count == 0)
                         throw new InvalidOperationException("ATVV write characteristic not available: " + writes.Status);
                     writeCharacteristic = writes.Characteristics[0];
-                    RuntimeLog("ATVV TX properties=" + writeCharacteristic.CharacteristicProperties +
-                        " mic_extend_write=" + MicExtendWriteOption());
 
                     GattCharacteristic audio = await GetCharacteristic(service, AudioUuid);
                     GattCharacteristic control = await GetCharacteristic(service, ControlUuid);
-                    activeAudioCharacteristic = audio;
                     audio.ValueChanged += OnValueChanged;
                     control.ValueChanged += OnValueChanged;
                     try
@@ -365,6 +316,9 @@ internal sealed class VibeMicAtvvCapture
                         await EnableNotify(audio);
                         await EnableNotify(control);
                         await WriteCommand(new byte[] { 0x0A, 0x01, 0x00, 0x00, 0x03, 0x03 }, "get_caps_v10");
+                        Volatile.Write(ref bleConnectedState, 1);
+                        Volatile.Write(ref atvvReadyState, 1);
+                        SetCaptureHealthState("ready");
                         RuntimeLog("ATVV READY route=RC003_16k_mono_to_" + audioSink.DeviceName + "_48k_stereo_clocked");
                         RecoverHeldVoiceRequestAtReady();
                         Console.WriteLine(seconds == 0 ? "Listening continuously. Hold the RC003 record button and speak." : "Listening for " + seconds + " seconds. Hold the RC003 record button and speak.");
@@ -373,8 +327,6 @@ internal sealed class VibeMicAtvvCapture
                     }
                     finally
                     {
-                        StopLongDictationForShutdown("capture_shutdown_before_mic_close");
-                        StopMicExtendHeartbeat(0, "capture_shutdown_before_mic_close");
                         if (Interlocked.CompareExchange(ref micOpen, 0, 1) == 1)
                         {
                             try { WriteCommand(CloseCommand(), "mic_close").GetAwaiter().GetResult(); } catch { }
@@ -383,7 +335,6 @@ internal sealed class VibeMicAtvvCapture
                         try { control.WriteClientCharacteristicConfigurationDescriptorAsync(GattClientCharacteristicConfigurationDescriptorValue.None).AsTask().GetAwaiter().GetResult(); } catch { }
                         audio.ValueChanged -= OnValueChanged;
                         control.ValueChanged -= OnValueChanged;
-                        if (object.ReferenceEquals(activeAudioCharacteristic, audio)) activeAudioCharacteristic = null;
                     }
                 }
             }
@@ -394,11 +345,15 @@ internal sealed class VibeMicAtvvCapture
     private static void OnConnectionStatusChanged(BluetoothLEDevice sender, object args)
     {
         RuntimeLog("BLE status=" + sender.ConnectionStatus);
-        if (sender.ConnectionStatus != BluetoothConnectionStatus.Connected)
+        bool connected = sender.ConnectionStatus == BluetoothConnectionStatus.Connected;
+        Volatile.Write(ref bleConnectedState, connected ? 1 : 0);
+        if (!connected)
         {
-            StopMicExtendHeartbeat(0, "ble_disconnected");
+            Volatile.Write(ref atvvReadyState, 0);
+            SetCaptureHealthState("disconnected");
             if (connectionLostEvent != null) connectionLostEvent.Set();
         }
+        else SetCaptureHealthState(Volatile.Read(ref atvvReadyState) == 1 ? "ready" : "connecting");
     }
 
     private static void RecoverHeldVoiceRequestAtReady()
@@ -416,7 +371,7 @@ internal sealed class VibeMicAtvvCapture
     private static void MonitorConnection(int seconds)
     {
         int started = Environment.TickCount;
-        WaitHandle[] handles = { stopEvent, connectionLostEvent, voiceKeyEvent, audioDiagnosticEvent, voiceKeyReleasedEvent };
+        WaitHandle[] handles = { stopEvent, connectionLostEvent, voiceKeyEvent, audioDiagnosticEvent };
         while (true)
         {
             int timeout = seconds == 0 ? Timeout.Infinite : Math.Max(0, seconds * 1000 - unchecked(Environment.TickCount - started));
@@ -429,13 +384,7 @@ internal sealed class VibeMicAtvvCapture
                 RuntimeLog("AUDIO DIAGNOSTIC ARMED next_session_only=true max_seconds=30 privacy=explicit_user_action");
                 continue;
             }
-            if (signal == 4)
-            {
-                HandleHoldVoiceKeyReleased();
-                continue;
-            }
-            bool held = ShouldRecoverHeldVoiceRequest(voiceKeyHeldEvent);
-            if (!IsLongDictationMode() && !held)
+            if (!ShouldRecoverHeldVoiceRequest(voiceKeyHeldEvent))
             {
                 RuntimeLog("VOICE KEY discarded reason=released_before_capture_ready delayed_after_release=false");
                 continue;
@@ -450,21 +399,7 @@ internal sealed class VibeMicAtvvCapture
             }
 
             int generationAtPress = Volatile.Read(ref streamGeneration);
-            if (IsLongDictationMode())
-            {
-                bool stopRequested;
-                bool acknowledgedStartedStream;
-                RegisterLongDictationVoiceKey(pressedAt, out stopRequested, out acknowledgedStartedStream);
-                if (stopRequested)
-                {
-                    RequestLongDictationStop("second_record_press");
-                    continue;
-                }
-                if (acknowledgedStartedStream) continue;
-            }
-
-            RuntimeLog("VOICE KEY detected generation=" + generationAtPress + " mode=" + voiceMode +
-                "; waiting_for_natural_stream_ms=120");
+            RuntimeLog("VOICE KEY detected generation=" + generationAtPress + "; waiting_for_natural_stream_ms=120");
             if (WaitForNewStream(generationAtPress, 120)) continue;
             if (stopEvent.WaitOne(0)) return;
             if (connectionLostEvent.WaitOne(0)) throw new IOException("RC003 connection was lost while waiting for its voice stream.");
@@ -491,93 +426,6 @@ internal sealed class VibeMicAtvvCapture
         }
     }
 
-    private static bool IsHoldReleaseCurrent(int generation)
-    {
-        return HoldToTalkReleasePolicy.IsCurrent(IsLongDictationMode(),
-            ShouldRecoverHeldVoiceRequest(voiceKeyHeldEvent), Volatile.Read(ref streamActive),
-            generation, Volatile.Read(ref streamGeneration));
-    }
-
-    private static void HandleHoldVoiceKeyReleased()
-    {
-        int generation = Volatile.Read(ref streamGeneration);
-        byte releasedSession = sessionId;
-        if (IsLongDictationMode())
-        {
-            RuntimeLog("CONTINUOUS KEY RELEASE observed generation=" + generation + " session=" + releasedSession +
-                " stream_active=" + Volatile.Read(ref streamActive) +
-                " action=keep_logical_session_wait_for_remote_stop_then_host_open");
-            return;
-        }
-        if (!IsHoldReleaseCurrent(generation))
-        {
-            RuntimeLog("HOLD RELEASE ignored generation=" + generation + " stream_active=" +
-                Volatile.Read(ref streamActive) + " mode=" + voiceMode);
-            return;
-        }
-
-        RuntimeLog("HOLD RELEASE observed generation=" + generation + " session=" + releasedSession +
-            " awaiting_remote_stop_ms=" + HoldReleaseNaturalStopWaitMs);
-        int waitedMs = 0;
-        while (IsHoldReleaseCurrent(generation) && waitedMs < HoldReleaseNaturalStopWaitMs)
-        {
-            Thread.Sleep(20);
-            waitedMs += 20;
-        }
-        if (!IsHoldReleaseCurrent(generation))
-        {
-            RuntimeLog("HOLD RELEASE natural_stop_observed generation=" + generation +
-                " waited_ms=" + waitedMs);
-            return;
-        }
-
-        int existingPending = Interlocked.CompareExchange(ref pendingStopGeneration, generation, 0);
-        bool ownsPendingStop = existingPending == 0;
-        if (existingPending != 0 && existingPending != generation)
-        {
-            RuntimeLog("HOLD RELEASE close_skipped generation=" + generation +
-                " reason=other_stop_pending pending_generation=" + existingPending);
-            return;
-        }
-
-        bool closeRequested = !ownsPendingStop;
-        if (ownsPendingStop)
-        {
-            try
-            {
-                closeRequested = WriteCommand(CloseCommand(releasedSession), "mic_close_hold_release", delegate
-                {
-                    return IsHoldReleaseCurrent(generation) &&
-                        Volatile.Read(ref pendingStopGeneration) == generation;
-                }).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog("HOLD RELEASE close_failed generation=" + generation + " error=" + ex.Message);
-            }
-        }
-
-        waitedMs = 0;
-        while (IsHoldReleaseCurrent(generation) && waitedMs < HoldReleaseCloseWaitMs)
-        {
-            Thread.Sleep(20);
-            waitedMs += 20;
-        }
-        if (!IsHoldReleaseCurrent(generation))
-        {
-            RuntimeLog("HOLD RELEASE close_confirmed generation=" + generation +
-                " requested=" + closeRequested + " waited_ms=" + waitedMs);
-            return;
-        }
-
-        long queuedThroughTail = Interlocked.Read(ref audioPacketsEnqueued);
-        WaitForAudioPackets(queuedThroughTail, 1500);
-        Interlocked.Exchange(ref micOpen, 0);
-        RuntimeLog("HOLD RELEASE force_finalize generation=" + generation + " session=" +
-            releasedSession + " requested=" + closeRequested + " waited_ms=" + waitedMs);
-        FinalizeStreamStop(generation, releasedSession);
-    }
-
     private static bool WaitForNewStream(int generationAtPress, int timeoutMs)
     {
         int started = Environment.TickCount;
@@ -600,581 +448,6 @@ internal sealed class VibeMicAtvvCapture
             Thread.Sleep(10);
         }
         return Interlocked.Read(ref lastAudioTicks) >= pressedAt;
-    }
-
-    private static bool IsLongDictationMode()
-    {
-        return string.Equals(voiceMode, "continuous", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsVoiceControllerSuperseded(int finalizingGeneration, int latestControllerGeneration)
-    {
-        return latestControllerGeneration > finalizingGeneration;
-    }
-
-    private static LongDictationKeyAction ClassifyLongDictationKey(bool active, bool startAcknowledged,
-        long streamAgeMs)
-    {
-        if (!active) return LongDictationKeyAction.Start;
-        if (!startAcknowledged && streamAgeMs >= 0 && streamAgeMs <= LongDictationStartAckWindowMs)
-            return LongDictationKeyAction.AcknowledgeStartedStream;
-        return LongDictationKeyAction.Stop;
-    }
-
-    private static void RegisterLongDictationVoiceKey(long pressedAt, out bool stopRequested,
-        out bool acknowledgedStartedStream)
-    {
-        stopRequested = false;
-        acknowledgedStartedStream = false;
-        LongDictationKeyAction action;
-        int generation;
-        long streamAgeMs;
-        lock (LongDictationLock)
-        {
-            generation = longDictationGeneration;
-            streamAgeMs = longDictationStartedTicks == 0 ? -1 :
-                (long)TimeSpan.FromTicks(Math.Max(0, pressedAt - longDictationStartedTicks)).TotalMilliseconds;
-            action = ClassifyLongDictationKey(Volatile.Read(ref longDictationActive) == 1,
-                longDictationStartKeyAcknowledged == 1, streamAgeMs);
-            if (action == LongDictationKeyAction.Start)
-                longDictationStartRequested = 1;
-            else if (action == LongDictationKeyAction.AcknowledgeStartedStream)
-            {
-                longDictationStartKeyAcknowledged = 1;
-                acknowledgedStartedStream = true;
-            }
-            else stopRequested = true;
-        }
-
-        RuntimeLog("LONG DICTATION KEY action=" + action + " generation=" + generation +
-            " stream_age_ms=" + streamAgeMs);
-    }
-
-    private static void ArmLongDictationSafetyTimer(int generation)
-    {
-        Timer previous = null;
-        Timer previousHealth = null;
-        lock (LongDictationLock)
-        {
-            if (Volatile.Read(ref longDictationActive) == 0 || longDictationGeneration != generation) return;
-            previous = longDictationSafetyTimer;
-            previousHealth = longDictationHealthTimer;
-            longDictationSafetyTimer = new Timer(delegate
-            {
-                RuntimeLog("LONG DICTATION SAFETY LIMIT generation=" + generation +
-                    " limit_ms=" + LongDictationSafetyLimitMs);
-                RequestLongDictationStop("safety_timeout");
-            }, null, LongDictationSafetyLimitMs, Timeout.Infinite);
-            Interlocked.Exchange(ref longDictationHealthTickCount, 0);
-            Interlocked.Exchange(ref longDictationLastAudioLive, -1);
-            Interlocked.Exchange(ref longDictationStallRecoveryGeneration, 0);
-            longDictationHealthTimer = new Timer(LongDictationHealthTick, generation,
-                LongDictationHealthIntervalMs, LongDictationHealthIntervalMs);
-        }
-        if (previous != null) try { previous.Dispose(); } catch { }
-        if (previousHealth != null) try { previousHealth.Dispose(); } catch { }
-    }
-
-    private static void LongDictationHealthTick(object state)
-    {
-        int generation = state is int ? (int)state : 0;
-        if (!IsLongDictationCurrent(generation, true)) return;
-
-        int physicalGeneration = Volatile.Read(ref streamGeneration);
-        int active = Volatile.Read(ref streamActive);
-        int audioGeneration = Volatile.Read(ref lastAudioGeneration);
-        long audioTicks = Interlocked.Read(ref lastAudioTicks);
-        long nowTicks = DateTime.UtcNow.Ticks;
-        long packetAgeMs = audioTicks <= 0 ? -1 :
-            (long)TimeSpan.FromTicks(Math.Max(0, nowTicks - audioTicks)).TotalMilliseconds;
-        bool audioLive = LongDictationAudioHealthPolicy.IsLive(active, physicalGeneration,
-            audioGeneration, packetAgeMs, LongDictationAudioLiveThresholdMs);
-        int previousLive = Interlocked.Exchange(ref longDictationLastAudioLive, audioLive ? 1 : 0);
-        int tick = Interlocked.Increment(ref longDictationHealthTickCount);
-        if (previousLive != (audioLive ? 1 : 0) || tick % LongDictationHealthLogIntervalTicks == 0)
-        {
-            long privateMemoryMb = -1;
-            try
-            {
-                using (var process = System.Diagnostics.Process.GetCurrentProcess())
-                    privateMemoryMb = process.PrivateMemorySize64 / (1024 * 1024);
-            }
-            catch { }
-            RuntimeLog("AUDIO TRANSPORT HEALTH logical_generation=" + generation +
-                " stream_generation=" + physicalGeneration + " stream_active=" + active +
-                " audio_generation=" + audioGeneration + " audio_live=" + audioLive +
-                " packet_age_ms=" + packetAgeMs + " frames=" + Volatile.Read(ref streamPacketCount) +
-                " sink_pending=" + (audioSink == null ? -1 : audioSink.PendingBlocks) +
-                " sink_drops=" + (audioSink == null ? -1 : audioSink.DroppedBlocks) +
-                " wasapi_state=" + (audioSink == null ? "unavailable" : audioSink.PlaybackStateName) +
-                " endpoint_state=" + (audioSink == null ? "unavailable" : audioSink.EndpointStateName) +
-                " default_route=" + (defaultCaptureEndpointLease == null ? "disabled" : defaultCaptureEndpointLease.RuntimeState) +
-                " managed_heap_mb=" + (GC.GetTotalMemory(false) / (1024 * 1024)) +
-                " private_memory_mb=" + privateMemoryMb);
-        }
-
-        if (LongDictationAudioHealthPolicy.ShouldRecover(active, physicalGeneration,
-            audioGeneration, packetAgeMs, LongDictationAudioStallRecoveryMs))
-            RecoverStalledLongDictation(generation, physicalGeneration, sessionId, packetAgeMs);
-    }
-
-    private static void RecoverStalledLongDictation(int controllerGeneration,
-        int physicalGeneration, byte activeSession, long packetAgeMs)
-    {
-        if (Interlocked.CompareExchange(ref longDictationStallRecoveryGeneration,
-            physicalGeneration, 0) != 0) return;
-        ThreadPool.QueueUserWorkItem(delegate
-        {
-            try
-            {
-                if (!IsLongDictationCurrent(controllerGeneration, true) ||
-                    Volatile.Read(ref streamGeneration) != physicalGeneration ||
-                    Volatile.Read(ref streamActive) != 1) return;
-                RuntimeLog("AUDIO TRANSPORT STALLED logical_generation=" + controllerGeneration +
-                    " stream_generation=" + physicalGeneration + " session=" + activeSession +
-                    " packet_age_ms=" + packetAgeMs + " action=close_current_stream_then_reopen");
-                bool requested = false;
-                try
-                {
-                    requested = WriteCommand(CloseCommand(activeSession), "mic_close_audio_stall", delegate
-                    {
-                        return IsLongDictationCurrent(controllerGeneration, true) &&
-                            Volatile.Read(ref streamGeneration) == physicalGeneration &&
-                            Volatile.Read(ref streamActive) == 1;
-                    }).GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog("AUDIO TRANSPORT STALL CLOSE FAILED logical_generation=" +
-                        controllerGeneration + " stream_generation=" + physicalGeneration +
-                        " error=" + ex.Message);
-                }
-
-                int waitedMs = 0;
-                while (IsLongDictationCurrent(controllerGeneration, true) &&
-                    Volatile.Read(ref streamGeneration) == physicalGeneration &&
-                    Volatile.Read(ref streamActive) == 1 && waitedMs < 900)
-                {
-                    Thread.Sleep(20);
-                    waitedMs += 20;
-                }
-                if (IsLongDictationCurrent(controllerGeneration, true) &&
-                    Volatile.Read(ref streamGeneration) == physicalGeneration &&
-                    Volatile.Read(ref streamActive) == 1)
-                {
-                    Interlocked.CompareExchange(ref pendingStopGeneration, physicalGeneration, 0);
-                    long queuedThroughTail = Interlocked.Read(ref audioPacketsEnqueued);
-                    WaitForAudioPackets(queuedThroughTail, 1500);
-                    RuntimeLog("AUDIO TRANSPORT STALL FORCE FINALIZE logical_generation=" +
-                        controllerGeneration + " stream_generation=" + physicalGeneration +
-                        " close_requested=" + requested + " waited_ms=" + waitedMs);
-                    FinalizeStreamStop(physicalGeneration, activeSession);
-                }
-            }
-            finally
-            {
-                Interlocked.CompareExchange(ref longDictationStallRecoveryGeneration, 0,
-                    physicalGeneration);
-            }
-        });
-    }
-
-    private static bool IsLongDictationCurrent(int generation, bool requireRunning)
-    {
-        if (!IsLongDictationMode() || Volatile.Read(ref longDictationActive) == 0 ||
-            Volatile.Read(ref longDictationGeneration) != generation) return false;
-        return !requireRunning || Volatile.Read(ref longDictationStopRequested) == 0;
-    }
-
-    private static bool IsLongDictationContinuationControlReady(int stoppedStreamGeneration)
-    {
-        return LongDictationContinuationPolicy.IsControlReady(stoppedStreamGeneration,
-            Volatile.Read(ref streamGeneration), Volatile.Read(ref streamActive));
-    }
-
-    private static bool IsLongDictationContinuationAudioReady(int stoppedStreamGeneration,
-        long baselineAudioTicks)
-    {
-        return LongDictationContinuationPolicy.IsAudioReady(stoppedStreamGeneration,
-            Volatile.Read(ref streamGeneration), Volatile.Read(ref streamActive),
-            Volatile.Read(ref lastAudioGeneration), Interlocked.Read(ref lastAudioTicks), baselineAudioTicks);
-    }
-
-    private static void RequestLongDictationStop(string reason)
-    {
-        int generation;
-        lock (LongDictationLock)
-        {
-            if (Volatile.Read(ref longDictationActive) == 0) return;
-            generation = longDictationGeneration;
-            longDictationStopRequested = 1;
-            if (longDictationStopWorkerStarted == 1) return;
-            longDictationStopWorkerStarted = 1;
-        }
-
-        RuntimeLog("LONG DICTATION FINALIZING generation=" + generation + " reason=" + reason +
-            " interaction=second_record_press_or_safety_stop");
-        SignalRecordingCue(false, generation);
-        ThreadPool.QueueUserWorkItem(delegate
-        {
-            try
-            {
-                StopMicExtendHeartbeat(0, "long_dictation_stop");
-                Func<bool> shouldClose = delegate
-                {
-                    return IsLongDictationCurrent(generation, false) &&
-                        Volatile.Read(ref longDictationStopRequested) == 1;
-                };
-                try
-                {
-                    WriteCommand(CloseAnyCommand(), "mic_close_long_dictation", shouldClose).GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog("LONG DICTATION MIC_CLOSE FAILED generation=" + generation + " error=" + ex.Message);
-                }
-
-                int waitedMs = 0;
-                while (Volatile.Read(ref streamActive) == 1 && IsLongDictationCurrent(generation, false) && waitedMs < 700)
-                {
-                    Thread.Sleep(20);
-                    waitedMs += 20;
-                }
-
-                lock (StreamFinalizationLock)
-                {
-                    if (!IsLongDictationCurrent(generation, false)) return;
-                    if (Volatile.Read(ref streamActive) == 1)
-                    {
-                        int stoppingGeneration = Volatile.Read(ref streamGeneration);
-                        byte stoppingSession = sessionId;
-                        Interlocked.Exchange(ref pendingStopGeneration, stoppingGeneration);
-                        long queuedThroughTail = Interlocked.Read(ref audioPacketsEnqueued);
-                        WaitForAudioPackets(queuedThroughTail, 1500);
-                        RuntimeLog("LONG DICTATION FORCE STOP generation=" + generation +
-                            " stream_generation=" + stoppingGeneration + " waited_ms=" + waitedMs);
-                        FinalizeStreamStopCore(stoppingGeneration, stoppingSession);
-                    }
-                    else FinalizeLongDictation(generation, reason + "_between_segments");
-                }
-            }
-            finally { Interlocked.Exchange(ref micOpen, 0); }
-        });
-    }
-
-    private static void ScheduleLongDictationReopen(int generation, int stoppedStreamGeneration)
-    {
-        long baselineAudioTicks = Interlocked.Read(ref lastAudioTicks);
-        ThreadPool.QueueUserWorkItem(delegate
-        {
-            bool controlReadyLogged = false;
-            for (int attempt = 1; attempt <= LongDictationReopenAttempts; attempt++)
-            {
-                Thread.Sleep(attempt == 1 ? LongDictationFirstReopenDelayMs : 220);
-                if (!IsLongDictationCurrent(generation, true)) return;
-                if (IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks))
-                {
-                    RuntimeLog("LONG DICTATION REOPEN AUDIO READY generation=" + generation +
-                        " attempt=" + attempt + " source=observed_before_command stream_generation=" +
-                        Volatile.Read(ref streamGeneration));
-                    return;
-                }
-
-                bool requested = false;
-                try
-                {
-                    Interlocked.Exchange(ref micOpen, 1);
-                    requested = WriteCommand(OpenCommand(), attempt == 1
-                        ? "mic_open_long_dictation"
-                        : "mic_open_long_dictation_retry", delegate
-                    {
-                        return IsLongDictationCurrent(generation, true) &&
-                            !IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks);
-                    }).GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
-                {
-                    RuntimeLog("LONG DICTATION REOPEN WRITE FAILED generation=" + generation +
-                        " attempt=" + attempt + " error=" + ex.Message);
-                }
-
-                int waitedMs = 0;
-                while (IsLongDictationCurrent(generation, true) && waitedMs < LongDictationReopenTimeoutMs)
-                {
-                    bool controlReady = IsLongDictationContinuationControlReady(stoppedStreamGeneration);
-                    if (controlReady && !controlReadyLogged)
-                    {
-                        controlReadyLogged = true;
-                        RuntimeLog("LONG DICTATION REOPEN CONTROL READY generation=" + generation +
-                            " attempt=" + attempt + " requested=" + requested + " waited_ms=" + waitedMs +
-                            " stream_generation=" + Volatile.Read(ref streamGeneration));
-                    }
-                    if (IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks))
-                    {
-                        RuntimeLog("LONG DICTATION REOPEN AUDIO READY generation=" + generation + " attempt=" + attempt +
-                            " requested=" + requested + " waited_ms=" + waitedMs +
-                            " stream_generation=" + Volatile.Read(ref streamGeneration) +
-                            " audio_generation=" + Volatile.Read(ref lastAudioGeneration));
-                        return;
-                    }
-                    if (connectionLostEvent != null && connectionLostEvent.WaitOne(0)) return;
-                    Thread.Sleep(20);
-                    waitedMs += 20;
-                }
-                RuntimeLog("LONG DICTATION REOPEN AUDIO TIMEOUT generation=" + generation +
-                    " attempt=" + attempt + " requested=" + requested + " waited_ms=" + waitedMs +
-                    " control_ready=" + IsLongDictationContinuationControlReady(stoppedStreamGeneration) +
-                    " stream_generation=" + Volatile.Read(ref streamGeneration) +
-                    " last_audio_generation=" + Volatile.Read(ref lastAudioGeneration));
-                if (attempt >= LongDictationOpenAttemptsBeforeTransportRecovery &&
-                    IsLongDictationContinuationControlReady(stoppedStreamGeneration))
-                {
-                    RuntimeLog("LONG DICTATION REOPEN ESCALATE generation=" + generation +
-                        " attempt=" + attempt + " reason=control_without_audio");
-                    break;
-                }
-            }
-
-            if (IsLongDictationCurrent(generation, true) &&
-                !IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks))
-            {
-                ResetLongDictationContinuation(generation, stoppedStreamGeneration, baselineAudioTicks);
-            }
-        });
-    }
-
-    private static void ResetLongDictationContinuation(int generation, int stoppedStreamGeneration,
-        long baselineAudioTicks)
-    {
-        if (!IsLongDictationCurrent(generation, true) ||
-            IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks)) return;
-
-        int resettingGeneration = Volatile.Read(ref streamGeneration);
-        byte resettingSession = sessionId;
-        bool controlReady = IsLongDictationContinuationControlReady(stoppedStreamGeneration);
-        RuntimeLog("LONG DICTATION REOPEN RESET generation=" + generation +
-            " stream_generation=" + resettingGeneration + " control_ready=" + controlReady +
-            " attempts=" + LongDictationReopenAttempts + " reason=no_audio_packets");
-
-        if (Interlocked.CompareExchange(ref longDictationTransportRecoveryGeneration, generation, 0) != 0)
-        {
-            RuntimeLog("LONG DICTATION TRANSPORT RECOVERY coalesced generation=" + generation +
-                " active_generation=" + Volatile.Read(ref longDictationTransportRecoveryGeneration));
-            return;
-        }
-
-        int recoveryNumber = Interlocked.Increment(ref longDictationTransportRecoveryCount);
-        if (recoveryNumber > LongDictationMaximumTransportRecoveries)
-        {
-            RuntimeLog("LONG DICTATION TRANSPORT RECOVERY EXHAUSTED generation=" + generation +
-                " recoveries=" + (recoveryNumber - 1) + " action=submit_partial_and_restart_capture");
-            RuntimeLog("AUDIO TRANSPORT FAILED logical_generation=" + generation +
-                " reason=" + (controlReady ? "host_mic_open_returned_control_without_audio" :
-                    "host_mic_open_returned_no_stream") + " action=stop_truthfully");
-            Interlocked.CompareExchange(ref longDictationTransportRecoveryGeneration, 0, generation);
-            RequestLongDictationStop("audio_transport_recovery_exhausted");
-            ScheduleCaptureRestartAfterTransportFailure(generation);
-            return;
-        }
-
-        bool notificationRefreshed = false;
-        try
-        {
-            RuntimeLog("LONG DICTATION TRANSPORT RECOVERY START generation=" + generation +
-                " recovery=" + recoveryNumber + " stream_generation=" + resettingGeneration +
-                " sequence=mic_close_resubscribe_audio_mic_open");
-            try
-            {
-                WriteCommand(CloseAnyCommand(), "mic_close_long_dictation_recovery", delegate
-                {
-                    return IsLongDictationCurrent(generation, true) &&
-                        !IsLongDictationContinuationAudioReady(stoppedStreamGeneration, baselineAudioTicks);
-                }).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog("LONG DICTATION REOPEN RESET FAILED generation=" + generation +
-                    " stream_generation=" + resettingGeneration + " error=" + ex.Message);
-            }
-
-            int waitedMs = 0;
-            while (IsLongDictationCurrent(generation, true) && Volatile.Read(ref streamActive) == 1 &&
-                Volatile.Read(ref streamGeneration) == resettingGeneration && waitedMs < 900)
-            {
-                Thread.Sleep(20);
-                waitedMs += 20;
-            }
-            Interlocked.Exchange(ref micOpen, 0);
-
-            if (!IsLongDictationCurrent(generation, true)) return;
-            if (Volatile.Read(ref streamActive) == 1 &&
-                Volatile.Read(ref streamGeneration) == resettingGeneration)
-            {
-                Interlocked.Exchange(ref pendingStopGeneration, resettingGeneration);
-                long queuedThroughTail = Interlocked.Read(ref audioPacketsEnqueued);
-                WaitForAudioPackets(queuedThroughTail, 1500);
-                RuntimeLog("LONG DICTATION REOPEN RESET FORCE STOP generation=" + generation +
-                    " stream_generation=" + resettingGeneration + " waited_ms=" + waitedMs);
-                FinalizeStreamStop(resettingGeneration, resettingSession);
-            }
-
-            if (!IsLongDictationCurrent(generation, true)) return;
-            notificationRefreshed = RefreshAudioNotificationSubscription(generation, recoveryNumber);
-            if (!notificationRefreshed)
-            {
-                RuntimeLog("LONG DICTATION TRANSPORT RECOVERY FAILED generation=" + generation +
-                    " recovery=" + recoveryNumber + " phase=audio_notification_resubscribe");
-            }
-            Thread.Sleep(LongDictationTransportSettleMs);
-        }
-        finally
-        {
-            Interlocked.CompareExchange(ref longDictationTransportRecoveryGeneration, 0, generation);
-        }
-
-        if (!IsLongDictationCurrent(generation, true)) return;
-        RuntimeLog("LONG DICTATION TRANSPORT RECOVERY READY generation=" + generation +
-            " recovery=" + recoveryNumber + " notification_refreshed=" + notificationRefreshed +
-            " settle_ms=" + LongDictationTransportSettleMs);
-        ScheduleLongDictationReopen(generation, resettingGeneration);
-    }
-
-    private static bool RefreshAudioNotificationSubscription(int generation, int recoveryNumber)
-    {
-        AudioSubscriptionRecoveryGate.Wait();
-        GattCharacteristic audio = activeAudioCharacteristic;
-        bool handlerAttached = true;
-        try
-        {
-            if (audio == null)
-            {
-                RuntimeLog("ATVV AUDIO NOTIFY RECOVERY unavailable generation=" + generation +
-                    " recovery=" + recoveryNumber + " reason=no_active_characteristic");
-                return false;
-            }
-
-            audio.ValueChanged -= OnValueChanged;
-            handlerAttached = false;
-            GattCommunicationStatus disabled = audio.WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue.None).AsTask().GetAwaiter().GetResult();
-            Thread.Sleep(180);
-            audio.ValueChanged += OnValueChanged;
-            handlerAttached = true;
-            GattCommunicationStatus enabled = audio.WriteClientCharacteristicConfigurationDescriptorAsync(
-                GattClientCharacteristicConfigurationDescriptorValue.Notify).AsTask().GetAwaiter().GetResult();
-            if (enabled != GattCommunicationStatus.Success)
-            {
-                Thread.Sleep(120);
-                enabled = audio.WriteClientCharacteristicConfigurationDescriptorAsync(
-                    GattClientCharacteristicConfigurationDescriptorValue.Notify).AsTask().GetAwaiter().GetResult();
-            }
-            RuntimeLog("ATVV AUDIO NOTIFY RECOVERY generation=" + generation + " recovery=" + recoveryNumber +
-                " disable_status=" + disabled + " enable_status=" + enabled + " handler_attached=" + handlerAttached);
-            return enabled == GattCommunicationStatus.Success;
-        }
-        catch (Exception ex)
-        {
-            RuntimeLog("ATVV AUDIO NOTIFY RECOVERY FAILED generation=" + generation + " recovery=" + recoveryNumber +
-                " error=" + ex.Message);
-            return false;
-        }
-        finally
-        {
-            if (!handlerAttached && audio != null)
-            {
-                try { audio.ValueChanged += OnValueChanged; } catch { }
-            }
-            AudioSubscriptionRecoveryGate.Release();
-        }
-    }
-
-    private static void ScheduleCaptureRestartAfterTransportFailure(int generation)
-    {
-        ThreadPool.QueueUserWorkItem(delegate
-        {
-            int waitedMs = 0;
-            while (Volatile.Read(ref longDictationActive) == 1 &&
-                Volatile.Read(ref longDictationGeneration) == generation && waitedMs < 3000)
-            {
-                Thread.Sleep(50);
-                waitedMs += 50;
-            }
-            RuntimeLog("ATVV CAPTURE RESTART REQUEST generation=" + generation +
-                " reason=audio_transport_unrecoverable waited_ms=" + waitedMs);
-            if (connectionLostEvent != null) connectionLostEvent.Set();
-        });
-    }
-
-    private static void FinalizeLongDictation(int generation, string reason)
-    {
-        bool delivered;
-        int segments;
-        long audioMs;
-        long elapsedMs;
-        Timer safetyTimer;
-        Timer healthTimer;
-        lock (LongDictationLock)
-        {
-            if (Volatile.Read(ref longDictationActive) == 0 || longDictationGeneration != generation) return;
-            delivered = longDictationAudioDelivered == 1;
-            segments = longDictationSegmentCount;
-            audioMs = longDictationAudioMs;
-            elapsedMs = longDictationStartedTicks == 0 ? 0 :
-                (long)TimeSpan.FromTicks(DateTime.UtcNow.Ticks - longDictationStartedTicks).TotalMilliseconds;
-            safetyTimer = longDictationSafetyTimer;
-            longDictationSafetyTimer = null;
-            healthTimer = longDictationHealthTimer;
-            longDictationHealthTimer = null;
-            Volatile.Write(ref longDictationActive, 0);
-            longDictationGeneration = 0;
-            longDictationStartKeyAcknowledged = 0;
-            longDictationStartRequested = 0;
-            longDictationStopRequested = 0;
-            longDictationStopWorkerStarted = 0;
-            longDictationTransportRecoveryGeneration = 0;
-            longDictationTransportRecoveryCount = 0;
-            longDictationStartedTicks = 0;
-        }
-        if (safetyTimer != null) try { safetyTimer.Dispose(); } catch { }
-        if (healthTimer != null) try { healthTimer.Dispose(); } catch { }
-        Interlocked.Exchange(ref longDictationLastAudioLive, -1);
-        Interlocked.Exchange(ref longDictationStallRecoveryGeneration, 0);
-
-        if (delivered)
-        {
-            audioSink.WriteSilence(drainMs);
-            audioSink.Flush();
-        }
-        voiceController.Stop(generation, delivered);
-        if (!delivered)
-            RuntimeLog("AUDIO LIVE FAILED generation=" + generation +
-                " reason=voice_panel_unavailable_or_no_audio continuous=true");
-        RuntimeLog("AUDIO LIVE STOP generation=" + generation + " mode=continuous trailing_silence_ms=" +
-            (delivered ? drainMs : 0));
-        RuntimeLog("LONG DICTATION END generation=" + generation + " reason=" + reason +
-            " segments=" + segments + " audio_ms=" + audioMs + " elapsed_ms=" + elapsedMs +
-            " audio_delivered=" + delivered);
-    }
-
-    private static void StopLongDictationForShutdown(string reason)
-    {
-        int generation;
-        lock (LongDictationLock)
-        {
-            if (Volatile.Read(ref longDictationActive) == 0) return;
-            generation = longDictationGeneration;
-            longDictationStopRequested = 1;
-        }
-        RuntimeLog("LONG DICTATION SHUTDOWN generation=" + generation + " reason=" + reason);
-        if (Volatile.Read(ref streamActive) == 1)
-        {
-            int stoppingGeneration = Volatile.Read(ref streamGeneration);
-            byte stoppingSession = sessionId;
-            long queuedThroughTail = Interlocked.Read(ref audioPacketsEnqueued);
-            WaitForAudioPackets(queuedThroughTail, 1500);
-            FinalizeStreamStop(stoppingGeneration, stoppingSession);
-        }
-        else FinalizeLongDictation(generation, reason);
     }
 
     private static async Task<GattCharacteristic> GetCharacteristic(GattDeviceService service, Guid uuid)
@@ -1260,15 +533,12 @@ internal sealed class VibeMicAtvvCapture
             }
             else if (first == 0x04)
             {
-                byte startReason = bytes.Length >= 2 ? bytes[1] : (byte)0xFF;
                 byte receivedSession = bytes.Length >= 4 ? bytes[3] : sessionId;
                 bool started;
                 int startedGeneration = BeginStream(receivedSession, out started);
-                ArmMicExtendHeartbeat(startedGeneration, receivedSession, startReason);
                 if (started)
                 {
-                    RuntimeLog("REMOTE STREAM START session=" + sessionId + " generation=" + startedGeneration +
-                        " mode=live source=control start_reason=0x" + startReason.ToString("X2"));
+                    RuntimeLog("REMOTE STREAM START session=" + sessionId + " generation=" + startedGeneration + " mode=live source=control");
                     Console.WriteLine("ATVV STREAM START session=" + sessionId);
                 }
                 else RuntimeLog("REMOTE STREAM START duplicate session=" + sessionId + " generation=" + startedGeneration);
@@ -1284,7 +554,6 @@ internal sealed class VibeMicAtvvCapture
                 Interlocked.Exchange(ref micOpen, 0);
                 Interlocked.Exchange(ref lastStopSignalTicks, DateTime.UtcNow.Ticks);
                 Interlocked.Exchange(ref pendingStopGeneration, stoppingGeneration);
-                StopMicExtendHeartbeat(stoppingGeneration, "remote_stream_stop");
                 RuntimeLog("REMOTE STREAM STOP SIGNAL session=" + stoppingSession + " generation=" + stoppingGeneration + " tail_wait_ms=80");
                 ThreadPool.QueueUserWorkItem(delegate
                 {
@@ -1388,14 +657,12 @@ internal sealed class VibeMicAtvvCapture
         bool liveStartedNow = false;
         bool bufferTrimmedNow = false;
         bool implicitStreamStarted;
-        int controllerGeneration = 0;
         int generation = EnsureStreamForAudio(out implicitStreamStarted);
         if (generation == 0) return;
 
         lock (StreamLock)
         {
             if (Volatile.Read(ref streamActive) != 1 || Volatile.Read(ref streamGeneration) != generation) return;
-            controllerGeneration = streamVoiceGeneration;
 
             List<byte[]> frames = frameAccumulator.Append(bytes);
             var readyAudio = new List<short>();
@@ -1431,7 +698,7 @@ internal sealed class VibeMicAtvvCapture
                 readyAudio.AddRange(leveled);
             }
 
-            if (voiceController.IsReady(controllerGeneration))
+            if (voiceController.IsReady(generation))
             {
                 if (streamAudioBuffer.Count > 0)
                 {
@@ -1464,15 +731,12 @@ internal sealed class VibeMicAtvvCapture
         if (liveAudio != null) audioSink.Write(liveAudio);
         if (implicitStreamStarted) RuntimeLog("ATVV STREAM implicit_audio_race generation=" + generation);
         if (liveStartedNow)
-            RuntimeLog("AUDIO LIVE START session=" + sessionId + " generation=" + controllerGeneration +
-                " stream_generation=" + generation + " buffered_samples=" + liveAudio.Length);
+        {
+            RuntimeLog("AUDIO LIVE START session=" + sessionId + " generation=" + generation + " buffered_samples=" + liveAudio.Length);
+            SignalRecordingCue(true, generation);
+        }
         if (bufferTrimmedNow) RuntimeLog("AUDIO BUFFER TRIMMED generation=" + generation + " limit_ms=5000");
-        Interlocked.Exchange(ref lastAudioGeneration, generation);
         Interlocked.Exchange(ref lastAudioTicks, DateTime.UtcNow.Ticks);
-        int recoveredTransport = Interlocked.Exchange(ref longDictationTransportRecoveryCount, 0);
-        if (recoveredTransport > 0 && IsLongDictationMode())
-            RuntimeLog("LONG DICTATION TRANSPORT AUDIO RESTORED generation=" + controllerGeneration +
-                " stream_generation=" + generation + " recoveries=" + recoveredTransport);
     }
 
     private sealed class AudioNotification
@@ -1508,195 +772,9 @@ internal sealed class VibeMicAtvvCapture
             Thread.Sleep(2);
     }
 
-    private static void ArmMicExtendHeartbeat(int generation, byte activeSession, byte startReason)
-    {
-        if (!ShouldAttemptMicExtendHeartbeat(startReason))
-        {
-            RuntimeLog("ATVV MIC_EXTEND not_armed generation=" + generation +
-                " reason=" + (!IsLongDictationMode()
-                    ? "hold_mode_follows_physical_release"
-                    : "physical_stream_must_release_before_host_open"));
-            return;
-        }
-        if (!AtvvVoiceLeasePolicy.ShouldExtend(protocolVersion, startReason, activeSession))
-        {
-            RuntimeLog("ATVV MIC_EXTEND not_armed generation=" + generation + " session=" + activeSession +
-                " start_reason=0x" + startReason.ToString("X2") + " protocol=0x" + protocolVersion.ToString("X4"));
-            return;
-        }
-
-        MicExtendLease previous = null;
-        MicExtendLease lease;
-        lock (MicExtendLock)
-        {
-            if (micExtendLease != null && Volatile.Read(ref micExtendLease.Stopped) == 0 &&
-                micExtendLease.Generation == generation && micExtendLease.SessionId == activeSession)
-                return;
-
-            previous = micExtendLease;
-            if (previous != null) Interlocked.Exchange(ref previous.Stopped, 1);
-
-            lease = new MicExtendLease
-            {
-                Generation = generation,
-                SessionId = activeSession,
-                StartReason = startReason,
-                StartedTicks = DateTime.UtcNow.Ticks
-            };
-            micExtendLease = lease;
-            lease.Timer = new Timer(MicExtendHeartbeatTick, lease,
-                AtvvVoiceLeasePolicy.HeartbeatIntervalMs, AtvvVoiceLeasePolicy.HeartbeatIntervalMs);
-        }
-
-        if (previous != null)
-        {
-            DisposeMicExtendTimer(previous);
-            LogMicExtendStopped(previous, "superseded_by_new_stream");
-        }
-        RuntimeLog("ATVV MIC_EXTEND armed generation=" + generation + " session=" + activeSession +
-            " start_reason=0x" + startReason.ToString("X2") +
-            " interval_ms=" + AtvvVoiceLeasePolicy.HeartbeatIntervalMs +
-            " minimum_target_ms=" + AtvvVoiceLeasePolicy.MinimumTargetDurationMs);
-    }
-
-    private static bool ShouldAttemptMicExtendHeartbeat(byte startReason)
-    {
-        return IsLongDictationMode() && startReason == AtvvVoiceLeasePolicy.HostInitiatedStartReason;
-    }
-
-    private static void MicExtendHeartbeatTick(object state)
-    {
-        var lease = state as MicExtendLease;
-        if (lease == null) return;
-        if (!IsMicExtendLeaseCurrent(lease))
-        {
-            StopMicExtendHeartbeat(lease, "session_inactive");
-            return;
-        }
-        if (Interlocked.CompareExchange(ref lease.WriteInFlight, 1, 0) != 0)
-        {
-            RuntimeLog("ATVV MIC_EXTEND skipped generation=" + lease.Generation + " session=" + lease.SessionId +
-                " reason=previous_write_in_flight");
-            return;
-        }
-
-        int attempt = Interlocked.Increment(ref lease.Attempts);
-        bool sessionSent = false;
-        Exception sessionFailure = null;
-        GattWriteOption writeOption = MicExtendWriteOption();
-        Func<bool> shouldWrite = delegate { return IsMicExtendLeaseCurrent(lease); };
-        try
-        {
-            byte[] command = AtvvVoiceLeasePolicy.BuildCommand(protocolVersion, lease.SessionId);
-            sessionSent = command != null && WriteCommand(command, "mic_extend_session", shouldWrite,
-                writeOption).GetAwaiter().GetResult();
-            if (sessionSent) Interlocked.Increment(ref lease.SessionWrites);
-        }
-        catch (Exception ex) { sessionFailure = ex; }
-
-        try
-        {
-            if (sessionSent)
-            {
-                int success = Interlocked.Increment(ref lease.Successes);
-                long elapsedMs = (long)TimeSpan.FromTicks(DateTime.UtcNow.Ticks - lease.StartedTicks).TotalMilliseconds;
-                RuntimeLog("ATVV MIC_EXTEND written generation=" + lease.Generation + " session=" + lease.SessionId +
-                    " attempt=" + attempt + " success_count=" + success + " elapsed_ms=" + elapsedMs +
-                    " write_option=" + writeOption +
-                    " exact_session=true acceptance=awaiting_stream_lifetime_evidence");
-            }
-            else
-            {
-                int failures = Interlocked.Increment(ref lease.Failures);
-                string reason = sessionFailure != null ? "write_failed" : "session_changed_before_write";
-                RuntimeLog("ATVV MIC_EXTEND failed generation=" + lease.Generation + " session=" + lease.SessionId +
-                    " attempt=" + attempt + " failure_count=" + failures + " reason=" + reason +
-                    " session_error=" + SafeLogError(sessionFailure));
-            }
-        }
-        finally { Interlocked.Exchange(ref lease.WriteInFlight, 0); }
-    }
-
-    private static string SafeLogError(Exception error)
-    {
-        return error == null ? "none" : error.Message.Replace(' ', '_');
-    }
-
-    private static GattWriteOption MicExtendWriteOption()
-    {
-        GattCharacteristic characteristic = writeCharacteristic;
-        return characteristic != null &&
-            (characteristic.CharacteristicProperties & GattCharacteristicProperties.WriteWithoutResponse) != 0
-            ? GattWriteOption.WriteWithoutResponse
-            : GattWriteOption.WriteWithResponse;
-    }
-
-    private static bool IsMicExtendLeaseCurrent(MicExtendLease lease)
-    {
-        if (lease == null || Volatile.Read(ref lease.Stopped) != 0) return false;
-        lock (MicExtendLock)
-        {
-            if (!object.ReferenceEquals(micExtendLease, lease)) return false;
-        }
-        return AtvvVoiceLeasePolicy.IsCurrent(lease.Generation, lease.SessionId,
-            Volatile.Read(ref streamGeneration), sessionId, Volatile.Read(ref streamActive),
-            Volatile.Read(ref pendingStopGeneration));
-    }
-
-    private static void StopMicExtendHeartbeat(int generation, string reason)
-    {
-        MicExtendLease lease;
-        lock (MicExtendLock)
-        {
-            lease = micExtendLease;
-            if (lease == null || (generation != 0 && lease.Generation != generation)) return;
-            micExtendLease = null;
-            Interlocked.Exchange(ref lease.Stopped, 1);
-        }
-        StopMicExtendLease(lease, reason);
-    }
-
-    private static void StopMicExtendHeartbeat(MicExtendLease expectedLease, string reason)
-    {
-        if (expectedLease == null) return;
-        lock (MicExtendLock)
-        {
-            if (object.ReferenceEquals(micExtendLease, expectedLease)) micExtendLease = null;
-            Interlocked.Exchange(ref expectedLease.Stopped, 1);
-        }
-        StopMicExtendLease(expectedLease, reason);
-    }
-
-    private static void StopMicExtendLease(MicExtendLease lease, string reason)
-    {
-        DisposeMicExtendTimer(lease);
-        LogMicExtendStopped(lease, reason);
-    }
-
-    private static void DisposeMicExtendTimer(MicExtendLease lease)
-    {
-        if (lease == null || lease.Timer == null) return;
-        try { lease.Timer.Change(Timeout.Infinite, Timeout.Infinite); } catch { }
-        try { lease.Timer.Dispose(); } catch { }
-    }
-
-    private static void LogMicExtendStopped(MicExtendLease lease, string reason)
-    {
-        if (lease == null || Interlocked.CompareExchange(ref lease.StopLogged, 1, 0) != 0) return;
-        RuntimeLog("ATVV MIC_EXTEND stopped generation=" + lease.Generation + " session=" + lease.SessionId +
-            " reason=" + reason + " attempts=" + Volatile.Read(ref lease.Attempts) +
-            " successes=" + Volatile.Read(ref lease.Successes) + " failures=" + Volatile.Read(ref lease.Failures) +
-            " session_writes=" + Volatile.Read(ref lease.SessionWrites) +
-            " write_in_flight=" + Volatile.Read(ref lease.WriteInFlight));
-    }
-
     private static int BeginStream(byte receivedSession, out bool started)
     {
         int generation;
-        int controllerGeneration;
-        bool startVoiceController = true;
-        bool longSessionStarted = false;
-        bool continuingLongSession = false;
         lock (StreamLock)
         {
             int activeGeneration = Volatile.Read(ref streamGeneration);
@@ -1711,36 +789,6 @@ internal sealed class VibeMicAtvvCapture
 
             sessionId = receivedSession;
             generation = Interlocked.Increment(ref streamGeneration);
-            controllerGeneration = generation;
-            if (IsLongDictationMode())
-            {
-                lock (LongDictationLock)
-                {
-                    if (Volatile.Read(ref longDictationActive) == 0)
-                    {
-                        Volatile.Write(ref longDictationActive, 1);
-                        longDictationGeneration = generation;
-                        longDictationStartKeyAcknowledged = Interlocked.Exchange(ref longDictationStartRequested, 0) == 1 ? 1 : 0;
-                        longDictationStopRequested = 0;
-                        longDictationStopWorkerStarted = 0;
-                        longDictationAudioDelivered = 0;
-                        longDictationSegmentCount = 1;
-                        longDictationTransportRecoveryGeneration = 0;
-                        longDictationTransportRecoveryCount = 0;
-                        longDictationAudioMs = 0;
-                        longDictationStartedTicks = DateTime.UtcNow.Ticks;
-                        longSessionStarted = true;
-                    }
-                    else
-                    {
-                        controllerGeneration = longDictationGeneration;
-                        longDictationSegmentCount++;
-                        startVoiceController = false;
-                        continuingLongSession = true;
-                    }
-                }
-            }
-            streamVoiceGeneration = controllerGeneration;
             decoder.Reset();
             frameAccumulator.Reset();
             pendingCodecSync = false;
@@ -1752,11 +800,8 @@ internal sealed class VibeMicAtvvCapture
             streamOutputPeak = 0;
             streamAppliedGainSum = 0;
             streamAppliedGainFrames = 0;
-            if (!continuingLongSession)
-            {
-                leveler.BeginSession();
-                audioSink.ResetSessionMetrics();
-            }
+            leveler.BeginSession();
+            audioSink.ResetSessionMetrics();
             Interlocked.Exchange(ref audioQueueMaxDepth, audioPacketQueue == null ? 0 : audioPacketQueue.Count);
             Interlocked.Exchange(ref audioQueueDrops, 0);
             streamLiveStarted = false;
@@ -1784,31 +829,11 @@ internal sealed class VibeMicAtvvCapture
             started = true;
         }
         Interlocked.Exchange(ref lastStreamTicks, DateTime.UtcNow.Ticks);
-        if (!continuingLongSession) SignalRecordingCue(true, controllerGeneration);
-        if (longSessionStarted)
-        {
-            ArmLongDictationSafetyTimer(controllerGeneration);
-            RuntimeLog("LONG DICTATION START generation=" + controllerGeneration +
-                " interaction=press_once_to_start_press_again_to_finish safety_limit_ms=" + LongDictationSafetyLimitMs);
-        }
-        else if (continuingLongSession)
-            RuntimeLog("LONG DICTATION SEGMENT START generation=" + controllerGeneration +
-                " stream_generation=" + generation + " segment=" + Volatile.Read(ref longDictationSegmentCount));
-        if (startVoiceController)
-        {
-            Interlocked.Exchange(ref latestVoiceControllerGeneration, controllerGeneration);
-            voiceController.Start(controllerGeneration);
-        }
+        voiceController.Start(generation);
         return generation;
     }
 
     private static void FinalizeStreamStop(int stoppingGeneration, byte stoppingSession)
-    {
-        lock (StreamFinalizationLock)
-            FinalizeStreamStopCore(stoppingGeneration, stoppingSession);
-    }
-
-    private static void FinalizeStreamStopCore(int stoppingGeneration, byte stoppingSession)
     {
         int packets;
         int peak;
@@ -1821,7 +846,6 @@ internal sealed class VibeMicAtvvCapture
         double averageGain;
         int discardedSamples;
         bool liveDelivered;
-        int controllerGeneration;
         lock (StreamLock)
         {
             if (stoppingGeneration != Volatile.Read(ref streamGeneration) || Volatile.Read(ref streamActive) == 0)
@@ -1841,37 +865,15 @@ internal sealed class VibeMicAtvvCapture
             averageGain = streamAppliedGainFrames == 0 ? 0 : streamAppliedGainSum / streamAppliedGainFrames;
             partialFrameBytes = frameAccumulator.PendingCount;
             liveDelivered = streamLiveStarted;
-            controllerGeneration = streamVoiceGeneration;
             discardedSamples = liveDelivered ? 0 : streamAudioBuffer.Count;
             streamAudioBuffer.Clear();
             frameAccumulator.Reset();
         }
-        if (!IsLongDictationMode()) SignalRecordingCue(false, controllerGeneration);
 
         double rms = samples == 0 ? 0 : Math.Sqrt(squareSum / samples);
         double outputRms = samples == 0 ? 0 : Math.Sqrt(outputSquareSum / samples);
         int audioMs = (int)(samples * 1000 / 16000);
-        bool continueLongDictation = false;
-        int longSegment = 0;
-        long longTotalAudioMs = 0;
-        if (IsLongDictationMode() && controllerGeneration != 0)
-        {
-            lock (LongDictationLock)
-            {
-                if (Volatile.Read(ref longDictationActive) == 1 && longDictationGeneration == controllerGeneration)
-                {
-                    if (liveDelivered) longDictationAudioDelivered = 1;
-                    longDictationAudioMs += audioMs;
-                    longSegment = longDictationSegmentCount;
-                    longTotalAudioMs = longDictationAudioMs;
-                    continueLongDictation = longDictationStopRequested == 0;
-                }
-            }
-        }
-
-        RuntimeLog((continueLongDictation ? "REMOTE STREAM SEGMENT STOP" : "REMOTE STREAM STOP") +
-            " session=" + stoppingSession + " generation=" + stoppingGeneration +
-            " logical_generation=" + controllerGeneration +
+        RuntimeLog("REMOTE STREAM STOP session=" + stoppingSession + " generation=" + stoppingGeneration +
             " frames=" + packets + " audio_ms=" + audioMs + " raw_peak_pct=" + (peak * 100.0 / 32768).ToString("0.0") +
             " raw_rms_pct=" + (rms * 100.0 / 32768).ToString("0.0") +
             " output_peak_pct=" + (outputPeak * 100.0 / 32768).ToString("0.0") +
@@ -1880,27 +882,6 @@ internal sealed class VibeMicAtvvCapture
             " queue_max=" + Volatile.Read(ref audioQueueMaxDepth) + " queue_drops=" + Volatile.Read(ref audioQueueDrops) +
             " sink_queue_max=" + audioSink.MaximumQueueDepth + " sink_queue_drops=" + audioSink.DroppedBlocks +
             " sink_pending=" + audioSink.PendingBlocks + " partial_frame_bytes=" + partialFrameBytes);
-
-        if (continueLongDictation)
-        {
-            audioSink.WriteSilence(LongDictationContinuationSilenceMs);
-            RuntimeLog("LONG DICTATION CONTINUE generation=" + controllerGeneration +
-                " completed_segment=" + longSegment + " stream_generation=" + stoppingGeneration +
-                " total_audio_ms=" + longTotalAudioMs + " continuation_silence_ms=" + LongDictationContinuationSilenceMs);
-            if (Volatile.Read(ref longDictationTransportRecoveryGeneration) == controllerGeneration)
-                RuntimeLog("LONG DICTATION CONTINUE reopen_owner=transport_recovery generation=" +
-                    controllerGeneration + " stream_generation=" + stoppingGeneration);
-            else ScheduleLongDictationReopen(controllerGeneration, stoppingGeneration);
-            Console.WriteLine("ATVV STREAM SEGMENT STOP session=" + stoppingSession + " continuing=true");
-            return;
-        }
-
-        if (LongDictationContinuationPolicy.UsesLogicalFinalizer(IsLongDictationMode(), controllerGeneration))
-        {
-            FinalizeLongDictation(controllerGeneration, "remote_stream_stop");
-            Console.WriteLine("ATVV STREAM STOP session=" + stoppingSession + " long_dictation_final=true");
-            return;
-        }
 
         if (liveDelivered)
         {
@@ -1916,15 +897,8 @@ internal sealed class VibeMicAtvvCapture
             RuntimeLog("AUDIO LIVE FAILED session=" + stoppingSession + " generation=" + stoppingGeneration +
                 " reason=voice_panel_unavailable discarded_samples=" + discardedSamples);
         }
+        SignalRecordingCue(false, stoppingGeneration);
         Console.WriteLine("ATVV STREAM STOP session=" + stoppingSession);
-    }
-
-    private static void SignalRecordingCue(bool starting, int generation)
-    {
-        string eventName = starting ? "Local\\VibeMicRecordingStartCue" : "Local\\VibeMicRecordingStopCue";
-        bool signaled = HostEventSignal.TrySet(eventName);
-        RuntimeLog("RECORDING CUE SIGNAL kind=" + (starting ? "start" : "stop") +
-            " generation=" + generation + " signaled=" + signaled);
     }
 
     private static void CompleteAudioDiagnostic(int generation, string reason, bool synchronous)
@@ -1954,27 +928,18 @@ internal sealed class VibeMicAtvvCapture
             CompleteAudioDiagnostic(generation, reason, true);
     }
 
-    private static async Task<bool> WriteCommand(byte[] bytes, string name, Func<bool> shouldWrite = null,
-        GattWriteOption writeOption = GattWriteOption.WriteWithResponse)
+    private static async Task WriteCommand(byte[] bytes, string name)
     {
-        await CommandWriteGate.WaitAsync().ConfigureAwait(false);
-        try
+        using (DataWriter writer = new DataWriter())
         {
-            if (shouldWrite != null && !shouldWrite()) return false;
-            using (DataWriter writer = new DataWriter())
-            {
-                writer.WriteBytes(bytes);
-                IBuffer buffer = writer.DetachBuffer();
-                GattCommunicationStatus status = await writeCharacteristic.WriteValueAsync(buffer,
-                    writeOption).AsTask().ConfigureAwait(false);
-                AppendHostCommand(name, bytes, status, writeOption);
-                Console.WriteLine("HOST " + name + " " + Hex(bytes) + " " + writeOption + " => " + status);
-                if (status != GattCommunicationStatus.Success)
-                    throw new InvalidOperationException("ATVV command failed: " + name + " => " + status);
-                return true;
-            }
+            writer.WriteBytes(bytes);
+            IBuffer buffer = writer.DetachBuffer();
+            GattCommunicationStatus status = await writeCharacteristic.WriteValueAsync(buffer, GattWriteOption.WriteWithResponse).AsTask();
+            AppendHostCommand(name, bytes, status);
+            Console.WriteLine("HOST " + name + " " + Hex(bytes) + " => " + status);
+            if (status != GattCommunicationStatus.Success)
+                throw new InvalidOperationException("ATVV command failed: " + name + " => " + status);
         }
-        finally { CommandWriteGate.Release(); }
     }
 
     private static void AppendEvent(string type, string name, Guid uuid, byte[] bytes)
@@ -1986,17 +951,74 @@ internal sealed class VibeMicAtvvCapture
         Console.WriteLine(json);
     }
 
-    private static void AppendHostCommand(string name, byte[] bytes, GattCommunicationStatus status,
-        GattWriteOption writeOption)
+    private static void AppendHostCommand(string name, byte[] bytes, GattCommunicationStatus status)
     {
         string json = "{\"time\":\"" + DateTime.Now.ToString("HH:mm:ss.fff") + "\",\"type\":\"host_command\",\"name\":\"" + name +
-            "\",\"hex\":\"" + Hex(bytes) + "\",\"write_option\":\"" + writeOption + "\",\"status\":\"" + status + "\"}";
+            "\",\"hex\":\"" + Hex(bytes) + "\",\"status\":\"" + status + "\"}";
         AppendLine(json);
     }
 
     private static void AppendLine(string line)
     {
         lock (FileLock) File.AppendAllText(eventPath, line + Environment.NewLine, Utf8NoBom);
+    }
+
+    private static void SignalRecordingCue(bool starting, int generation)
+    {
+        string eventName = starting ? "Local\\VibeMicRecordingStartCue" : "Local\\VibeMicRecordingStopCue";
+        bool signaled = false;
+        try
+        {
+            using (EventWaitHandle handle = EventWaitHandle.OpenExisting(eventName)) signaled = handle.Set();
+        }
+        catch (WaitHandleCannotBeOpenedException) { }
+        catch { }
+        RuntimeLog("RECORDING CUE SIGNAL kind=" + (starting ? "start" : "stop") +
+            " generation=" + generation + " signaled=" + signaled);
+    }
+
+    private static void SetCaptureHealthState(string state)
+    {
+        lock (CaptureHealthLock)
+        {
+            if (!string.IsNullOrWhiteSpace(state)) captureHealthState = state;
+            WriteCaptureHealthLocked();
+        }
+    }
+
+    private static void WriteCaptureHealth(string state)
+    {
+        lock (CaptureHealthLock)
+        {
+            if (!string.IsNullOrWhiteSpace(state)) captureHealthState = state;
+            WriteCaptureHealthLocked();
+        }
+    }
+
+    private static void WriteCaptureHealthLocked()
+    {
+        if (string.IsNullOrWhiteSpace(captureHealthPath)) return;
+        try
+        {
+            long audioTicks = Interlocked.Read(ref lastAudioTicks);
+            string lastAudio = audioTicks > 0
+                ? new DateTime(audioTicks, DateTimeKind.Utc).ToString("o") : "";
+            string json = "{\"updated_at\":\"" + DateTime.UtcNow.ToString("o") +
+                "\",\"pid\":" + System.Diagnostics.Process.GetCurrentProcess().Id +
+                ",\"process_started_utc\":\"" + captureStartedUtc.ToString("o") +
+                "\",\"state\":\"" + (captureHealthState ?? "starting") +
+                "\",\"recording_kernel\":\"" + RecordingKernelVersion +
+                "\",\"atvv_ready\":" + (Volatile.Read(ref atvvReadyState) == 1 ? "true" : "false") +
+                ",\"ble_connected\":" + (Volatile.Read(ref bleConnectedState) == 1 ? "true" : "false") +
+                ",\"audio_packets\":" + Interlocked.CompareExchange(ref audioCount, 0, 0) +
+                ",\"control_packets\":" + Interlocked.CompareExchange(ref controlCount, 0, 0) +
+                ",\"last_audio_at\":\"" + lastAudio + "\"}";
+            string tempPath = captureHealthPath + ".tmp";
+            File.WriteAllText(tempPath, json, Utf8NoBom);
+            if (File.Exists(captureHealthPath)) File.Replace(tempPath, captureHealthPath, null);
+            else File.Move(tempPath, captureHealthPath);
+        }
+        catch { }
     }
 
     private static void RuntimeLog(string message)
@@ -2042,22 +1064,10 @@ internal sealed class VibeMicAtvvCapture
             : new byte[] { 0x0C, 0x00, selectedCodec };
     }
 
-    private static byte[] CloseCommand(byte targetSession)
-    {
-        return protocolVersion >= 0x0100
-            ? new byte[] { 0x0D, targetSession }
-            : new byte[] { 0x0D };
-    }
-
     private static byte[] CloseCommand()
     {
-        return CloseCommand(sessionId);
-    }
-
-    private static byte[] CloseAnyCommand()
-    {
         return protocolVersion >= 0x0100
-            ? new byte[] { 0x0D, 0xFF }
+            ? new byte[] { 0x0D, sessionId }
             : new byte[] { 0x0D };
     }
 
@@ -2084,9 +1094,6 @@ internal sealed class VibeMicAtvvCapture
 
     private static bool IsVoiceSessionActive(int generation)
     {
-        if (IsLongDictationMode())
-            return Volatile.Read(ref longDictationActive) == 1 &&
-                Volatile.Read(ref longDictationGeneration) == generation;
         return Volatile.Read(ref streamActive) == 1 && Volatile.Read(ref streamGeneration) == generation;
     }
 
@@ -2147,78 +1154,6 @@ internal sealed class VibeMicAtvvCapture
                     throw new InvalidOperationException("Startup voice key recovery survived key release");
             }
 
-            if (ClassifyLongDictationKey(false, false, -1) != LongDictationKeyAction.Start ||
-                ClassifyLongDictationKey(true, false, LongDictationStartAckWindowMs) != LongDictationKeyAction.AcknowledgeStartedStream ||
-                ClassifyLongDictationKey(true, false, LongDictationStartAckWindowMs + 1) != LongDictationKeyAction.Stop ||
-                ClassifyLongDictationKey(true, true, 10) != LongDictationKeyAction.Stop)
-                throw new InvalidOperationException("Long-dictation record-key transition policy failed");
-            if (LongDictationSafetyLimitMs < 10 * 60 * 1000 || LongDictationReopenAttempts < 3 ||
-                LongDictationOpenAttemptsBeforeTransportRecovery != LongDictationReopenAttempts ||
-                LongDictationMaximumTransportRecoveries < 1 || LongDictationTransportSettleMs < 200 ||
-                LongDictationReopenTimeoutMs < 1000 || LongDictationFirstReopenDelayMs > 100)
-                throw new InvalidOperationException("Long-dictation five-minute safety or reopen policy failed");
-            if (!HoldToTalkReleasePolicy.IsCurrent(false, false, 1, 7, 7) ||
-                HoldToTalkReleasePolicy.IsCurrent(true, false, 1, 7, 7) ||
-                HoldToTalkReleasePolicy.IsCurrent(false, true, 1, 7, 7) ||
-                HoldToTalkReleasePolicy.IsCurrent(false, false, 0, 7, 7) ||
-                HoldToTalkReleasePolicy.IsCurrent(false, false, 1, 7, 8))
-                throw new InvalidOperationException("Hold-to-talk release finalization policy failed");
-            if (IsVoiceControllerSuperseded(7, 7) || !IsVoiceControllerSuperseded(7, 8))
-                throw new InvalidOperationException("Logical transcription generation supersede policy failed");
-            const long previousAudioTicks = 1000;
-            if (!LongDictationContinuationPolicy.IsControlReady(7, 8, 1) ||
-                LongDictationContinuationPolicy.IsControlReady(7, 7, 1) ||
-                LongDictationContinuationPolicy.IsAudioReady(7, 8, 1, 7, 1100, previousAudioTicks) ||
-                LongDictationContinuationPolicy.IsAudioReady(7, 8, 1, 8, previousAudioTicks, previousAudioTicks) ||
-                !LongDictationContinuationPolicy.IsAudioReady(7, 8, 1, 8, 1100, previousAudioTicks))
-                throw new InvalidOperationException("Long-dictation continuation accepted control readiness without real audio");
-            if (!LongDictationContinuationPolicy.UsesLogicalFinalizer(true, 7) ||
-                LongDictationContinuationPolicy.UsesLogicalFinalizer(false, 7) ||
-                LongDictationContinuationPolicy.UsesLogicalFinalizer(true, 0))
-                throw new InvalidOperationException("Long-dictation stream could fall through to physical-generation submission");
-            if (!LongDictationAudioHealthPolicy.IsLive(1, 8, 8, 100, LongDictationAudioLiveThresholdMs) ||
-                LongDictationAudioHealthPolicy.IsLive(1, 8, 7, 100, LongDictationAudioLiveThresholdMs) ||
-                LongDictationAudioHealthPolicy.IsLive(1, 8, 8, LongDictationAudioLiveThresholdMs + 1,
-                    LongDictationAudioLiveThresholdMs) ||
-                !LongDictationAudioHealthPolicy.ShouldRecover(1, 8, 8,
-                    LongDictationAudioStallRecoveryMs + 1, LongDictationAudioStallRecoveryMs) ||
-                LongDictationAudioHealthPolicy.ShouldRecover(0, 8, 8,
-                    LongDictationAudioStallRecoveryMs + 1, LongDictationAudioStallRecoveryMs))
-                throw new InvalidOperationException("Long-dictation real audio liveness policy failed");
-            ushort savedProtocolVersion = protocolVersion;
-            protocolVersion = 0x0100;
-            byte[] closeExact = CloseCommand(0x2A);
-            byte[] closeAny = CloseAnyCommand();
-            protocolVersion = savedProtocolVersion;
-            if (closeExact.Length != 2 || closeExact[0] != 0x0D || closeExact[1] != 0x2A)
-                throw new InvalidOperationException("Long-dictation exact MIC_CLOSE encoding failed");
-            if (closeAny.Length != 2 || closeAny[0] != 0x0D || closeAny[1] != 0xFF)
-                throw new InvalidOperationException("Long-dictation MIC_CLOSE wildcard encoding failed");
-
-            const byte testStreamId = 0x2A;
-            if (!AtvvVoiceLeasePolicy.ShouldExtend(0x0100,
-                    AtvvVoiceLeasePolicy.HostInitiatedStartReason, testStreamId) ||
-                AtvvVoiceLeasePolicy.ShouldExtend(0x0004,
-                    AtvvVoiceLeasePolicy.HostInitiatedStartReason, testStreamId) ||
-                AtvvVoiceLeasePolicy.ShouldExtend(0x0100, 0x03, testStreamId))
-                throw new InvalidOperationException("ATVV MIC_EXTEND eligibility failed");
-            byte[] extendCommand = AtvvVoiceLeasePolicy.BuildCommand(0x0100, testStreamId);
-            byte[] wildcardExtendCommand = AtvvVoiceLeasePolicy.BuildCommand(0x0100, AtvvVoiceLeasePolicy.AnyStreamId);
-            if (extendCommand == null || extendCommand.Length != 2 ||
-                extendCommand[0] != 0x0E || extendCommand[1] != testStreamId ||
-                wildcardExtendCommand == null || wildcardExtendCommand[1] != 0xFF ||
-                AtvvVoiceLeasePolicy.BuildCommand(0x0004, testStreamId) != null)
-                throw new InvalidOperationException("ATVV MIC_EXTEND command encoding failed");
-            if (!AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 7, testStreamId, 1, 0) ||
-                !AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 7, testStreamId, 1, 6) ||
-                AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 8, testStreamId, 1, 0) ||
-                AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 7, 0x2B, 1, 0) ||
-                AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 7, testStreamId, 0, 0) ||
-                AtvvVoiceLeasePolicy.IsCurrent(7, testStreamId, 7, testStreamId, 1, 7))
-                throw new InvalidOperationException("ATVV MIC_EXTEND generation or stop-race policy failed");
-            if (AtvvVoiceLeasePolicy.HeartbeatsForDuration(AtvvVoiceLeasePolicy.MinimumTargetDurationMs) < 37)
-                throw new InvalidOperationException("ATVV MIC_EXTEND does not cover the five-minute target");
-
             var testResampler = new LinearPcmUpsampler();
             byte[] resampled = testResampler.Convert(new short[] { 0, 300 });
             if (resampled.Length != 24 || BitConverter.ToInt16(resampled, 12) != 100 ||
@@ -2234,24 +1169,6 @@ internal sealed class VibeMicAtvvCapture
                 5000, 50, out preemptWaitMs);
             if (preemptResult != SessionPanelWaitResult.Superseded || waitCycles != 1 || preemptWaitMs != 50)
                 throw new InvalidOperationException("New transcription generation did not preempt stale panel wait");
-
-            if (!InputFocusTarget.IsProviderWindowIdentity("wetype.statusbar.window", "wetype_renderer") ||
-                !InputFocusTarget.IsProviderWindowIdentity("Chrome_WidgetWin_1", "wetype") ||
-                InputFocusTarget.IsProviderWindowIdentity("Chrome_WidgetWin_1", "ChatGPT"))
-                throw new InvalidOperationException("Transcription provider focus-target classification failed");
-            if (ProviderDirectDeliveryPolicy.Mode(true, true, true, true) != "provider_direct" ||
-                ProviderDirectDeliveryPolicy.Mode(true, true, false, true) != "provider_direct_unconfirmed" ||
-                ProviderDirectDeliveryPolicy.Mode(true, true, true, false) != "provider_direct_unconfirmed" ||
-                ProviderDirectDeliveryPolicy.Mode(true, false, true, true) != "not_submitted" ||
-                ProviderDirectDeliveryPolicy.Mode(false, true, true, true) != "no_audio")
-                throw new InvalidOperationException("Provider-direct delivery policy failed");
-            if (!ProviderToggleStopPolicy.ShouldSend(false, true, true) ||
-                ProviderToggleStopPolicy.ShouldSend(false, true, false) ||
-                !ProviderToggleStopPolicy.ShouldSend(true, true, false) ||
-                ProviderToggleStopPolicy.ShouldSend(false, false, true) ||
-                !ProviderToggleStopPolicy.WasAlreadyClosed(false, true, false) ||
-                ProviderToggleStopPolicy.WasAlreadyClosed(true, true, false))
-                throw new InvalidOperationException("Provider toggle-stop reopen guard failed");
 
             string leaseMarker = Path.Combine(Path.GetTempPath(), "vibe-mic-endpoint-lease-test-" + Guid.NewGuid().ToString("N") + ".txt");
             var fakeEndpointPolicy = new FakeCaptureEndpointPolicy();
@@ -2344,87 +1261,6 @@ internal sealed class VibeMicAtvvCapture
         {
             if (lease != null) lease.Dispose();
         }
-    }
-}
-
-internal static class HoldToTalkReleasePolicy
-{
-    public static bool IsCurrent(bool continuousMode, bool keyStillHeld, int streamActive,
-        int expectedGeneration, int currentGeneration)
-    {
-        return !continuousMode && !keyStillHeld && streamActive == 1 &&
-            expectedGeneration > 0 && expectedGeneration == currentGeneration;
-    }
-}
-
-internal static class LongDictationContinuationPolicy
-{
-    public static bool IsControlReady(int stoppedStreamGeneration, int currentStreamGeneration,
-        int streamActive)
-    {
-        return streamActive == 1 && currentStreamGeneration > stoppedStreamGeneration;
-    }
-
-    public static bool IsAudioReady(int stoppedStreamGeneration, int currentStreamGeneration,
-        int streamActive, int audioGeneration, long currentAudioTicks, long baselineAudioTicks)
-    {
-        return IsControlReady(stoppedStreamGeneration, currentStreamGeneration, streamActive) &&
-            audioGeneration == currentStreamGeneration && currentAudioTicks > baselineAudioTicks;
-    }
-
-    public static bool UsesLogicalFinalizer(bool continuousMode, int controllerGeneration)
-    {
-        return continuousMode && controllerGeneration > 0;
-    }
-}
-
-internal static class LongDictationAudioHealthPolicy
-{
-    public static bool IsLive(int streamActive, int currentStreamGeneration,
-        int audioGeneration, long packetAgeMs, int liveThresholdMs)
-    {
-        return streamActive == 1 && currentStreamGeneration > 0 &&
-            audioGeneration == currentStreamGeneration && packetAgeMs >= 0 &&
-            packetAgeMs <= liveThresholdMs;
-    }
-
-    public static bool ShouldRecover(int streamActive, int currentStreamGeneration,
-        int audioGeneration, long packetAgeMs, int stallThresholdMs)
-    {
-        return streamActive == 1 && currentStreamGeneration > 0 &&
-            audioGeneration == currentStreamGeneration && packetAgeMs > stallThresholdMs;
-    }
-}
-
-internal static class AtvvVoiceLeasePolicy
-{
-    public const int HeartbeatIntervalMs = 8000;
-    public const int MinimumTargetDurationMs = 5 * 60 * 1000;
-    public const byte AnyStreamId = 0xFF;
-    public const byte HostInitiatedStartReason = 0x00;
-    private const byte MicExtendOpcode = 0x0E;
-
-    public static bool ShouldExtend(ushort version, byte startReason, byte streamId)
-    {
-        return version >= 0x0100 && startReason == HostInitiatedStartReason;
-    }
-
-    public static byte[] BuildCommand(ushort version, byte streamId)
-    {
-        return version >= 0x0100 ? new byte[] { MicExtendOpcode, streamId } : null;
-    }
-
-    public static bool IsCurrent(int expectedGeneration, byte expectedSessionId,
-        int currentGeneration, byte currentSessionId, int isStreamActive, int pendingStopGeneration)
-    {
-        return expectedGeneration > 0 && expectedGeneration == currentGeneration &&
-            expectedSessionId == currentSessionId && isStreamActive == 1 &&
-            pendingStopGeneration != expectedGeneration;
-    }
-
-    public static int HeartbeatsForDuration(int durationMs)
-    {
-        return durationMs <= 0 ? 0 : durationMs / HeartbeatIntervalMs;
     }
 }
 
@@ -2589,19 +1425,6 @@ internal sealed class DefaultCaptureEndpointLease : IDisposable
     private int ownerGeneration;
     private bool routed;
     private bool markerInvalid;
-
-    public string RuntimeState
-    {
-        get
-        {
-            lock (sync)
-            {
-                if (disposed) return "disposed";
-                if (markerInvalid) return "blocked_invalid_marker";
-                return routed ? "routed_owner_" + ownerGeneration : "idle";
-            }
-        }
-    }
     private bool disposed;
 
     public DefaultCaptureEndpointLease(string requestedTargetName, string recoveryMarkerPath, Action<string> logger)
@@ -2654,10 +1477,6 @@ internal sealed class DefaultCaptureEndpointLease : IDisposable
                     log("DEFAULT CAPTURE ROUTE FAILED generation=" + generation + " phase=snapshot_defaults");
                     return false;
                 }
-                log("DEFAULT CAPTURE ROUTE SNAPSHOT generation=" + generation + " " +
-                    string.Join(" ", originalEndpoints.OrderBy(item => item.Key).Select(item =>
-                        item.Key.ToString().ToLowerInvariant() + "=" +
-                        SafeFriendlyName(item.Value).Replace(' ', '_'))));
                 if (!WriteMarker(originalEndpoints))
                 {
                     originalEndpoints = null;
@@ -2966,7 +1785,7 @@ internal static class TranscriptionSessionControllerFactory
     {
         string normalized = string.IsNullOrWhiteSpace(provider) ? "wechat" : provider.Trim().ToLowerInvariant();
         if (normalized == "wechat")
-            return new WeTypeVoiceSessionController(hotkey, triggerMode, startupDelayMs, activeCheck, logger, audioFinalizer,
+            return new WeTypeVoiceSessionController(hotkey, activeCheck, logger, audioFinalizer,
                 prepareInput, releaseInputWithoutAudio);
         return new HotkeyTranscriptionSessionController(normalized, hotkey, triggerMode, startupDelayMs,
             activeCheck, logger, audioFinalizer, prepareInput, releaseInputWithoutAudio);
@@ -3000,526 +1819,35 @@ internal static class SessionPanelWaitPolicy
     }
 }
 
-internal static class ProviderDirectDeliveryPolicy
-{
-    public static string Mode(bool audioDelivered, bool submitted, bool targetReady, bool providerCompleted)
-    {
-        if (!audioDelivered) return "no_audio";
-        if (!submitted) return "not_submitted";
-        return targetReady && providerCompleted ? "provider_direct" : "provider_direct_unconfirmed";
-    }
-}
-
-internal static class ProviderToggleStopPolicy
-{
-    public static bool ShouldSend(bool holdMode, bool providerWasStarted, bool voicePanelOpen)
-    {
-        return providerWasStarted && (holdMode || voicePanelOpen);
-    }
-
-    public static bool WasAlreadyClosed(bool holdMode, bool providerWasStarted, bool voicePanelOpen)
-    {
-        return providerWasStarted && !holdMode && !voicePanelOpen;
-    }
-}
-
-internal static class HostEventSignal
-{
-    public static bool TrySet(string eventName)
-    {
-        try
-        {
-            using (EventWaitHandle handle = EventWaitHandle.OpenExisting(eventName)) return handle.Set();
-        }
-        catch (WaitHandleCannotBeOpenedException) { return false; }
-        catch { return false; }
-    }
-}
-
-internal sealed class InputFocusTarget
-{
-    private const uint GA_ROOT = 2;
-    private readonly IntPtr rootWindow;
-    private readonly IntPtr focusedWindow;
-    private readonly uint targetThreadId;
-    private readonly uint targetProcessId;
-    private readonly string processName;
-    private readonly string rootClassName;
-    private readonly string focusClassName;
-    private readonly AutomationElement automationElement;
-    private readonly string automationControlType;
-    private readonly string automationClassName;
-    private readonly bool automationTextTarget;
-
-    private InputFocusTarget(IntPtr root, IntPtr focus, uint threadId, uint processId, string process,
-        string rootClass, string focusClass, AutomationElement automationFocus,
-        string automationControl, string automationClass, bool textTarget)
-    {
-        rootWindow = root;
-        focusedWindow = focus;
-        targetThreadId = threadId;
-        targetProcessId = processId;
-        processName = process;
-        rootClassName = rootClass;
-        focusClassName = focusClass;
-        automationElement = automationFocus;
-        automationControlType = automationControl;
-        automationClassName = automationClass;
-        automationTextTarget = textTarget;
-    }
-
-    public string Description
-    {
-        get
-        {
-            return "process=" + LogValue(processName) + " root_class=" + LogValue(rootClassName) +
-                " focus_class=" + LogValue(focusClassName) + " uia_control=" + LogValue(automationControlType) +
-                " uia_class=" + LogValue(automationClassName) + " text_target=" + automationTextTarget +
-                " root=0x" + rootWindow.ToInt64().ToString("X");
-        }
-    }
-
-    public bool IsUsable
-    {
-        get { return rootWindow != IntPtr.Zero && IsWindow(rootWindow); }
-    }
-
-    public bool IsTextTarget
-    {
-        get { return automationTextTarget || IsLegacyTextClass(focusClassName); }
-    }
-
-    public bool IsSameApplication(InputFocusTarget other)
-    {
-        if (other == null) return false;
-        return rootWindow == other.rootWindow ||
-            (targetProcessId != 0 && targetProcessId == other.targetProcessId);
-    }
-
-    public static InputFocusTarget Capture()
-    {
-        IntPtr foreground = GetForegroundWindow();
-        if (foreground == IntPtr.Zero || !IsWindow(foreground)) return null;
-        IntPtr root = GetAncestor(foreground, GA_ROOT);
-        if (root == IntPtr.Zero) root = foreground;
-
-        uint processId;
-        uint threadId = GetWindowThreadProcessId(root, out processId);
-        IntPtr focus = root;
-        if (threadId != 0)
-        {
-            GUITHREADINFO info = new GUITHREADINFO();
-            info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
-            if (GetGUIThreadInfo(threadId, ref info) && info.hwndFocus != IntPtr.Zero && IsWindow(info.hwndFocus) &&
-                GetAncestor(info.hwndFocus, GA_ROOT) == root)
-                focus = info.hwndFocus;
-        }
-
-        string process = GetProcessName(processId);
-        string rootClass = WindowClass(root);
-        string focusClass = WindowClass(focus);
-        if (IsProviderWindowIdentity(rootClass, process)) return null;
-
-        AutomationElement automationFocus;
-        string automationControl;
-        string automationClass;
-        bool automationEditable;
-        CaptureAutomationFocus(processId, out automationFocus, out automationControl,
-            out automationClass, out automationEditable);
-        return new InputFocusTarget(root, focus, threadId, processId, process, rootClass, focusClass,
-            automationFocus, automationControl, automationClass, automationEditable);
-    }
-
-    public static InputFocusTarget CaptureUnderPointer()
-    {
-        IntPtr foreground = GetForegroundWindow();
-        if (foreground == IntPtr.Zero || !IsWindow(foreground)) return null;
-        IntPtr root = GetAncestor(foreground, GA_ROOT);
-        if (root == IntPtr.Zero) root = foreground;
-
-        uint processId;
-        uint threadId = GetWindowThreadProcessId(root, out processId);
-        string process = GetProcessName(processId);
-        string rootClass = WindowClass(root);
-        if (IsProviderWindowIdentity(rootClass, process)) return null;
-
-        POINT pointer;
-        if (!GetCursorPos(out pointer)) return null;
-        AutomationElement editable = null;
-        try
-        {
-            AutomationElement candidate = AutomationElement.FromPoint(new System.Windows.Point(pointer.X, pointer.Y));
-            editable = FindEditableAncestor(candidate, processId);
-        }
-        catch { return null; }
-        if (editable == null) return null;
-
-        IntPtr focus = root;
-        if (threadId != 0)
-        {
-            GUITHREADINFO info = new GUITHREADINFO();
-            info.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
-            if (GetGUIThreadInfo(threadId, ref info) && info.hwndFocus != IntPtr.Zero && IsWindow(info.hwndFocus) &&
-                GetAncestor(info.hwndFocus, GA_ROOT) == root)
-                focus = info.hwndFocus;
-        }
-
-        string automationControl;
-        string automationClass;
-        bool automationEditable;
-        AutomationElement automationElement;
-        CaptureAutomationElement(processId, editable, out automationElement, out automationControl,
-            out automationClass, out automationEditable);
-        if (automationElement == null || !automationEditable) return null;
-        return new InputFocusTarget(root, focus, threadId, processId, process, rootClass, WindowClass(focus),
-            automationElement, automationControl, automationClass, true);
-    }
-
-    internal static bool IsProviderWindowIdentity(string className, string process)
-    {
-        string normalizedClass = className ?? "";
-        string normalizedProcess = process ?? "";
-        return normalizedClass.Equals("wetype.statusbar.window", StringComparison.OrdinalIgnoreCase) ||
-            normalizedProcess.StartsWith("wetype", StringComparison.OrdinalIgnoreCase);
-    }
-
-    public bool CheckCurrent(out string details)
-    {
-        if (!IsUsable)
-        {
-            details = "success=False reason=target_window_closed";
-            return false;
-        }
-
-        IntPtr focus = focusedWindow;
-        if (focus == IntPtr.Zero || !IsWindow(focus) || GetAncestor(focus, GA_ROOT) != rootWindow) focus = rootWindow;
-        IntPtr actualForeground = GetForegroundWindow();
-        IntPtr actualRoot = actualForeground == IntPtr.Zero ? IntPtr.Zero : GetAncestor(actualForeground, GA_ROOT);
-        bool foregroundMatched = actualRoot == rootWindow || actualForeground == rootWindow;
-        bool legacyFocusMatched = focus == rootWindow;
-        if (targetThreadId != 0)
-        {
-            GUITHREADINFO current = new GUITHREADINFO();
-            current.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
-            if (GetGUIThreadInfo(targetThreadId, ref current) && current.hwndFocus != IntPtr.Zero)
-                legacyFocusMatched = current.hwndFocus == focus ||
-                    GetAncestor(current.hwndFocus, GA_ROOT) == rootWindow;
-        }
-
-        bool automationAttempted = automationElement != null;
-        bool automationMatched = false;
-        string automationError = "none";
-        if (automationAttempted)
-        {
-            try
-            {
-                AutomationElement current = AutomationElement.FocusedElement;
-                automationMatched = current != null && Automation.Compare(current, automationElement);
-            }
-            catch (Exception ex)
-            {
-                automationError = LogValue(ex.GetType().Name);
-            }
-        }
-        bool focusMatched = automationAttempted ? automationMatched : legacyFocusMatched;
-        bool success = foregroundMatched && focusMatched && IsTextTarget;
-        details = "success=" + success + " mode=passive foreground=" + foregroundMatched +
-            " focus=" + focusMatched + " uia_attempted=" + automationAttempted +
-            " uia_focus=" + automationMatched + " uia_error=" + automationError;
-        return success;
-    }
-
-    private static void CaptureAutomationFocus(uint processId, out AutomationElement element,
-        out string controlType, out string className, out bool textTarget)
-    {
-        AutomationElement candidate = null;
-        try { candidate = AutomationElement.FocusedElement; }
-        catch { }
-        CaptureAutomationElement(processId, candidate, out element, out controlType, out className, out textTarget);
-    }
-
-    private static void CaptureAutomationElement(uint processId, AutomationElement candidate,
-        out AutomationElement element, out string controlType, out string className, out bool textTarget)
-    {
-        element = null;
-        controlType = "none";
-        className = "none";
-        textTarget = false;
-        try
-        {
-            if (candidate == null) return;
-            AutomationElement.AutomationElementInformation current = candidate.Current;
-            if (processId != 0 && current.ProcessId != (int)processId) return;
-            element = candidate;
-            controlType = current.ControlType == null ? "unknown" :
-                current.ControlType.ProgrammaticName.Replace("ControlType.", "");
-            className = string.IsNullOrWhiteSpace(current.ClassName) ? "none" : current.ClassName;
-            textTarget = IsEditableAutomationElement(candidate, current, true);
-        }
-        catch
-        {
-            element = null;
-            controlType = "unavailable";
-            className = "unavailable";
-            textTarget = false;
-        }
-    }
-
-    private static AutomationElement FindEditableAncestor(AutomationElement candidate, uint processId)
-    {
-        AutomationElement currentElement = candidate;
-        for (int depth = 0; currentElement != null && depth < 14; depth++)
-        {
-            try
-            {
-                AutomationElement.AutomationElementInformation current = currentElement.Current;
-                if (processId != 0 && current.ProcessId != (int)processId) return null;
-                if (IsEditableAutomationElement(currentElement, current, false))
-                    return currentElement;
-                currentElement = TreeWalker.ControlViewWalker.GetParent(currentElement);
-            }
-            catch { return null; }
-        }
-        return null;
-    }
-
-    private static bool IsEditableAutomationElement(AutomationElement element,
-        AutomationElement.AutomationElementInformation current, bool allowFocusedDocument)
-    {
-        if (!current.IsKeyboardFocusable || !current.IsEnabled) return false;
-        if (current.ControlType == ControlType.Edit) return true;
-        object pattern;
-        try
-        {
-            if (element.TryGetCurrentPattern(ValuePattern.Pattern, out pattern) &&
-                pattern is ValuePattern && !((ValuePattern)pattern).Current.IsReadOnly)
-                return true;
-        }
-        catch { }
-        return allowFocusedDocument && current.ControlType == ControlType.Document &&
-            current.HasKeyboardFocus && !string.IsNullOrWhiteSpace(current.ClassName);
-    }
-
-    private static bool IsLegacyTextClass(string className)
-    {
-        string value = (className ?? "").ToLowerInvariant();
-        return value == "edit" || value.StartsWith("richedit") || value.Contains("textbox");
-    }
-
-    private static string GetProcessName(uint processId)
-    {
-        if (processId == 0) return "unknown";
-        try
-        {
-            using (System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById((int)processId))
-                return process.ProcessName;
-        }
-        catch { return "unknown"; }
-    }
-
-    private static string WindowClass(IntPtr window)
-    {
-        if (window == IntPtr.Zero) return "none";
-        var value = new StringBuilder(128);
-        return GetClassName(window, value, value.Capacity) > 0 ? value.ToString() : "unknown";
-    }
-
-    private static string LogValue(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "unknown";
-        string normalized = value.Replace(' ', '_').Replace('\r', '_').Replace('\n', '_');
-        return normalized.Length <= 120 ? normalized : normalized.Substring(0, 116) + "_cut";
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct GUITHREADINFO
-    {
-        public uint cbSize;
-        public uint flags;
-        public IntPtr hwndActive;
-        public IntPtr hwndFocus;
-        public IntPtr hwndCapture;
-        public IntPtr hwndMenuOwner;
-        public IntPtr hwndMoveSize;
-        public IntPtr hwndCaret;
-        public RECT rcCaret;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetAncestor(IntPtr window, uint flags);
-
-    [DllImport("user32.dll")]
-    private static extern bool IsWindow(IntPtr window);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetGUIThreadInfo(uint threadId, ref GUITHREADINFO info);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out POINT point);
-}
-
-internal sealed class EditableInputFocusTracker : IDisposable
-{
-    private readonly object sync = new object();
-    private readonly Action<string> log;
-    private AutomationFocusChangedEventHandler focusChangedHandler;
-    private InputFocusTarget recentTextTarget;
-    private DateTime recentTextTargetAtUtc = DateTime.MinValue;
-    private bool tracking;
-
-    public EditableInputFocusTracker(Action<string> logger)
-    {
-        log = logger;
-        try
-        {
-            focusChangedHandler = new AutomationFocusChangedEventHandler(OnAutomationFocusChanged);
-            Automation.AddAutomationFocusChangedEventHandler(focusChangedHandler);
-            tracking = true;
-            RememberFocusedTextTarget();
-            log("INPUT FOCUS TRACKER ready=True source=uia_focus_changed");
-        }
-        catch (Exception ex)
-        {
-            log("INPUT FOCUS TRACKER ready=False error=" + ex.GetType().Name);
-        }
-    }
-
-    public InputFocusTarget CaptureBest(out string source)
-    {
-        InputFocusTarget current = InputFocusTarget.Capture();
-        if (IsValidTextTarget(current))
-        {
-            Remember(current);
-            source = "current_editable_focus";
-            return current;
-        }
-
-        InputFocusTarget pointer = InputFocusTarget.CaptureUnderPointer();
-        if (IsValidTextTarget(pointer))
-        {
-            Remember(pointer);
-            source = "editable_under_pointer";
-            return pointer;
-        }
-
-        InputFocusTarget recent = null;
-        DateTime capturedAt = DateTime.MinValue;
-        lock (sync)
-        {
-            recent = recentTextTarget;
-            capturedAt = recentTextTargetAtUtc;
-        }
-        if (IsValidTextTarget(recent) && DateTime.UtcNow - capturedAt <= TimeSpan.FromMinutes(30) &&
-            (current == null || recent.IsSameApplication(current)))
-        {
-            source = "recent_editable_focus";
-            return recent;
-        }
-
-        if (current != null && current.IsUsable)
-        {
-            source = "current_non_text_fallback";
-            return current;
-        }
-        source = "none";
-        return null;
-    }
-
-    private void OnAutomationFocusChanged(object sender, AutomationFocusChangedEventArgs args)
-    {
-        RememberFocusedTextTarget();
-    }
-
-    private void RememberFocusedTextTarget()
-    {
-        InputFocusTarget target = InputFocusTarget.Capture();
-        if (IsValidTextTarget(target)) Remember(target);
-    }
-
-    private void Remember(InputFocusTarget target)
-    {
-        lock (sync)
-        {
-            recentTextTarget = target;
-            recentTextTargetAtUtc = DateTime.UtcNow;
-        }
-    }
-
-    private static bool IsValidTextTarget(InputFocusTarget target)
-    {
-        return target != null && target.IsUsable && target.IsTextTarget;
-    }
-
-    public void Dispose()
-    {
-        if (!tracking || focusChangedHandler == null) return;
-        try { Automation.RemoveAutomationFocusChangedEventHandler(focusChangedHandler); }
-        catch { }
-        tracking = false;
-        focusChangedHandler = null;
-    }
-}
-
 internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionController
 {
     private const int WM_CLOSE = 0x0010;
-    private const int ProviderSubmitSettleMs = 350;
+    private const int WM_LBUTTONDOWN = 0x0201;
+    private const int WM_LBUTTONUP = 0x0202;
+    private const uint KeyEventKeyUp = 0x0002;
     private readonly BlockingCollection<VoiceSessionCommand> commands = new BlockingCollection<VoiceSessionCommand>();
     private readonly Func<int, bool> isSessionActive;
     private readonly Action<string> log;
     private readonly Action<int> finalizeAudio;
     private readonly Func<int, bool> prepareInput;
-    private readonly Action<int> releaseInput;
+    private readonly Action<int> releaseInputWithoutAudio;
     private readonly string hotkey;
-    private readonly bool holdMode;
-    private readonly int startupDelayMs;
     private readonly Thread worker;
-    private readonly object targetSync = new object();
-    private readonly Dictionary<int, InputFocusTarget> inputTargets = new Dictionary<int, InputFocusTarget>();
-    private readonly EditableInputFocusTracker inputFocusTracker;
     private int readyGeneration;
     private int latestStartGeneration;
-    private int providerGeneration;
+    private int hotkeyGeneration;
+    private int toolbarGeneration;
     private volatile bool disposed;
 
-    public WeTypeVoiceSessionController(string configuredHotkey, string triggerMode, int configuredStartupDelayMs,
-        Func<int, bool> activeCheck, Action<string> logger,
+    public WeTypeVoiceSessionController(string configuredHotkey, Func<int, bool> activeCheck, Action<string> logger,
         Action<int> audioFinalizer, Func<int, bool> inputPreparer, Action<int> inputReleaseWithoutAudio)
     {
-        hotkey = string.IsNullOrWhiteSpace(configuredHotkey) ? "ctrl+win+shift" : configuredHotkey;
-        holdMode = string.Equals(triggerMode, "hold", StringComparison.OrdinalIgnoreCase);
-        startupDelayMs = Math.Max(holdMode ? 20 : 180, Math.Min(2000, configuredStartupDelayMs));
+        hotkey = string.IsNullOrWhiteSpace(configuredHotkey) ? "ctrl+win" : configuredHotkey;
         isSessionActive = activeCheck;
         log = logger;
         finalizeAudio = audioFinalizer;
         prepareInput = inputPreparer;
-        releaseInput = inputReleaseWithoutAudio;
-        inputFocusTracker = new EditableInputFocusTracker(log);
+        releaseInputWithoutAudio = inputReleaseWithoutAudio;
         worker = new Thread(ProcessCommands);
         worker.IsBackground = true;
         worker.Name = "Vibe Mic WeType session coordinator";
@@ -3529,14 +1857,6 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
     public void Start(int generation)
     {
         if (disposed) return;
-        string source;
-        InputFocusTarget captured = inputFocusTracker.CaptureBest(out source);
-        lock (targetSync)
-        {
-            if (captured != null) inputTargets[generation] = captured;
-        }
-        log("INPUT TARGET CAPTURE provider=wechat generation=" + generation + " source=" +
-            (captured == null ? "none" : source) + (captured == null ? "" : " " + captured.Description));
         Interlocked.Exchange(ref latestStartGeneration, generation);
         Interlocked.Exchange(ref readyGeneration, 0);
         commands.Add(new VoiceSessionCommand { Generation = generation, Start = true });
@@ -3581,162 +1901,145 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
         bool routed = prepareInput == null || prepareInput(generation);
         log("TRANSCRIPTION INPUT ROUTE provider=wechat generation=" + generation + " ready=" + routed);
         CloseStalePanel(generation);
-        CheckInputTarget(generation, "before_provider_start");
 
-        bool started = holdMode
-            ? SetVoiceHotkeyHeld(generation, true, "start_after_input_routed")
-            : TapVoiceHotkey(generation, "start_after_input_routed");
-        if (!started)
+        if (TryToolbarClick(generation, 1, true, "start"))
         {
-            if (releaseInput != null) releaseInput(generation);
-            log("WETYPE SESSION START unavailable generation=" + generation + " reason=provider_trigger_failed mode=" +
-                (holdMode ? "hold" : "toggle"));
-            return;
+            Interlocked.Exchange(ref toolbarGeneration, generation);
+            if (WaitForPanel(generation, 300))
+            {
+                MarkReady(generation, "toolbar_primary", 1, timer.ElapsedMilliseconds);
+                return;
+            }
         }
-        Interlocked.Exchange(ref providerGeneration, generation);
 
-        int waitedMs = 0;
-        while (waitedMs < startupDelayMs && !disposed && isSessionActive(generation) &&
-            Volatile.Read(ref latestStartGeneration) == generation)
+        if (TapVoiceHotkey(generation, "start_fallback"))
         {
-            int wait = Math.Min(10, startupDelayMs - waitedMs);
-            Thread.Sleep(wait);
-            waitedMs += wait;
+            Interlocked.Exchange(ref hotkeyGeneration, generation);
+            if (WaitForPanel(generation, 500))
+            {
+                MarkReady(generation, "hotkey_fallback", 1, timer.ElapsedMilliseconds);
+                return;
+            }
         }
-        if (disposed || !isSessionActive(generation) || Volatile.Read(ref latestStartGeneration) != generation)
+
+        if (TryToolbarClick(generation, 2, true, "start_retry"))
         {
-            bool providerWasStarted = Interlocked.CompareExchange(ref providerGeneration, 0, generation) == generation;
-            bool providerAlreadyClosed;
-            StopProviderIfActive(generation, providerWasStarted, FindVoicePanelWindow(), "start_superseded",
-                out providerAlreadyClosed);
-            if (releaseInput != null) releaseInput(generation);
-            log("WETYPE SESSION START superseded generation=" + generation + " waited_ms=" + waitedMs);
-            return;
+            Interlocked.Exchange(ref toolbarGeneration, generation);
+            if (WaitForPanel(generation, 400))
+            {
+                MarkReady(generation, "toolbar_retry", 2, timer.ElapsedMilliseconds);
+                return;
+            }
         }
-        MarkReady(generation, holdMode ? "hotkey_hold" : "hotkey_toggle", 1, timer.ElapsedMilliseconds);
+        log("WETYPE PANEL UNAVAILABLE generation=" + generation + " trigger_elapsed_ms=" + timer.ElapsedMilliseconds);
     }
 
-    private bool SetVoiceHotkeyHeld(int generation, bool keyDown, string phase)
+    private bool TryToolbarClick(int generation, int attempt, bool requireActiveSession, string phase)
     {
-        string eventName = keyDown ? "Local\\VibeMicProviderHotkeyDownRequested" :
-            "Local\\VibeMicProviderHotkeyUpRequested";
-        bool hostRequested = HostEventSignal.TrySet(eventName);
-        bool captureFallback = !hostRequested &&
-            (keyDown ? KeyboardShortcutSender.KeyDown(hotkey) : KeyboardShortcutSender.KeyUp(hotkey));
-        bool sent = hostRequested || captureFallback;
-        log("WETYPE HOTKEY HOLD generation=" + generation + " phase=" + phase + " action=" +
-            (keyDown ? "down" : "up") + " shortcut=" + hotkey.Replace(' ', '_') + " sent=" + sent +
-            " injection=" + (hostRequested ? "host_keybd_event" : captureFallback ?
-                "capture_sendinput_fallback" : "unavailable"));
-        return sent;
-    }
-
-    private bool TapVoiceHotkey(int generation, string phase)
-    {
-        bool hostRequested = HostEventSignal.TrySet("Local\\VibeMicProviderHotkeyTapRequested");
-        bool captureFallback = !hostRequested && KeyboardShortcutSender.Tap(hotkey, 80);
-        bool sent = hostRequested || captureFallback;
-        log("WETYPE HOTKEY TOGGLE generation=" + generation + " phase=" + phase + " action=tap shortcut=" +
-            hotkey.Replace(' ', '_') + " sent=" + sent + " injection=" +
-            (hostRequested ? "host_keybd_event" : captureFallback ? "capture_sendinput_fallback" : "unavailable"));
-        return sent;
-    }
-
-    private bool StopProviderIfActive(int generation, bool providerWasStarted, IntPtr observedPanel,
-        string phase, out bool providerAlreadyClosed)
-    {
-        bool panelOpen = observedPanel != IntPtr.Zero;
-        providerAlreadyClosed = ProviderToggleStopPolicy.WasAlreadyClosed(holdMode, providerWasStarted, panelOpen);
-        if (!ProviderToggleStopPolicy.ShouldSend(holdMode, providerWasStarted, panelOpen))
+        if (disposed || (requireActiveSession && (!isSessionActive(generation) ||
+            Volatile.Read(ref latestStartGeneration) != generation))) return false;
+        IntPtr toolbar = FindWindowByClass("wetype.statusbar.window", false);
+        if (toolbar == IntPtr.Zero)
         {
-            log("WETYPE PROVIDER STOP skipped generation=" + generation + " phase=" + phase +
-                " provider_was_started=" + providerWasStarted + " panel_open=" + panelOpen +
-                " reason=" + (providerAlreadyClosed ? "voice_panel_already_closed" : "provider_not_started") +
-                " avoids_toggle_reopen=" + providerAlreadyClosed);
+            log("WETYPE TOOLBAR unavailable generation=" + generation + " phase=" + phase + " attempt=" + attempt);
             return false;
         }
 
-        return holdMode
-            ? SetVoiceHotkeyHeld(generation, false, phase)
-            : TapVoiceHotkey(generation, phase);
+        RECT client;
+        if (!GetClientRect(toolbar, out client) || client.Right <= 0 || client.Bottom <= 0)
+        {
+            log("WETYPE TOOLBAR invalid_rect generation=" + generation + " phase=" + phase + " attempt=" + attempt);
+            return false;
+        }
+
+        int x = Math.Max(1, client.Right * 45 / 142);
+        int y = Math.Max(1, client.Bottom / 2);
+        IntPtr point = new IntPtr((y << 16) | (x & 0xFFFF));
+        bool down = PostMessage(toolbar, WM_LBUTTONDOWN, new IntPtr(1), point);
+        bool up = PostMessage(toolbar, WM_LBUTTONUP, IntPtr.Zero, point);
+        log("WETYPE TOOLBAR CLICK generation=" + generation + " phase=" + phase + " attempt=" + attempt + " sent=" + (down && up));
+        return down && up;
     }
 
     private void MarkReady(int generation, string source, int attempt, long elapsedMs)
     {
         if (!isSessionActive(generation)) return;
         Interlocked.Exchange(ref readyGeneration, generation);
-        CheckInputTarget(generation, "session_ready");
-        log("WETYPE SESSION READY generation=" + generation + " source=" + source + " attempt=" + attempt +
+        log("WETYPE PANEL READY generation=" + generation + " source=" + source + " attempt=" + attempt +
             " trigger_to_ready_ms=" + elapsedMs);
         log("TRANSCRIPTION READY provider=wechat generation=" + generation + " trigger_to_ready_ms=" + elapsedMs);
     }
 
+    private bool TapVoiceHotkey(int generation, string phase)
+    {
+        bool sent = KeyboardShortcutSender.Tap(hotkey, 80);
+        log("WETYPE HOTKEY TAP generation=" + generation + " phase=" + phase + " shortcut=" +
+            hotkey.Replace(' ', '_') + " sent=" + sent);
+        return sent;
+    }
+
     private void EndSession(int generation, bool audioDelivered)
     {
-        bool inputReleased = false;
-        try
+        if (audioDelivered) finalizeAudio(generation);
+        else if (releaseInputWithoutAudio != null) releaseInputWithoutAudio(generation);
+        if (Volatile.Read(ref readyGeneration) == generation) Interlocked.Exchange(ref readyGeneration, 0);
+
+        if (PreemptIfSuperseded(generation, "after_audio_drain", 0)) return;
+
+        IntPtr panel = FindVoicePanelWindow();
+        bool submitted = false;
+        if (audioDelivered && panel != IntPtr.Zero)
         {
-            if (audioDelivered) finalizeAudio(generation);
-            if (Volatile.Read(ref readyGeneration) == generation) Interlocked.Exchange(ref readyGeneration, 0);
-
-            if (PreemptIfSuperseded(generation, "after_audio_drain", 0))
+            if (Volatile.Read(ref hotkeyGeneration) == generation)
             {
-                inputReleased = true;
-                return;
+                submitted = TapVoiceHotkey(generation, "submit_after_audio_drained");
+                int hotkeyWaitMs;
+                SessionPanelWaitResult hotkeyWait = SessionPanelWaitPolicy.Wait(
+                    delegate { return FindVoicePanelWindow() != IntPtr.Zero && !disposed; },
+                    delegate { return HasNewerStart(generation); },
+                    delegate(int delay) { Thread.Sleep(delay); },
+                    400, 50, out hotkeyWaitMs);
+                if (hotkeyWait == SessionPanelWaitResult.Superseded)
+                {
+                    PreemptIfSuperseded(generation, "hotkey_submit_wait", hotkeyWaitMs);
+                    return;
+                }
+                if (FindVoicePanelWindow() != IntPtr.Zero)
+                    submitted = TryToolbarClick(generation, 1, false, "submit_fallback");
             }
-
-            IntPtr panel = FindVoicePanelWindow();
-            bool inputTargetReady = CheckInputTarget(generation, "before_submit");
-            bool providerWasStarted = Interlocked.CompareExchange(ref providerGeneration, 0, generation) == generation;
-            bool providerAlreadyClosed;
-            bool providerStopped = StopProviderIfActive(generation, providerWasStarted, panel,
-                audioDelivered ? "submit_after_audio_drained" : "cancel_without_audio", out providerAlreadyClosed);
-            bool submitted = audioDelivered && providerWasStarted && (providerStopped || providerAlreadyClosed);
-            if (!audioDelivered && panel != IntPtr.Zero)
-            {
-                PostMessage(panel, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                log("WETYPE PANEL CLOSED generation=" + generation + " reason=no_audio_delivered");
-            }
-            if (providerStopped) Thread.Sleep(ProviderSubmitSettleMs);
-            if (releaseInput != null) releaseInput(generation);
-            inputReleased = true;
-            if (submitted) inputTargetReady = CheckInputTarget(generation, "after_submit") || inputTargetReady;
-            log("WETYPE TRANSCRIPTION SUBMIT generation=" + generation + " sent=" + submitted +
-                " audio_delivered=" + audioDelivered + " provider_was_started=" + providerWasStarted +
-                " provider_action=" + (providerAlreadyClosed ? "already_closed_no_toggle" :
-                    holdMode ? "key_up" : "second_tap") +
-                " route_release_order=after_provider_stop clipboard_interaction=disabled");
-
-            int waitedMs;
-            SessionPanelWaitResult panelWait = SessionPanelWaitPolicy.Wait(
-                delegate { return FindVoicePanelWindow() != IntPtr.Zero && !disposed; },
-                delegate { return HasNewerStart(generation); },
-                delegate(int delay) { Thread.Sleep(delay); },
-                5000, 50, out waitedMs);
-            if (panelWait == SessionPanelWaitResult.Superseded)
-            {
-                PreemptIfSuperseded(generation, "panel_completion_wait", waitedMs);
-                return;
-            }
-            panel = FindVoicePanelWindow();
-            if (panel != IntPtr.Zero)
-            {
-                PostMessage(panel, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                log("WETYPE PANEL CLOSED generation=" + generation + " reason=submit_timeout waited_ms=" + waitedMs);
-            }
-            inputTargetReady = CheckInputTarget(generation, "session_complete") || inputTargetReady;
-            RemoveInputTarget(generation);
-            string deliveryMode = ProviderDirectDeliveryPolicy.Mode(audioDelivered, submitted,
-                inputTargetReady, panelWait == SessionPanelWaitResult.Closed);
-            log("WETYPE SESSION END generation=" + generation + " audio_delivered=" + audioDelivered +
-                " submitted=" + submitted + " input_target_ready=" + inputTargetReady +
-                " delivery_mode=" + deliveryMode + " trigger_mode=" + (holdMode ? "hold" : "toggle") +
-                " focus_strategy=preserve_no_activation clipboard_interaction=disabled panel_wait_ms=" + waitedMs);
+            else if (Volatile.Read(ref toolbarGeneration) == generation)
+                submitted = TryToolbarClick(generation, 1, false, "submit");
         }
-        finally
+        else if (audioDelivered) submitted = true;
+        else if (panel != IntPtr.Zero)
         {
-            if (!inputReleased && releaseInput != null) releaseInput(generation);
+            PostMessage(panel, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            log("WETYPE PANEL CLOSED generation=" + generation + " reason=no_audio_delivered");
         }
+        Interlocked.CompareExchange(ref hotkeyGeneration, 0, generation);
+        Interlocked.CompareExchange(ref toolbarGeneration, 0, generation);
+        log("WETYPE TRANSCRIPTION SUBMIT generation=" + generation + " sent=" + submitted +
+            " audio_delivered=" + audioDelivered);
+
+        int waitedMs;
+        SessionPanelWaitResult panelWait = SessionPanelWaitPolicy.Wait(
+            delegate { return FindVoicePanelWindow() != IntPtr.Zero && !disposed; },
+            delegate { return HasNewerStart(generation); },
+            delegate(int delay) { Thread.Sleep(delay); },
+            5000, 50, out waitedMs);
+        if (panelWait == SessionPanelWaitResult.Superseded)
+        {
+            PreemptIfSuperseded(generation, "panel_completion_wait", waitedMs);
+            return;
+        }
+        panel = FindVoicePanelWindow();
+        if (panel != IntPtr.Zero)
+        {
+            PostMessage(panel, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            log("WETYPE PANEL CLOSED generation=" + generation + " reason=submit_timeout waited_ms=" + waitedMs);
+        }
+        log("WETYPE SESSION END generation=" + generation + " audio_delivered=" + audioDelivered +
+            " submitted=" + submitted + " panel_wait_ms=" + waitedMs);
     }
 
     private bool HasNewerStart(int generation)
@@ -3749,17 +2052,12 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
         int newerGeneration = Volatile.Read(ref latestStartGeneration);
         if (newerGeneration <= generation) return false;
         if (Volatile.Read(ref readyGeneration) == generation) Interlocked.Exchange(ref readyGeneration, 0);
-        bool providerWasStarted = Interlocked.CompareExchange(ref providerGeneration, 0, generation) == generation;
+        Interlocked.CompareExchange(ref hotkeyGeneration, 0, generation);
+        Interlocked.CompareExchange(ref toolbarGeneration, 0, generation);
         IntPtr panel = FindVoicePanelWindow();
-        bool providerAlreadyClosed;
-        bool providerStopped = StopProviderIfActive(generation, providerWasStarted, panel,
-            "preempted_by_new_session", out providerAlreadyClosed);
-        if (releaseInput != null) releaseInput(generation);
         if (panel != IntPtr.Zero) PostMessage(panel, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-        RemoveInputTarget(generation);
         log("WETYPE SESSION PREEMPTED generation=" + generation + " newer_generation=" + newerGeneration +
-            " phase=" + phase + " waited_ms=" + waitedMs + " provider_stopped=" + providerStopped +
-            " stale_panel_closed=" + (panel != IntPtr.Zero));
+            " phase=" + phase + " waited_ms=" + waitedMs + " stale_panel_closed=" + (panel != IntPtr.Zero));
         return true;
     }
 
@@ -3778,26 +2076,16 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
         log("WETYPE STALE PANEL CLOSED generation=" + generation + " waited_ms=" + waitedMs);
     }
 
-    private bool CheckInputTarget(int generation, string phase)
+    private bool WaitForPanel(int generation, int timeoutMs)
     {
-        InputFocusTarget target = null;
-        lock (targetSync) inputTargets.TryGetValue(generation, out target);
-        if (target == null)
+        int started = Environment.TickCount;
+        while (unchecked(Environment.TickCount - started) < timeoutMs)
         {
-            log("INPUT TARGET CHECK provider=wechat generation=" + generation + " phase=" + phase +
-                " success=False reason=no_target");
-            return false;
+            if (disposed || !isSessionActive(generation)) return false;
+            if (FindVoicePanelWindow() != IntPtr.Zero) return true;
+            Thread.Sleep(25);
         }
-        string details;
-        bool deliveryReady = target.CheckCurrent(out details);
-        log("INPUT TARGET CHECK provider=wechat generation=" + generation + " phase=" + phase + " " +
-            details + " delivery_ready=" + deliveryReady + " " + target.Description);
-        return deliveryReady;
-    }
-
-    private void RemoveInputTarget(int generation)
-    {
-        lock (targetSync) inputTargets.Remove(generation);
+        return false;
     }
 
     private static IntPtr FindVoicePanelWindow()
@@ -3815,20 +2103,27 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
         return found;
     }
 
+    private static IntPtr FindWindowByClass(string expectedClass, bool visibleOnly)
+    {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr window, IntPtr parameter)
+        {
+            if (visibleOnly && !IsWindowVisible(window)) return true;
+            var className = new StringBuilder(128);
+            GetClassName(window, className, className.Capacity);
+            if (!className.ToString().Equals(expectedClass, StringComparison.OrdinalIgnoreCase)) return true;
+            found = window;
+            return false;
+        }, IntPtr.Zero);
+        return found;
+    }
+
     public void Dispose()
     {
         if (disposed) return;
         disposed = true;
         commands.CompleteAdding();
         bool workerStopped = worker == null || worker.Join(3000);
-        int activeGeneration = Interlocked.Exchange(ref providerGeneration, 0);
-        if (activeGeneration != 0)
-        {
-            bool providerAlreadyClosed;
-            StopProviderIfActive(activeGeneration, true, FindVoicePanelWindow(), "controller_dispose",
-                out providerAlreadyClosed);
-            if (releaseInput != null) releaseInput(activeGeneration);
-        }
         IntPtr panel = FindVoicePanelWindow();
         if (panel != IntPtr.Zero)
         {
@@ -3836,8 +2131,6 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
             log("WETYPE PANEL CLOSED reason=controller_dispose");
         }
         if (workerStopped) commands.Dispose();
-        inputFocusTracker.Dispose();
-        lock (targetSync) inputTargets.Clear();
     }
 
     private sealed class VoiceSessionCommand
@@ -3845,6 +2138,15 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
         public int Generation;
         public bool Start;
         public bool AudioDelivered;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
     }
 
     private delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
@@ -3857,6 +2159,12 @@ internal sealed class WeTypeVoiceSessionController : ITranscriptionSessionContro
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetWindowText(IntPtr window, StringBuilder text, int maximumCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder className, int maximumCount);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr window, out RECT rectangle);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
@@ -3874,7 +2182,7 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
     private readonly Action<string> log;
     private readonly Action<int> finalizeAudio;
     private readonly Func<int, bool> prepareInput;
-    private readonly Action<int> releaseInput;
+    private readonly Action<int> releaseInputWithoutAudio;
     private readonly Thread worker;
     private int latestStartGeneration;
     private int startedGeneration;
@@ -3893,7 +2201,7 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
         log = logger;
         finalizeAudio = audioFinalizer;
         prepareInput = inputPreparer;
-        releaseInput = inputReleaseWithoutAudio;
+        releaseInputWithoutAudio = inputReleaseWithoutAudio;
         worker = new Thread(ProcessCommands);
         worker.IsBackground = true;
         worker.Name = "Vibe Mic transcription session coordinator";
@@ -3945,11 +2253,7 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
         bool sent = holdMode ? KeyboardShortcutSender.KeyDown(hotkey) : KeyboardShortcutSender.Tap(hotkey, 70);
         log("TRANSCRIPTION TRIGGER provider=" + provider + " generation=" + generation + " phase=start mode=" +
             (holdMode ? "hold" : "toggle") + " shortcut=" + hotkey.Replace(' ', '_') + " sent=" + sent);
-        if (!sent)
-        {
-            if (releaseInput != null) releaseInput(generation);
-            return;
-        }
+        if (!sent) return;
         Interlocked.Exchange(ref startedGeneration, generation);
 
         int waitedMs = 0;
@@ -3959,16 +2263,7 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
             Thread.Sleep(wait);
             waitedMs += wait;
         }
-        if (disposed || !isSessionActive(generation))
-        {
-            if (Interlocked.CompareExchange(ref startedGeneration, 0, generation) == generation)
-            {
-                if (holdMode) KeyboardShortcutSender.KeyUp(hotkey);
-                else KeyboardShortcutSender.Tap(hotkey, 70);
-            }
-            if (releaseInput != null) releaseInput(generation);
-            return;
-        }
+        if (disposed || !isSessionActive(generation)) return;
         Interlocked.Exchange(ref readyGeneration, generation);
         log("TRANSCRIPTION READY provider=" + provider + " generation=" + generation +
             " trigger_to_ready_ms=" + timer.ElapsedMilliseconds);
@@ -3976,25 +2271,17 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
 
     private void EndSession(int generation, bool audioDelivered)
     {
-        try
-        {
-            if (Volatile.Read(ref readyGeneration) == generation) Interlocked.Exchange(ref readyGeneration, 0);
-            if (audioDelivered) finalizeAudio(generation);
+        if (Volatile.Read(ref readyGeneration) == generation) Interlocked.Exchange(ref readyGeneration, 0);
+        if (audioDelivered) finalizeAudio(generation);
+        else if (releaseInputWithoutAudio != null) releaseInputWithoutAudio(generation);
 
-            bool wasStarted = Volatile.Read(ref startedGeneration) == generation;
-            bool sent = false;
-            if (wasStarted)
-                sent = holdMode ? KeyboardShortcutSender.KeyUp(hotkey) : KeyboardShortcutSender.Tap(hotkey, 70);
-            Interlocked.CompareExchange(ref startedGeneration, 0, generation);
-            if (sent) Thread.Sleep(120);
-            log("TRANSCRIPTION SESSION END provider=" + provider + " generation=" + generation +
-                " audio_delivered=" + audioDelivered + " mode=" + (holdMode ? "hold" : "toggle") +
-                " sent=" + sent + " route_release_order=after_provider_stop");
-        }
-        finally
-        {
-            if (releaseInput != null) releaseInput(generation);
-        }
+        bool wasStarted = Volatile.Read(ref startedGeneration) == generation;
+        bool sent = false;
+        if (wasStarted)
+            sent = holdMode ? KeyboardShortcutSender.KeyUp(hotkey) : KeyboardShortcutSender.Tap(hotkey, 70);
+        Interlocked.CompareExchange(ref startedGeneration, 0, generation);
+        log("TRANSCRIPTION SESSION END provider=" + provider + " generation=" + generation +
+            " audio_delivered=" + audioDelivered + " mode=" + (holdMode ? "hold" : "toggle") + " sent=" + sent);
     }
 
     public void Dispose()
@@ -4002,12 +2289,7 @@ internal sealed class HotkeyTranscriptionSessionController : ITranscriptionSessi
         if (disposed) return;
         disposed = true;
         int activeGeneration = Volatile.Read(ref startedGeneration);
-        if (activeGeneration != 0)
-        {
-            if (holdMode) KeyboardShortcutSender.KeyUp(hotkey);
-            else KeyboardShortcutSender.Tap(hotkey, 70);
-            if (releaseInput != null) releaseInput(activeGeneration);
-        }
+        if (holdMode && activeGeneration != 0) KeyboardShortcutSender.KeyUp(hotkey);
         commands.CompleteAdding();
         if (worker != null) worker.Join(2000);
         commands.Dispose();
@@ -4596,25 +2878,6 @@ internal sealed class ClockedVirtualMicSink : IDisposable
     }
     public int MaximumQueueDepth { get { return Volatile.Read(ref maximumQueueDepth); } }
     public int DroppedBlocks { get { return Volatile.Read(ref droppedBlocks); } }
-    public string PlaybackStateName
-    {
-        get
-        {
-            if (disposed) return "Disposed";
-            if (playbackFailure != null) return "Failed";
-            try { return output.PlaybackState.ToString(); }
-            catch { return "Unavailable"; }
-        }
-    }
-    public string EndpointStateName
-    {
-        get
-        {
-            if (disposed) return "Disposed";
-            try { return endpoint.State.ToString(); }
-            catch { return "Unavailable"; }
-        }
-    }
 
     public ClockedVirtualMicSink(string requestedName)
     {

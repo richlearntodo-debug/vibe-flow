@@ -1,92 +1,109 @@
-# Vibe Flow Remote Architecture
+# Vibe Flow Remote v1.2.1 Architecture
 
-## Runtime components
+## Scope
+
+Vibe Flow is a local Windows bridge for the Xiaomi RC003 / MI RC remote. It does not perform speech recognition. It forwards decoded Bluetooth ATVV audio to a virtual microphone and controls a user-selected local dictation provider.
 
 ```text
-VibeFlow.exe
-  -> manages settings, onboarding, actionable self-checks and process lifecycle
-  -> guides new users through provider, VB-CABLE, Bluetooth, shortcut and first-dictation validation
-  -> converts session metrics into a privacy-safe Chinese health summary and optional sound feedback
-  -> compares audio settings with the recoverable v11 stable profile without silently overwriting custom choices
-  -> turns RC003 key logs into short-lived highlights on the overview remote and shortcut map
-  -> starts VibeMicAtvvCapture.exe
-  -> starts VoxDeckInputBridge.exe
+RC003 keyboard report
+  -> VoxDeckInputBridge.exe
+  -> named hold/release events
 
-RC003 BLE ATVV notifications
-  -> ordered codec-sync/audio queue, 120-byte framing, and IMA ADPCM decode at 16 kHz mono
-  -> BLE notifications enter a bounded queue and are decoded by one ordered worker, never on the WinRT callback
-  -> robust speech leveling estimates level below the 95th-percentile ceiling so isolated ADPCM spikes do not suppress an entire frame
-  -> transparent mode bypasses speech enhancement and applies only the user-selected fixed sensitivity
-  -> one generation-aware provider controller supports WeChat, Typeless, Windows Voice Typing, Voquill and custom clients
-  -> before provider activation, a generation-aware endpoint lease temporarily assigns CABLE Output to the Windows Console, Multimedia and Communications capture roles
-  -> a UI Automation focus listener retains the most recent editable control; session start prefers the focused editor, an editor under the pointer, then a recent editor from the same application
-  -> focus verification is passive: the provider path never activates the target window or calls UI Automation `SetFocus`, preserving the text-service context used by direct insertion
-  -> non-text containers such as Chromium `Group` controls are never accepted as writable delivery targets
-  -> WeChat defaults to the validated AI profile: the long-lived host taps `Ctrl+Win+Shift` once after routing is ready and once after the final audio drain
-  -> WeChat writes directly into the preserved editor; toolbar activation, clipboard monitoring, synthetic paste, and delayed replay are prohibited
-  -> the compatibility profile may hold `Ctrl+Win` for older WeChat builds, while generic providers continue to use SendInput
-  -> generic clients use SendInput with configurable toggle or hold semantics and a bounded startup delay
-  -> physical stream START invokes the provider and buffers only the short interval until the provider is ready
-  -> an audio notification that races ahead of STREAM_START creates the same generation instead of losing the first words
-  -> decoded PCM enters a non-blocking 30-second safety ring in fixed 20 ms source blocks
-  -> physical stream STOP accepts an 80 ms Bluetooth tail, appends the configured 180 ms silence tail and drains output
-  -> after virtual audio drains, the provider is stopped first; WeChat gets a 350 ms completion window before the endpoint lease restores all original default microphones, with a local marker for crash recovery
-  -> if the WeType panel cannot open, that session is discarded and logged; audio is never replayed later
-  -> stale generations cannot close or deliver audio into a newer session
-  -> event-driven WASAPI follows the Windows endpoint clock while linearly converting 16 kHz mono to 48 kHz stereo for VB-CABLE
+RC003 ATVV BLE audio
+  -> VibeMicAtvvCapture.exe
+  -> ordered ADPCM decode
+  -> speech leveler
+  -> 16 kHz mono to 48 kHz stereo
   -> CABLE Input / CABLE Output
-  -> selected transcription client
+  -> dictation provider
+  -> focused editable text field
 
-Recording state transitions
-  -> capture signals named start/stop events at the accepted stream transitions
-  -> a dedicated VibeFlow.exe sound worker consumes both events, suppresses start audio, and plays the preloaded stop cue synchronously
-  -> runtime-log polling updates visual state only and never schedules recording cues
-
-RC003 keyboard events
-  -> low-level keyboard hook for distinctive keys
-  -> the physical F5 event is suppressed while ATVV controls the voice lifecycle
-  -> device-scoped Raw Input provides redundant F5 detection and direction hold detection
-  -> SendInput for configured shortcuts
-  -> allowlisted client actions focus or start installed Agent and development applications
+VibeMic.exe
+  -> configuration, UI, onboarding, self-check, recovery, logs
 ```
 
-## Safety boundaries
+## Processes
 
-The voice transport rationale and release gates are documented in
-[`VOICE_PIPELINE_RESEARCH.md`](VOICE_PIPELINE_RESEARCH.md).
+### `VibeMic.exe`
 
-- Vibe Flow itself does not require administrator permission. The separately
-  installed VB-CABLE virtual-audio driver requires administrator approval during
-  its own installation and may require a Windows restart.
-- The app does not inject code into WeChat or editors.
-- Client quick launch accepts only built-in targets, never opens web fallbacks and never executes arbitrary configuration commands.
-- Generated configuration keeps unsupported Back and Volume +/- mappings disabled.
-- Ordinary direction keys pass through; only RC003-scoped repeated Up/Down events activate volume control.
-- Runtime logs do not intentionally write Bluetooth MAC addresses or complete HID paths.
-- Audio packet payloads are never written to release logs; only per-session timing and level statistics are recorded.
-- Provider logs record trigger-to-ready timing and shortcut names, but never recognized text.
-- Delayed STOP events from an older ATVV generation cannot release a newer stream.
-- Audio tagged with a stopped generation cannot create an implicit replacement stream.
-- Starting a build from a different directory asks the existing Vibe Flow instance to exit before taking over.
-- Automatic default-microphone routing snapshots all three Windows capture roles before changing any role. A failed apply is rolled back, superseded generations cannot restore over a newer session, and an unexpected exit leaves a local recovery marker for the next start.
+- Owns schema `25` configuration and migration.
+- Defaults to the light theme; supports explicit light, dark, and Windows-following preferences.
+- Starts one capture process and one input bridge from the same installation root.
+- Displays recording only after an `AUDIO LIVE START` event backed by decoded samples.
+- Rotates logs and exports redacted diagnostics.
 
-The following v11 order is a release invariant and must not be shortened or
-reordered by UI, provider, or performance changes:
+### `VoxDeckInputBridge.exe`
 
-```text
-acquire CABLE Output as all default capture roles
--> activate selected transcription provider
--> deliver RC003 audio in real time
--> append silence and drain all virtual-microphone blocks
--> submit/end the provider session
--> wait for provider completion, then restore every original capture role
+- Registers low-level keyboard and Raw Input listeners.
+- Treats F5 as the RC003 Record key and deduplicates physical DOWN/UP edges.
+- Maintains the manual-reset held event and an exactly-once release event.
+- Generates only verified default mappings: Record, Function, Center, Home, TV, and four directions.
+- Opens persistent Windows Task View with `Win + Tab`; direction input is intercepted only while that view is active.
+- Recovers the hook and Raw Input registration after HID reconnect.
+
+### `VibeMicAtvvCapture.exe`
+
+- Uses the exact `v1.0.3` recording kernel, with only V1.2.1 heartbeat, cue, and version compatibility hooks.
+- Connects to the RC003 ATVV service and subscribes to control/audio characteristics.
+- Reassembles ordered ADPCM frames and rejects stale generations.
+- Lets the RC003 natural ATVV stream-start and stream-stop controls own the recording lifetime.
+- Coalesces duplicate fallback voice requests and ignores duplicate or stale stream transitions.
+- Buffers decoded audio until the selected provider reports ready.
+- Restores the original Windows capture endpoints after finalization or failure.
+
+## Stable hold state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> ProviderStarting: RC003 stream start
+    ProviderStarting --> Capturing: provider ready and decoded audio
+    ProviderStarting --> Finalizing: RC003 stream stop
+    Capturing --> Finalizing: release, firmware boundary, or disconnect
+    Finalizing --> Idle: audio drain and provider stop
 ```
 
-## Configuration
+Rules:
 
-- `vibe-mic-config.json`: application settings and user-visible mappings.
-  Schema 19 stores the transcription provider, shortcut, toggle/hold mode, startup delay, audio-processing mode, automatic virtual-microphone routing, onboarding version, sound-feedback preference, update preference and stable-profile version. It migrates the default recording interaction to release-driven hold-to-talk.
-- `voxdeck-shortcuts.json`: generated input bridge mappings.
-- `remote-voice-session/`: local runtime diagnostics, ignored by Git.
+- The input bridge deduplicates physical DOWN/UP edges before signaling the capture process.
+- Only one capture process can own the named mutex.
+- Only one stream generation can be active; duplicate starts and stale stops are ignored.
+- Provider start and completion remain ordered by stream generation.
+- The capture binary contains no physical-segment continuation, `MIC_EXTEND`, or long-dictation controller.
+- The current stable RC003 session ends at approximately 60 seconds if the firmware reports UP or closes the stream first.
 
-Public releases start from `vibe-mic-config.default.json`; local configuration and logs are never packaged.
+## Provider control
+
+WeChat uses the original `v1.0.3` `WeTypeVoiceSessionController`. It attempts the known WeChat toolbar first and uses the configured `Ctrl + Win` shortcut as fallback. The selected provider delivers text to the currently focused input field, so the user must focus that field before holding Record.
+
+Other providers use their configured global shortcut and trigger mode. Vibe Flow does not inspect transcript text, own a transcript buffer, read the clipboard, or synthesize paste.
+
+## Audio profile
+
+| Setting | Locked value |
+| --- | --- |
+| Stable profile | `v11` |
+| Gain | `1.0` |
+| Processing | `speech` |
+| Drain | `180 ms` |
+| Playback endpoint | `CABLE Input` |
+| Provider capture endpoint | `CABLE Output` |
+| WeChat shortcut | `Ctrl + Win` |
+| WeChat trigger | `toggle` |
+| WeChat delay | `80 ms` |
+
+## Configuration safety
+
+- User configuration and generated bridge configuration use atomic same-directory replacement.
+- A `.bak` file is retained.
+- Migration removes Power, Back, independent Volume, app-launch, URL, and retired long-session defaults.
+- Only four direction actions remain user-configurable in the active UI.
+- Existing settings are preserved across installer upgrade and optional startup registration is restored.
+
+## Diagnostics and privacy
+
+Normal logs contain timestamps, generations, connection state, audio duration, RMS/peak levels, queue metrics, and error codes. They do not contain transcript text, ordinary session audio, complete Bluetooth addresses, or full device paths. One-shot diagnostic audio requires explicit confirmation and is capped at 30 seconds.
+
+## Release validation
+
+Automated gates compile all three executables, run their native self-tests, validate defaults/docs/installer metadata, and capture the UI. Physical release still requires 100 hold/release cycles, approximately 60-second boundary behavior, no second provider session, editable-focus delivery, Task View navigation, reconnect, sleep/wake, and configuration persistence.

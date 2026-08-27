@@ -1,5 +1,6 @@
 param(
     [string]$OutputDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs\images"),
+    [int]$ProcessId = 0,
     [switch]$CaptureFullOnboarding,
     [switch]$AllowUnhealthyDiagnostics
 )
@@ -65,6 +66,9 @@ public static class VibeScreenshotNative
 
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")]
+    public static extern IntPtr SendMessageText(IntPtr handle, uint message, IntPtr wParam, StringBuilder lParam);
 
     [DllImport("user32.dll")]
     public static extern bool SetForegroundWindow(IntPtr handle);
@@ -181,6 +185,19 @@ function Find-TopmostComboBox([IntPtr]$Parent) {
     return $script:matchingCombo
 }
 
+function Set-ComboSelectionByText([IntPtr]$Combo, [string]$Text) {
+    $count = [VibeScreenshotNative]::SendMessage($Combo, 0x0146, [IntPtr]::Zero, [IntPtr]::Zero).ToInt32()
+    for ($index = 0; $index -lt $count; $index++) {
+        $item = New-Object System.Text.StringBuilder 256
+        [VibeScreenshotNative]::SendMessageText($Combo, 0x0148, [IntPtr]$index, $item) | Out-Null
+        if ($item.ToString() -eq $Text) {
+            [VibeScreenshotNative]::SendMessage($Combo, 0x014E, [IntPtr]$index, [IntPtr]::Zero) | Out-Null
+            return
+        }
+    }
+    throw "Combo-box item not found: $Text"
+}
+
 function Save-Window([IntPtr]$Handle, [string]$Path) {
     $rectangle = New-Object VibeScreenshotNative+RECT
     [VibeScreenshotNative]::GetWindowRect($Handle, [ref]$rectangle) | Out-Null
@@ -274,33 +291,40 @@ function Save-WindowWithComboDropdown([IntPtr]$Handle, [IntPtr]$Combo, [string]$
 }
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
-$showWindow = $null
-try {
-    $showWindow = [Threading.EventWaitHandle]::OpenExisting("Local\VibeMicShowWindow")
-    $showWindow.Set() | Out-Null
-    Start-Sleep -Milliseconds 650
+if ($ProcessId -le 0) {
+    $showWindow = $null
+    try {
+        $showWindow = [Threading.EventWaitHandle]::OpenExisting("Local\VibeMicShowWindow")
+        $showWindow.Set() | Out-Null
+        Start-Sleep -Milliseconds 650
+    }
+    catch { }
+    finally {
+        if ($null -ne $showWindow) { $showWindow.Dispose() }
+    }
 }
-catch { }
-finally {
-    if ($null -ne $showWindow) { $showWindow.Dispose() }
+$process = if ($ProcessId -gt 0) {
+    Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+} else {
+    Get-Process VibeMic, VibeFlow -ErrorAction SilentlyContinue |
+        Where-Object { $_.MainWindowHandle -ne 0 } |
+        Select-Object -First 1
 }
-$process = Get-Process VibeMic, VibeFlow -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowHandle -ne 0 } |
-    Select-Object -First 1
 if ($null -eq $process) { throw "Start Vibe Flow before capturing screenshots." }
 
 $main = $process.MainWindowHandle
 [VibeScreenshotNative]::ShowWindow($main, 9) | Out-Null
 [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
 Start-Sleep -Milliseconds 300
-$overviewLabel = ConvertFrom-CodePoints @(0x603B, 0x89C8)
-$dictationLabel = ConvertFrom-CodePoints @(0x8BED, 0x97F3, 0x542C, 0x5199)
-$shortcutsLabel = ConvertFrom-CodePoints @(0x6309, 0x952E, 0x5FEB, 0x6377, 0x65B9, 0x5F0F)
-$selfCheckLabel = ConvertFrom-CodePoints @(0x8FDE, 0x63A5, 0x4E0E, 0x81EA, 0x68C0)
-$settingsLabel = ConvertFrom-CodePoints @(0x504F, 0x597D, 0x8BBE, 0x7F6E)
+$overviewLabel = ConvertFrom-CodePoints @(0x9996, 0x9875)
+$dictationLabel = ConvertFrom-CodePoints @(0x8BED, 0x97F3)
+$shortcutsLabel = ConvertFrom-CodePoints @(0x5FEB, 0x6377, 0x952E)
+$selfCheckLabel = ConvertFrom-CodePoints @(0x81EA, 0x68C0)
+$settingsLabel = ConvertFrom-CodePoints @(0x8BBE, 0x7F6E)
+$screenshotActionLabel = ConvertFrom-CodePoints @(0x7CFB, 0x7EDF, 0x20, 0xB7, 0x20, 0x533A, 0x57DF, 0x622A, 0x56FE)
 $setupLabel = ConvertFrom-CodePoints @(0x6253, 0x5F00, 0x5165, 0x95E8, 0x6307, 0x5357)
-$welcomePrefix = ConvertFrom-CodePoints @(0x6B22, 0x8FCE, 0x4F7F, 0x7528)
-$healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x542C, 0x5199)
+$welcomePrefix = ConvertFrom-CodePoints @(0x9996, 0x6B21, 0x8BBE, 0x7F6E)
+$healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x4F7F, 0x7528)
 $pages = @(
     @{ Button = $overviewLabel; File = "01-overview.png" },
     @{ Button = $dictationLabel; File = "02-dictation.png" },
@@ -311,11 +335,18 @@ $pages = @(
 
 foreach ($page in $pages) {
     Invoke-Button $main $page.Button
+    if ($page.File -eq "03-shortcuts.png") {
+        $shortcutCombo = Find-TopmostComboBox $main
+        Set-ComboSelectionByText $shortcutCombo $screenshotActionLabel
+    }
     if ($page.File -eq "04-diagnostics.png" -and -not $AllowUnhealthyDiagnostics -and
         -not (Test-ChildText $main $healthySelfCheckText)) {
-        throw "Release diagnostics screenshot requires a healthy 7/7 self-check. Use -AllowUnhealthyDiagnostics only for troubleshooting captures."
+        throw "Release diagnostics screenshot requires a healthy 10/10 self-check. Use -AllowUnhealthyDiagnostics only for troubleshooting captures."
     }
     Save-Window $main (Join-Path $OutputDirectory $page.File)
+    if ($page.File -eq "03-shortcuts.png") {
+        Save-Window $main (Join-Path $OutputDirectory "03-shortcuts-screenshot.png")
+    }
     if ($page.File -eq "02-dictation.png") {
         [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
         $providerCombo = Find-TopmostComboBox $main
@@ -334,38 +365,22 @@ for ($attempt = 0; $attempt -lt 20 -and $wizard -eq [IntPtr]::Zero; $attempt++) 
 }
 if ($wizard -eq [IntPtr]::Zero) { throw "First-run wizard did not open." }
 if ($CaptureFullOnboarding) {
-    Set-ChildCheckboxUnchecked $wizard (ConvertFrom-CodePoints @(0x767B, 0x5F55, 0x20, 0x57, 0x69, 0x6E, 0x64, 0x6F, 0x77, 0x73, 0x20, 0x540E, 0x81EA, 0x52A8, 0x542F, 0x52A8, 0x8A00, 0x7075))
+    $nextStep = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
 }
 Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
 if ($CaptureFullOnboarding) {
-    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-1-provider.png")
-
-    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x9009, 0x62E9))
-    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-2-audio.png")
-
-    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x97F3, 0x9891, 0x901A, 0x9053))
-    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-3-remote.png")
-
-    $connectedText = ConvertFrom-CodePoints @(0x5DF2, 0x8FDE, 0x63A5, 0xFF0C, 0x53EF, 0x4EE5, 0x4F7F, 0x7528)
-    if (-not (Wait-ForChildText $wizard $connectedText 1500)) {
-        $startDetection = ConvertFrom-CodePoints @(0x5F00, 0x59CB, 0x68C0, 0x6D4B)
-        try { Invoke-Button $wizard $startDetection } catch {
-            Invoke-Button $wizard (ConvertFrom-CodePoints @(0x91CD, 0x65B0, 0x68C0, 0x6D4B))
-        }
-        if (-not (Wait-ForChildText $wizard $connectedText 20000)) {
-            throw "RC003 did not become ready while capturing the full onboarding flow."
-        }
+    $stepFiles = @(
+        "00-setup-01-intro.png", "00-setup-02-bluetooth.png", "00-setup-03-pairing.png",
+        "00-setup-04-keys.png", "00-setup-05-microphone.png", "00-setup-06-vb-cable.png",
+        "00-setup-07-provider.png", "00-setup-08-dictation.png", "00-setup-09-buttons.png",
+        "00-setup-10-startup.png", "00-setup-11-summary.png"
+    )
+    Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[0])
+    for ($step = 1; $step -lt $stepFiles.Count; $step++) {
+        Invoke-Button $wizard $nextStep
+        Start-Sleep -Milliseconds 180
+        Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[$step])
     }
-
-    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x786E, 0x8BA4, 0x8FDE, 0x63A5))
-    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-4-hotkey.png")
-
-    Invoke-Button $wizard (ConvertFrom-CodePoints @(0x4FDD, 0x5B58, 0x5E76, 0x6D4B, 0x8BD5))
-    $dictationHeading = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x7B2C, 0x4E00, 0x6B21, 0x9065, 0x63A7, 0x5668, 0x542C, 0x5199)
-    if (-not (Wait-ForChildText $wizard $dictationHeading 20000)) {
-        throw "The first-dictation onboarding step did not finish loading."
-    }
-    Save-Window $wizard (Join-Path $OutputDirectory "00-setup-5-dictation.png")
 }
 [VibeScreenshotNative]::PostMessage($wizard, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 

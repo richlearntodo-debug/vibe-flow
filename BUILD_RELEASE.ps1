@@ -97,11 +97,15 @@ Copy-Item (Join-Path $root "LICENSE") $packageDir
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $packageDir
 Copy-Item (Join-Path $root "SECURITY.md") $packageDir
 Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir
+New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "scripts") | Out-Null
+Copy-Item (Join-Path $root "scripts\Install-VBCable.ps1") (Join-Path $packageDir "scripts")
 
 $packageDocs = Join-Path $packageDir "docs"
 $packageImages = Join-Path $packageDocs "images"
 New-Item -ItemType Directory -Force -Path $packageImages | Out-Null
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\V1_2_1_TUTORIAL_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\VERSION_ARCHIVE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CONTINUOUS_DICTATION_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs

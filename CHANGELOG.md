@@ -1,6 +1,80 @@
 # Changelog
 
-## 1.2.0 - 2026-08-26
+## 1.2.1 user-friendly stable release - 2026-08-28
+
+- Replaced the recording implementation with the exact `v1.0.3` capture kernel,
+  while retaining the V1.2.1 UI heartbeat and recording-cue events.
+- Restored the first formal-release WeChat profile: `Ctrl+Win`, toggle trigger,
+  `80 ms` startup delay, toolbar-first activation, and provider-direct delivery.
+- Returned session ownership to the RC003 natural ATVV stream: hold Record to
+  start, release to stop, with the remote's approximately 60-second boundary.
+- Removed the later `LONG DICTATION`, `MIC_EXTEND`, forced release-close, and
+  physical-segment continuation paths from the capture binary.
+- Kept capture single-instance locking, active-generation rejection, ordered
+  audio decoding, stable audio parameters, and clipboard-free delivery.
+- Removed Power, Back, and independent Volume mappings from defaults, migration,
+  onboarding, the active shortcut UI, generated bridge configuration, and
+  public documentation.
+- Replaced the three legacy configurable controls with four single-action
+  direction mappings arranged as a physical direction pad.
+- Added Windows region capture (`Win+Shift+S`) as a tested optional action for
+  any one of the four direction keys; defaults remain native directions.
+- Replaced held-Alt task switching with persistent Windows Task View: TV opens
+  Win+Tab, all four directions navigate, Enter confirms, and TV or timeout
+  cancels safely.
+- Made the white light theme the default and reduced saturation in the explicit
+  dark palette.
+- Advanced configuration to schema 25, onboarding to version 8, bridge config
+  to schema 4, and all component file versions to 1.2.1.0.
+- Rewrote validation and release documentation around the approximately
+  60-second RC003 physical boundary and the reduced verified feature set.
+- Added a release-specific illustrated tutorial and immutable EXE/ZIP/checksum
+  links for every public version from V1.0.0 onward.
+
+## 1.2.0 stabilization candidate - 2026-08-28
+
+- Replaced the selectable record interaction with one enforced physical
+  hold-to-talk flow: fresh DOWN starts, repeated DOWN is ignored, fresh UP
+  stops once, and repeated UP is ignored.
+- Added a deterministic `PushToTalkSessionModel` covering 100 start/stop cycles,
+  quick release before audio, and exactly-once provider lifecycle invariants.
+- Delayed provider startup until sustained decoded RC003 audio is present. A
+  control-only stream or quarantined stop tail cannot open another provider
+  microphone.
+- Serialized the decoded-audio start commit with the release transition and
+  rechecked session validity after input routing. A release can no longer be
+  followed by a delayed provider trigger or a second microphone window.
+- Kept physical ATVV segment continuation inside one logical provider
+  generation while preserving generation-safe finalization, bounded transport
+  recovery, disconnect cleanup, and the 30-minute software safety guard.
+- Preserved stable profile v11: gain `1.0`, speech processing, `180 ms` drain,
+  `CABLE Input`, automatic reversible routing, and the WeChat
+  `Ctrl+Win+Shift` AI provider profile.
+- Added schema 24 defaults and bridge schema 3 mappings for Function copy/paste,
+  Power launcher, native directions, Enter, Backspace/browser back, Win+D,
+  independent HID/Consumer volume with controlled repeat, and TV app/media
+  actions.
+- Added a graphical Power/Back/TV editor with short and long actions, physical
+  key learning, app/URL/system/shortcut choices, immediate test, disable, and
+  reset.
+- Rebuilt onboarding as an 11-step saved flow with VB-CABLE reboot resume and a
+  required real end-to-end dictation.
+- Rebuilt diagnostics as 10 expected/actual/cause/next-action checks. Moved
+  Windows hardware probing off the UI thread so the page renders immediately
+  and refreshes after the probe or a Settings return.
+- Changed user and bridge configuration writes to same-directory atomic
+  replacement with `.bak` recovery, preventing reconnect-time partial JSON
+  reads and preserving settings across restarts and upgrades.
+- Added controlled held repeat for independent volume events and deterministic
+  gesture tests at the fixed 650 ms threshold.
+- Removed unwanted horizontal scrollbars, aligned page naming and version
+  labels, and visually verified all five pages in dark and light themes plus all
+  eleven onboarding steps.
+- Rewrote the beginner guide, quick start, release notes, architecture, version
+  metadata, and release copy around the hold-to-talk candidate. Physical 100
+  cycle and 5-minute hold tests remain mandatory before publication.
+
+## 1.2.0 initial candidate - 2026-08-26 (superseded)
 
 - Promoted continuous dictation to the recommended default for new installs:
   press Record once to start, release it, and press it again to finish. Existing

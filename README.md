@@ -1,150 +1,116 @@
 # 言灵 · Vibe Flow Remote
 
-把小米 RC003 / MI RC 蓝牙遥控器变成 Windows 长时语音输入与 Vibe Coding 快捷控制器：单击开始说话，再次单击结束，由微信输入法、Typeless 等工具完成转写和整理。
+把小米 RC003 / MI RC 蓝牙语音遥控器变成 Windows 语音输入与快捷控制器：**聚焦输入框，按住录音键说话，松开结束，再按确认键发送。**
 
-## 最新正式版 · v1.2.0
+## v1.2.1 用户友好稳定版
 
-**发布日期：2026-08-26 · Windows 10/11 x64**
+**Windows 10/11 x64 · 默认白天模式 · 稳定性优先**
 
-| 直接开始 | 链接 |
+| 下载 | 链接 |
 | --- | --- |
-| 推荐安装版 | [**下载 VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/VibeFlow-Setup.exe) |
-| 免安装版 | [下载 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/Vibe-Flow-Windows-x64.zip) |
-| 下载校验 | [下载 SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/latest/download/SHA256SUMS.txt) |
+| 推荐安装版 | [**VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/VibeFlow-Setup.exe) |
+| 免安装版 | [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/Vibe-Flow-Windows-x64.zip) |
+| SHA-256 | [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/SHA256SUMS.txt) |
 
 > [!IMPORTANT]
-> 普通用户只需下载 **VibeFlow-Setup.exe**。GitHub 发布页自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 是源码，不是 Windows 安装程序。
+> 普通用户请选择 `VibeFlow-Setup.exe`。GitHub 的 `Source code (zip)` 和 `Source code (tar.gz)` 是源码，不是 Windows 安装程序。
 
-## 加入用户社区
+[查看所有历史版本、亮点与固定 EXE 下载入口](docs/VERSION_ARCHIVE_ZH.md)
 
-扫码加入 Vibe Flow 用户社区，获取配置帮助、交流使用体验与 Vibe Coding 工作流。
+## 用户社区
+
+安装、配对或语音工具配置遇到问题，可扫码加入 Vibe Flow 用户社区。
 
 <img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
 
-## 教程与帮助
+[快速开始](QUICK_START_ZH.md) · [v1.2.1 图文教程](docs/V1_2_1_TUTORIAL_ZH.md) · [完整教程](docs/USER_GUIDE_ZH.md) · [版本下载](docs/VERSION_ARCHIVE_ZH.md) · [更新说明](docs/RELEASE_NOTES_ZH.md)
 
-[2 分钟快速开始](QUICK_START_ZH.md) · [完整中文教程](docs/USER_GUIDE_ZH.md) · [连续听写原理与边界](docs/CONTINUOUS_DICTATION_ZH.md) · [快捷键配置](docs/USER_GUIDE_ZH.md#配置遥控器快捷键) · [问题排查](docs/USER_GUIDE_ZH.md#按现象排查) · [v1.2.0 更新说明](docs/RELEASE_NOTES_ZH.md) · [最新版发布页](https://github.com/richlearntodo-debug/vibe-flow/releases/latest)
+![言灵 v1.2.1 首页](docs/images/01-overview.png)
 
-![言灵 v1.2.0 总览](docs/images/01-overview.png)
+## 本版变化
 
-## v1.2.0 亮点
-
-| 新增或优化 | 用户能感受到的变化 |
+| 变化 | 结果 |
 | --- | --- |
-| **连续听写正式可用** | 单击录音键开始，无需持续按住；完成后再次单击结束。 |
-| **15 分钟真机验证** | 最长回归 `15 分 22 秒`，真实音频覆盖 `99.6%`，`114/114` 次续租成功，蓝牙与 VB-CABLE 丢包均为 `0`。 |
-| **真实音频自检** | 不只看计时，还检查音频覆盖、包间隔、WASAPI、端点、路由、队列和内存；断音不会被误报为正常。 |
-| **明确恢复反馈** | 紫色表示音频正在到达，青色表示正在恢复遥控器音频，绿色表示完成，红色表示失败。 |
-| **微信 AI 整理** | 默认使用 `Ctrl + Win + Shift` 单击切换，保留完整尾音后交给微信输入法整理。 |
-| **原生直填** | 不经过剪贴板或模拟粘贴，文字由转写工具直接写入录音前选中的输入框。 |
-| **稳定结束** | 停止后只播放一次短提示音，不会自动出现第二个转写麦克风。 |
-| **按住模式保留** | 可切换为按住开始、松开结束的兼容模式，独立回归已通过。 |
-| **安全更新修复** | GitHub 中文发布信息按 UTF-8 解析，失败时使用官方重定向兜底，安装前校验 SHA-256。 |
-| **新手流程与截图** | 五步向导、快速开始、完整教程、自检说明和发布截图统一到 v1.2.0。 |
+| **回到首个正式版录音内核** | 捕获组件使用已验证的 `v1.0.3` 实现；微信输入法保持 `Ctrl + Win`、切换触发和 `80 ms`。 |
+| **可靠按住/松开** | RC003 自然 ATVV 流负责开始和结束；已移除长录音续接、`MIC_EXTEND` 和强制松开关闭逻辑。 |
+| **直接写入输入框** | 先聚焦目标输入框，语音工具直接写入；言灵不读取文字，也不做剪贴板或粘贴回填。 |
+| **四方向键自定义** | 上、下、左、右可分别选择一个已验证动作，新增 Windows 区域截图 `Win + Shift + S`。 |
+| **TV 持久任务视图** | TV 打开 `Win + Tab` 任务视图，上下左右选择，确认键进入，再按 TV 关闭。 |
+| **双主题** | 默认使用白色白天模式；夜间模式改为克制的中性色和低饱和状态色。 |
+| **真实状态与自检** | 没有真实音频就不显示假波形；10 项自检提供原因和修复入口。 |
 
-> [!NOTE]
-> 连续听写单次有 `30 分钟`软件安全保护，不宣传绝对无限时长。按住模式仍受 RC003 约 60 秒物理长按边界限制。第三方转写工具也可能有自己的账号、网络或时长策略。
-
-本版保持已经反复验证的稳定语音档案：v11、`1.0x`、清晰增强、`180 ms`排空、微信输入法 `Ctrl + Win + Shift` AI 整理、`180 ms`工具启动等待，以及自动 `CABLE Output` 路由。
+开机、返回和独立音量键没有稳定的 Windows 按键报告，因此 v1.2.1 不映射、不配置，也不宣传这些功能。
 
 ## 日常使用
 
-1. 点击要输入文字的位置。
-2. **单击遥控器录音键并松开**。
-3. 等待首页显示“遥控器音频正在到达”，自然说话，无需持续按住。
-4. 完成后**再次单击录音键**。
-5. 听到结束音后等待青色“正在整理”变成绿色“已完成”，文字会返回第 1 步选中的输入框。
+1. 单击 ChatGPT、Codex、浏览器或其他应用的文本输入框，让插入光标出现。
+2. 按住遥控器录音键并说话。
+3. 松开后等待所选语音工具完成转译。
+4. 检查文字，按中间确认键发送。
 
-![语音听写配置](docs/images/02-dictation.png)
-
-完整链路：
+当前稳定模式遵循 RC003 的物理按键周期：单段最长约 `60 秒`。提前松开会立即结束；达到硬件边界时也会结束，不会自动创建第二个麦克风会话。
 
 ```text
-RC003 遥控器麦克风
-  -> Bluetooth ATVV
-  -> 言灵 Vibe Flow Remote
-  -> VB-CABLE
-  -> 微信输入法 / Typeless / Windows 语音输入 / 其他工具
-  -> 当前输入框
+RC003 microphone -> Bluetooth ATVV -> Vibe Flow
+  -> CABLE Input -> CABLE Output -> selected voice tool -> focused text box
 ```
 
-言灵负责本地收音和传输，所选工具负责语音识别与文字整理。普通听写不保存录音、不读取识别文字，也不会自行上传音频。微信路径不会读取或改写剪贴板，也不会发送合成粘贴；提交时保持录音前的真实编辑焦点，由微信输入法直接写入文字。
+![语音工具与音频配置](docs/images/02-dictation.png)
 
-## 从零开始只需五步
+## 首次设置 11 步
 
-1. 安装并打开言灵，选择日常使用的语音转写工具。
-2. 按向导从 [VB-Audio 官网](https://vb-audio.com/Cable/) 安装 VB-CABLE，重启 Windows。
-3. 在 Windows 蓝牙中配对 `MI RC` / RC003，回到向导等待“已连接，可以使用”。
-4. 核对所选工具的全局快捷键和触发方式，点击“测试启动与结束”。
-5. 在测试输入框中单击录音键开始，说完后再单击一次结束；绿色验收通过后完成设置。
+1. 了解按住说话、松开结束、确认发送。
+2. 检查 Windows 蓝牙。
+3. 配对并连接 RC003。
+4. 验证真实按键事件。
+5. 检查 RC003 麦克风服务。
+6. 安装并检测 VB-CABLE。
+7. 选择默认语音工具并核对快捷键。
+8. 在内置文本框完成真实转译。
+9. 保持或配置四个方向键，可将任一方向设为区域截图。
+10. 选择是否随 Windows 启动。
+11. 查看汇总并处理异常项。
 
-![首次使用五步向导](docs/images/00-first-run.png)
+![首次设置](docs/images/00-setup-01-intro.png)
 
-VB-CABLE 是当前语音链路唯一必须额外安装的本地驱动，不包含在本仓库发布包中。普通用户无需长期修改 Windows 默认麦克风；言灵只在听写期间临时路由到 `CABLE Output`，结束后自动恢复。
+## 语音工具
 
-## 支持的转写工具
-
-| 工具 | 推荐配置 | 验证状态 |
+| 工具 | 推荐起点 | 说明 |
 | --- | --- | --- |
-| 微信输入法 | `Ctrl + Win + Shift` · AI 整理 · 单击切换 | RC003 长时听写、原生直填与完整尾音真机验证 |
-| Typeless | 常见为 `Right Alt` · 单击切换 | RC003 端到端真机验证；以客户端当前快捷键为准 |
-| Windows 语音输入 | `Win + H` · 单击切换 | 已接入 Windows 系统路径 |
-| Voquill | 当前开源版本常见 `Ctrl + Win` · 按住触发 | 已接入通用路径，需按安装版本核对 |
-| 其他语音工具 | 自定义全局快捷键和触发方式 | 支持通用快捷键路径 |
+| 微信输入法 | `Ctrl + Win` · 单击切换 | 默认稳定档案；可继续使用微信 AI 整理。 |
+| Typeless | 常见为 `Right Alt` | 以客户端实际全局快捷键为准。 |
+| 豆包输入法 | 客户端全局语音快捷键 | 两边必须完全一致。 |
+| Windows 语音输入 | `Win + H` | 系统自带兼容选项。 |
+| 其他语音工具 | 自定义全局快捷键 | 必须支持从全局快捷键开始和结束。 |
 
-![可选择的语音转写工具](docs/images/06-transcription-tools.png)
+第三方工具不包含在安装包中，其账号、网络、识别质量和数据规则由对应软件负责。
 
-第三方客户端不包含在发布包中，其账号、网络、识别质量、数据处理和时长策略由对应软件负责。
+## 已验证按键
 
-## 遥控器与快捷键
+| 实体按键 | 行为 |
+| --- | --- |
+| 录音键 | 按住收音，松开结束，约 60 秒硬件上限 |
+| 功能键 | 短按复制，长按粘贴 |
+| 上 / 下 / 左 / 右 | 默认标准方向；可分别配置一个动作或区域截图 |
+| 中间确认键 | `Enter`，确认或发送 |
+| Home | `Win + D`，显示桌面 |
+| TV | 打开持久任务视图；方向选择，确认进入 |
 
-| 实体按键 | 默认行为 | 可配置 |
-| --- | --- | --- |
-| 录音键 | 单击开始，再次单击结束 | 固定，由言灵管理 |
-| 确认键 | `Enter`，确认、发送或换行 | 是 |
-| Home | `Win + D` 显示桌面 | 是 |
-| TV | 打开任务切换器，左/右选择，确认进入 | 是 |
-| 功能键 | 打开或切回 ChatGPT 客户端 | 是 |
-| 方向键 | 短按原生导航；长按上/下调节系统音量 | 固定 |
+![方向键配置](docs/images/03-shortcuts.png)
 
-可选操作包含复制、剪切、粘贴、撤销、重做、保存、全选、查找、命令面板、快速打开文件、新建终端、删除当前行、运行/调试、标签页与应用切换，以及 ChatGPT、DeepSeek、Claude、Cursor、VS Code、Windsurf 和 Windows Terminal 客户端。
+![区域截图配置](docs/images/03-shortcuts-screenshot.png)
 
-![遥控器快捷方式配置](docs/images/03-shortcuts.png)
+## 自检、稳定性与隐私
 
-RC003 的独立返回键和音量 +/- 键在已验证的 Windows 蓝牙栈中没有上报稳定事件，因此本版不宣传这些按键，也不提供不可靠的组合键。系统音量使用长按方向上/下。
+- 自检覆盖组件、蓝牙、遥控器、按键、真实音频、VB-CABLE、稳定参数、语音工具、自启动和完整会话。
+- 用户配置采用原子替换并保留 `.bak`；升级和重启不会主动覆盖配置。
+- 蓝牙晚启动、睡眠恢复和解锁会触发受控重连。
+- 普通日志不记录音频或转译文字，并自动限制大小。
+- 诊断音频仅在用户明确确认后捕获下一段、最长 30 秒。
 
-## 一键自检与修复
+![一键自检](docs/images/04-diagnostics.png)
 
-“连接与自检”在本机检查七个环节：核心组件、VB-CABLE、稳定语音档案、后台桥接、RC003 / ATVV、转写工具与快捷键、最近一次端到端听写。连续模式还会确认真实音频覆盖率、续租、最大包间隔、队列丢包和端点状态；异常项给出唯一下一步。
-
-![连接与自检](docs/images/04-diagnostics.png)
-
-提交问题前点击“复制问题摘要”或“导出诊断”。普通日志不包含录音、识别文字、完整蓝牙地址或完整设备路径。
-
-## 正式版时间线
-
-| 日期 | 版本 | 主要内容 | 记录 |
-| --- | --- | --- | --- |
-| 2026-08-26 | `v1.2.0` | 连续听写、15 分钟真机验证、真实音频自检和更新解析修复 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.2.0) |
-| 2026-08-26 | `v1.1.0` | 按住说话、松开可靠结束、原生直填、结束提示音和安全更新 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.1.0) |
-| 2026-08-25 | `v1.0.3` | 修复开机后首次录音，增加后台恢复与转写工具预热，重做首页与向导 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.0.3) |
-| 2026-08-24 | `v1.0.2` | 强化下载入口、升级保护、教程和发布说明 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.0.2) |
-| 2026-08-24 | `v1.0.1` | 完善工具配置、症状式排查和发布截图 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.0.1) |
-| 2026-08-24 | `v1.0.0` | 首个 Windows 正式版与稳定语音档案 v11 | [查看](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.0.0) |
-
-完整技术记录见 [CHANGELOG.md](CHANGELOG.md)。
-
-## 系统要求
-
-- Windows 10 或 Windows 11，64 位。
-- 小米 RC003 / MI RC 蓝牙语音遥控器。
-- 可用的 Bluetooth LE 适配器。
-- 至少一种支持的语音转文字工具。
-- [VB-CABLE](https://vb-audio.com/Cable/) 本地虚拟音频驱动。
-
-发布流水线已支持 Authenticode 签名和强制验签，但签名需要发布者单独配置商业证书。下载文件的实际签名状态以 Windows“数字签名”页为准；无论是否签名，都应只从本仓库 Releases 下载并核对 `SHA256SUMS.txt`。
-
-## 开发与构建
+## 开发与验证
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\RESTORE_BUILD_DEPS.ps1
@@ -154,14 +120,6 @@ cmd /c BUILD_VIBE_MIC.cmd
 npm test
 ```
 
-构建正式安装包和免安装 ZIP 需要 Inno Setup 6：
+隔离候选包使用 `BUILD_HARDWARE_CANDIDATE.ps1`。真机验收通过前，不覆盖当前已安装稳定版、不发布安装器、不移动 Git 标签。
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\BUILD_RELEASE.ps1
-```
-
-架构说明见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，连续听写实现与边界见 [连续听写专题](docs/CONTINUOUS_DICTATION_ZH.md)，签名与安全更新见 [Windows 代码签名与安全更新](docs/CODE_SIGNING_ZH.md)，贡献说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-## 开源与第三方
-
-Vibe Flow Remote 以 [GPL-3.0](LICENSE) 发布。VB-CABLE 不包含在本项目中，其许可和安装包由 VB-Audio 提供。其他依赖与协议研究来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+Vibe Flow Remote 以 [GPL-3.0](LICENSE) 发布。VB-CABLE 不包含在仓库中，由 [VB-Audio](https://vb-audio.com/Cable/) 提供。

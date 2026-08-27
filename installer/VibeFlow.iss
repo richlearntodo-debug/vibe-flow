@@ -1,5 +1,5 @@
 #define MyAppName "言灵 Vibe Flow Remote"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "Vibe Flow Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases/latest
-VersionInfoVersion=1.2.0.0
+VersionInfoVersion=1.2.1.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
@@ -62,14 +62,26 @@ Filename: "{app}\{#MyAppExeName}"; Description: "启动言灵 Vibe Flow Remote";
 
 [UninstallDelete]
 Type: files; Name: "{app}\vibe-mic-config.json"
+Type: files; Name: "{app}\vibe-mic-config.json.bak"
+Type: files; Name: "{app}\vibe-mic-config.json.tmp"
 Type: files; Name: "{app}\voxdeck-shortcuts.json"
+Type: files; Name: "{app}\voxdeck-shortcuts.json.bak"
+Type: files; Name: "{app}\voxdeck-shortcuts.json.tmp"
 Type: files; Name: "{app}\input-bridge-log.txt"
+Type: files; Name: "{app}\input-bridge-log.txt.1"
+Type: files; Name: "{app}\input-bridge-health.json"
+Type: files; Name: "{app}\input-bridge-health.json.tmp"
+Type: files; Name: "{app}\custom-button-capture-request.json"
+Type: files; Name: "{app}\custom-button-capture-result.json"
+Type: files; Name: "{app}\custom-button-capture-result.json.tmp"
+Type: files; Name: "{app}\custom-button-test.json"
 Type: filesandordirs; Name: "{app}\remote-voice-session"
 
 [Code]
 const
   EVENT_MODIFY_STATE = $0002;
   SYNCHRONIZE = $00100000;
+  RUN_KEY = 'Software\Microsoft\Windows\CurrentVersion\Run';
 
 function OpenEvent(dwDesiredAccess: LongWord; bInheritHandle: Boolean; lpName: string): THandle;
   external 'OpenEventW@kernel32.dll stdcall';
@@ -109,6 +121,43 @@ begin
   end;
 end;
 
+function ConfigRequestsStartup: Boolean;
+var
+  ConfigPath: String;
+  ConfigText: AnsiString;
+begin
+  Result := False;
+  ConfigPath := ExpandConstant('{app}\vibe-mic-config.json');
+  if not FileExists(ConfigPath) then
+    Exit;
+  try
+    if not LoadStringFromFile(ConfigPath, ConfigText) then
+      Exit;
+    ConfigText := Lowercase(ConfigText);
+    Result := (Pos('"launchatstartup":true', ConfigText) > 0) or
+      (Pos('"launchatstartup": true', ConfigText) > 0);
+  except
+    Result := False;
+  end;
+end;
+
+procedure RestoreConfiguredStartupRegistration;
+var
+  Target: String;
+begin
+  Target := '"' + ExpandConstant('{app}\VibeFlow.exe') + '" --background';
+  if ConfigRequestsStartup then
+    RegWriteStringValue(HKEY_CURRENT_USER, RUN_KEY, 'Vibe Flow', Target)
+  else
+    RegDeleteValue(HKEY_CURRENT_USER, RUN_KEY, 'Vibe Flow');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    RestoreConfiguredStartupRegistration;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ExitEvent: THandle;
@@ -122,7 +171,6 @@ begin
       CloseHandle(ExitEvent);
       WaitForVibeFlowExit;
     end;
-    RegDeleteValue(HKEY_CURRENT_USER,
-      'Software\Microsoft\Windows\CurrentVersion\Run', 'Vibe Flow');
+    RegDeleteValue(HKEY_CURRENT_USER, RUN_KEY, 'Vibe Flow');
   end;
 end;

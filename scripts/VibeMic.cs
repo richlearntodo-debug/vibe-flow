@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -18,38 +19,56 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2.0")]
+[assembly: System.Reflection.AssemblyVersion("1.2.1.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.2.1.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.2.1")]
 
 internal sealed class VibeMicForm : Form
 {
     private const string DisplayProductName = "言灵 · Vibe Flow Remote";
-    private const string ProductRelease = "1.2.0";
-    private const int ConfigSchemaVersion = 20;
-    private const int CurrentOnboardingVersion = 6;
+    private const string ProductRelease = "1.2.1";
+    private const int ConfigSchemaVersion = 25;
+    private const int CurrentOnboardingVersion = 8;
+    private const int OnboardingStepCount = 11;
     private const int StableVoiceProfileVersion = 11;
     private const int MinimumUsefulAudioMs = 700;
-    private const string WeChatAiHotkey = "ctrl+win+shift";
-    private const string WeChatCompatibilityHotkey = "ctrl+win";
+    private const int BridgeHealthStartupGraceSeconds = 12;
+    private const int BridgeHealthFailureRecoverySeconds = 15;
+    private const int CaptureReadyRecoverySeconds = 45;
+    private const int CaptureRecoveryCooldownSeconds = 15;
+    private const int CaptureRestartReleaseDelayMs = 2200;
+    private const long MaxHostLogBytes = 2 * 1024 * 1024;
+    private const string WeChatStableHotkey = "ctrl+win";
+    private const string WeChatV12Hotkey = "ctrl+win+shift";
     private const double StableVoiceGain = 1.0;
     private const int StableVoiceDrainMs = 180;
     private const string StableVoiceEndpoint = "CABLE Input";
     private const string StableVoiceProcessing = "speech";
+    private const int PageHome = 0;
+    private const int PageShortcuts = 1;
+    private const int PageVoice = 2;
+    private const int PageSelfCheck = 3;
+    private const int PageSettings = 4;
     private readonly string root = AppDomain.CurrentDomain.BaseDirectory;
     private readonly string sessionDir;
     private readonly string configPath;
     private readonly string eventsPath;
     private readonly string brandLogoPath;
     private readonly string hostLogPath;
-    private readonly Color ink = Color.FromArgb(18, 30, 54);
-    private readonly Color muted = Color.FromArgb(91, 104, 134);
-    private readonly Color violet = Color.FromArgb(104, 82, 244);
-    private readonly Color green = Color.FromArgb(10, 164, 104);
-    private readonly Color amber = Color.FromArgb(229, 151, 39);
-    private readonly Color cyan = Color.FromArgb(0, 153, 190);
-    private readonly Color coral = Color.FromArgb(204, 70, 82);
-    private readonly Color line = Color.FromArgb(220, 226, 239);
+    private Color ink = Color.FromArgb(18, 30, 54);
+    private Color muted = Color.FromArgb(91, 104, 134);
+    private Color violet = Color.FromArgb(104, 82, 244);
+    private Color green = Color.FromArgb(10, 164, 104);
+    private Color amber = Color.FromArgb(229, 151, 39);
+    private Color cyan = Color.FromArgb(0, 153, 190);
+    private Color coral = Color.FromArgb(204, 70, 82);
+    private Color line = Color.FromArgb(220, 226, 239);
+    private Color pageBackground = Color.FromArgb(245, 247, 251);
+    private Color sidebarBackground = Color.FromArgb(249, 251, 255);
+    private Color cardBackground = Color.White;
+    private Color surfaceBackground = Color.FromArgb(246, 249, 253);
+    private Color inputBackground = Color.White;
+    private bool darkTheme;
     private readonly Panel content = new Panel();
     private readonly List<Button> navButtons = new List<Button>();
     private readonly Label[] overviewStatusValues = new Label[5];
@@ -57,6 +76,7 @@ internal sealed class VibeMicForm : Form
     private readonly Label connectionBadge = new Label();
     private readonly NotifyIcon tray = new NotifyIcon();
     private readonly bool backgroundLaunch;
+    private readonly bool uiSmokeMode;
     private Label heroTitle;
     private Label heroSubtitle;
     private Label heroStateLabel;
@@ -74,6 +94,7 @@ internal sealed class VibeMicForm : Form
     private EventWaitHandle providerHotkeyTapEvent;
     private EventWaitHandle providerHotkeyDownEvent;
     private EventWaitHandle providerHotkeyUpEvent;
+    private EventWaitHandle inputTargetMissingEvent;
     private EventWaitHandle recordingStartCueEvent;
     private EventWaitHandle recordingStopCueEvent;
     private Thread recordingCueThread;
@@ -84,6 +105,7 @@ internal sealed class VibeMicForm : Form
     private System.Windows.Forms.Timer activityTimer;
     private System.Windows.Forms.Timer reconnectTimer;
     private System.Windows.Forms.Timer visualTimer;
+    private System.Windows.Forms.Timer systemRecoveryTimer;
     private long lastEventLength;
     private int reconnectAttempt;
     private int startupRecoveryCount;
@@ -93,8 +115,18 @@ internal sealed class VibeMicForm : Form
     private int providerWarmupLaunchRequested;
     private readonly object providerWarmupLock = new object();
     private DateTime captureStartedAt = DateTime.MinValue;
+    private DateTime captureNotReadySince = DateTime.MinValue;
+    private DateTime captureHeartbeatUnhealthySince = DateTime.MinValue;
+    private DateTime lastCaptureRecoveryAt = DateTime.MinValue;
     private bool setupWizardOpen;
     private bool bridgeReady;
+    private DateTime keyboardBridgeStartedAt = DateTime.MinValue;
+    private DateTime lastKeyboardBridgeRecoveryAt = DateTime.MinValue;
+    private DateTime keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
+    private DateTime lastSystemRecoveryAt = DateTime.MinValue;
+    private string pendingSystemRecoveryReason = "";
+    private string pendingCustomCaptureToken = "";
+    private readonly Label[] customButtonStatusLabels = new Label[3];
     private DateTime activeStreamStarted = DateTime.MinValue;
     private RoundPanel toastPanel;
     private Label toastIcon;
@@ -117,17 +149,27 @@ internal sealed class VibeMicForm : Form
     private string transientFeedbackText = "";
     private Color currentVisualAccent = Color.FromArgb(15, 158, 100);
     private string currentVisualState = "connecting";
+    private DateTime windowsHardwareProbeAt = DateTime.MinValue;
+    private WindowsHardwareProbe windowsHardwareProbe;
+    private int windowsHardwareProbeRunning;
+    private bool refreshSelfCheckOnActivate;
 
     [STAThread]
     private static void Main(string[] args)
     {
+        if (Array.Exists(args, delegate(string arg) { return arg.Equals("--self-test", StringComparison.OrdinalIgnoreCase); }))
+        {
+            Environment.ExitCode = RunHostSelfTests();
+            return;
+        }
         bool background = Array.Exists(args, delegate(string arg) { return arg.Equals("--background", StringComparison.OrdinalIgnoreCase); });
+        bool uiSmoke = Array.Exists(args, delegate(string arg) { return arg.Equals("--ui-smoke", StringComparison.OrdinalIgnoreCase); });
         bool createdNew;
-        using (var instance = new Mutex(true, "Local\\VibeMic", out createdNew))
+        using (var instance = new Mutex(true, uiSmoke ? "Local\\VibeMicUiSmoke" : "Local\\VibeMic", out createdNew))
         {
             if (!createdNew)
             {
-                bool replaceExisting = ExistingInstanceUsesDifferentPath();
+                bool replaceExisting = !uiSmoke && ExistingInstanceUsesDifferentPath();
                 if (replaceExisting)
                 {
                     SignalEvent("Local\\VibeMicExitForUpdate");
@@ -136,13 +178,13 @@ internal sealed class VibeMicForm : Form
                 }
                 if (!createdNew)
                 {
-                    if (!background) SignalEvent("Local\\VibeMicShowWindow");
+                    if (!background && !uiSmoke) SignalEvent("Local\\VibeMicShowWindow");
                     return;
                 }
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new VibeMicForm(background));
+            Application.Run(new VibeMicForm(background, uiSmoke));
         }
     }
 
@@ -171,24 +213,43 @@ internal sealed class VibeMicForm : Form
         return false;
     }
 
-    private VibeMicForm(bool launchInBackground)
+    private VibeMicForm(bool launchInBackground, bool smokeMode)
     {
         backgroundLaunch = launchInBackground;
-        sessionDir = Path.Combine(root, "remote-voice-session");
-        configPath = Path.Combine(root, "vibe-mic-config.json");
+        uiSmokeMode = smokeMode;
+        string stateRoot = uiSmokeMode ? Path.Combine(root, "tmp", "ui-smoke") : root;
+        sessionDir = Path.Combine(stateRoot, "remote-voice-session");
+        configPath = Path.Combine(stateRoot, "vibe-mic-config.json");
         eventsPath = Path.Combine(sessionDir, "remote-voice-events.jsonl");
         brandLogoPath = Path.Combine(root, "vibe-flow-logo.png");
         hostLogPath = Path.Combine(sessionDir, "vibe-flow-host.log");
         Directory.CreateDirectory(sessionDir);
         config = LoadConfig();
-        if (config.launchAtStartup) SetLaunchAtStartup(true);
-        ReleaseVoiceHotkey();
+        if (uiSmokeMode)
+        {
+            config.setupCompleted = true;
+            config.resumeSetupAfterRestart = false;
+            config.launchAtStartup = false;
+            config.startBridgeOnLaunch = false;
+            config.minimizeToTray = false;
+            File.WriteAllText(configPath, new JavaScriptSerializer().Serialize(config), Encoding.UTF8);
+        }
+        ApplyThemePalette();
+        if (!uiSmokeMode) ClearPendingCustomButtonCapture("startup");
+        // The bridge must never start from a stale packaged mapping file. Rebuild
+        // it from the migrated user config before any background service starts.
+        if (!uiSmokeMode) SyncKeyboardBridgeConfig();
+        if (!uiSmokeMode && config.launchAtStartup) SetLaunchAtStartup(true);
+        if (!uiSmokeMode) ReleaseVoiceHotkey();
         RotateLogFile(Path.Combine(sessionDir, "vibe-mic-runtime.log"), 4 * 1024 * 1024);
         RotateLogFile(hostLogPath, 2 * 1024 * 1024);
         RotateLogFile(Path.Combine(root, "input-bridge-log.txt"), 4 * 1024 * 1024);
-        audioDuckingLease = new WindowsAudioDuckingLease(
-            Path.Combine(sessionDir, "windows-audio-ducking-lease.json"), HostLog);
-        InitializeFeedbackSounds();
+        if (!uiSmokeMode)
+        {
+            audioDuckingLease = new WindowsAudioDuckingLease(
+                Path.Combine(sessionDir, "windows-audio-ducking-lease.json"), HostLog);
+            InitializeFeedbackSounds();
+        }
         string existingRuntimeLog = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         runtimeFeedbackPosition = File.Exists(existingRuntimeLog) ? new FileInfo(existingRuntimeLog).Length : 0;
         string existingInputLog = Path.Combine(root, "input-bridge-log.txt");
@@ -205,49 +266,58 @@ internal sealed class VibeMicForm : Form
             Location = new Point(-32000, -32000);
             ShowInTaskbar = false;
         }
-        BackColor = Color.FromArgb(245, 247, 251);
+        BackColor = pageBackground;
         Font = new Font("Microsoft YaHei UI", 10f);
         Icon = CreateAppIcon();
         DoubleBuffered = true;
 
         BuildShell();
-        ShowPage(0);
-        SetupTray();
-        showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicShowWindow");
-        exitApplicationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicExitForUpdate");
-        voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
-        providerHotkeyTapEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyTapRequested");
-        providerHotkeyDownEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyDownRequested");
-        providerHotkeyUpEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyUpRequested");
-        recordingStartCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStartCue");
-        recordingStopCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStopCue");
+        ShowPage(PageHome);
+        if (!uiSmokeMode) SetupTray();
         HostLog("HOST START mode=" + (backgroundLaunch ? "background" : "interactive") +
-            " provider=" + NormalizeProviderKey(config.inputMethod) + " startup=" + config.launchAtStartup);
-        ThreadPool.QueueUserWorkItem(delegate
+            " provider=" + NormalizeProviderKey(config.inputMethod) + " startup=" + config.launchAtStartup +
+            " ui_smoke=" + uiSmokeMode);
+        if (!uiSmokeMode)
         {
-            try
+            showWindowEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicShowWindow");
+            exitApplicationEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicExitForUpdate");
+            voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
+            providerHotkeyTapEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyTapRequested");
+            providerHotkeyDownEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyDownRequested");
+            providerHotkeyUpEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyUpRequested");
+            inputTargetMissingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicInputTargetMissing");
+            recordingStartCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStartCue");
+            recordingStopCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStopCue");
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent,
-                    providerHotkeyTapEvent, providerHotkeyDownEvent, providerHotkeyUpEvent };
-                while (true)
+                try
                 {
-                    int signal = WaitHandle.WaitAny(handles);
-                    if (IsDisposed || applicationExiting) return;
-                    if (signal == 0) BeginInvoke(new Action(ShowMainWindow));
-                    else if (signal == 1) BeginInvoke(new Action(delegate { config.minimizeToTray = false; Close(); }));
-                    else if (signal == 2) BeginInvoke(new Action(HandleVoiceWakeRequest));
-                    else if (signal == 3) HandleProviderHotkeyTapRequest();
-                    else HandleProviderHotkeyHoldRequest(signal == 4);
+                    WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent,
+                        providerHotkeyTapEvent, providerHotkeyDownEvent, providerHotkeyUpEvent, inputTargetMissingEvent };
+                    while (true)
+                    {
+                        int signal = WaitHandle.WaitAny(handles);
+                        if (IsDisposed || applicationExiting) return;
+                        if (signal == 0) BeginInvoke(new Action(ShowMainWindow));
+                        else if (signal == 1) BeginInvoke(new Action(delegate { config.minimizeToTray = false; Close(); }));
+                        else if (signal == 2) BeginInvoke(new Action(HandleVoiceWakeRequest));
+                        else if (signal == 3) HandleProviderHotkeyTapRequest();
+                        else if (signal == 4 || signal == 5) HandleProviderHotkeyHoldRequest(signal == 4);
+                        else BeginInvoke(new Action(HandleMissingInputTarget));
+                    }
                 }
-            }
-            catch { }
-        });
-        StartRecordingCueWorker();
+                catch { }
+            });
+            StartRecordingCueWorker();
+        }
 
-        activityTimer = new System.Windows.Forms.Timer();
-        activityTimer.Interval = 500;
-        activityTimer.Tick += delegate { PollActivity(); };
-        activityTimer.Start();
+        if (!uiSmokeMode)
+        {
+            activityTimer = new System.Windows.Forms.Timer();
+            activityTimer.Interval = 500;
+            activityTimer.Tick += delegate { PollActivity(); };
+            activityTimer.Start();
+        }
 
         visualTimer = new System.Windows.Forms.Timer();
         visualTimer.Interval = 50;
@@ -264,7 +334,209 @@ internal sealed class VibeMicForm : Form
                 heroPanel.Invalidate();
         };
         visualTimer.Start();
-        if (config.autoCheckUpdates) ScheduleAutomaticUpdateCheck();
+        if (!uiSmokeMode)
+        {
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
+            SystemEvents.SessionSwitch += OnSessionSwitch;
+            if (config.autoCheckUpdates) ScheduleAutomaticUpdateCheck();
+        }
+    }
+
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode == PowerModes.Resume) ScheduleSystemRecovery("power_resume");
+    }
+
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason == SessionSwitchReason.SessionUnlock ||
+            e.Reason == SessionSwitchReason.ConsoleConnect ||
+            e.Reason == SessionSwitchReason.RemoteConnect)
+            ScheduleSystemRecovery("session_" + e.Reason.ToString().ToLowerInvariant());
+    }
+
+    private void ScheduleSystemRecovery(string reason)
+    {
+        if (applicationExiting || !config.setupCompleted || !config.startBridgeOnLaunch) return;
+        pendingSystemRecoveryReason = reason;
+        if (systemRecoveryTimer != null) return;
+        systemRecoveryTimer = new System.Windows.Forms.Timer();
+        systemRecoveryTimer.Interval = 2500;
+        systemRecoveryTimer.Tick += delegate
+        {
+            systemRecoveryTimer.Stop();
+            systemRecoveryTimer.Dispose();
+            systemRecoveryTimer = null;
+            string recoveryReason = string.IsNullOrWhiteSpace(pendingSystemRecoveryReason)
+                ? "system_resume" : pendingSystemRecoveryReason;
+            pendingSystemRecoveryReason = "";
+            RecoverServicesAfterSystemChange(recoveryReason);
+        };
+        systemRecoveryTimer.Start();
+        HostLog("SYSTEM RECOVERY scheduled=true reason=" + reason + " delay_ms=2500");
+    }
+
+    private void RecoverServicesAfterSystemChange(string reason)
+    {
+        if (applicationExiting || !config.setupCompleted || !config.startBridgeOnLaunch) return;
+        if ((DateTime.UtcNow - lastSystemRecoveryAt).TotalSeconds < 10)
+        {
+            HostLog("SYSTEM RECOVERY skipped=true reason=throttled trigger=" + reason);
+            return;
+        }
+        lastSystemRecoveryAt = DateTime.UtcNow;
+        HostLog("SYSTEM RECOVERY begin=true reason=" + reason + " action=restart_bridge_and_capture");
+        bridgeReady = false;
+        StopCapture();
+        StopKeyboardBridge();
+        StartCapture();
+        ShowToast("系统恢复后正在重新连接遥控器", "info");
+    }
+
+    private void ApplyThemePalette()
+    {
+        string preference = config == null ? "light" : (config.theme ?? "light").Trim().ToLowerInvariant();
+        darkTheme = preference == "dark" || (preference == "system" && WindowsUsesDarkApps());
+        if (darkTheme)
+        {
+            ink = Color.FromArgb(229, 232, 239);
+            muted = Color.FromArgb(153, 161, 177);
+            violet = Color.FromArgb(126, 118, 213);
+            green = Color.FromArgb(76, 174, 127);
+            amber = Color.FromArgb(205, 157, 81);
+            cyan = Color.FromArgb(79, 163, 181);
+            coral = Color.FromArgb(205, 101, 110);
+            line = Color.FromArgb(55, 59, 69);
+            pageBackground = Color.FromArgb(25, 26, 31);
+            sidebarBackground = Color.FromArgb(29, 30, 36);
+            cardBackground = Color.FromArgb(35, 37, 44);
+            surfaceBackground = Color.FromArgb(41, 43, 51);
+            inputBackground = Color.FromArgb(31, 33, 39);
+        }
+        else
+        {
+            ink = Color.FromArgb(18, 30, 54);
+            muted = Color.FromArgb(91, 104, 134);
+            violet = Color.FromArgb(104, 82, 244);
+            green = Color.FromArgb(10, 164, 104);
+            amber = Color.FromArgb(229, 151, 39);
+            cyan = Color.FromArgb(0, 153, 190);
+            coral = Color.FromArgb(204, 70, 82);
+            line = Color.FromArgb(220, 226, 239);
+            pageBackground = Color.FromArgb(245, 247, 251);
+            sidebarBackground = Color.FromArgb(249, 251, 255);
+            cardBackground = Color.White;
+            surfaceBackground = Color.FromArgb(246, 249, 253);
+            inputBackground = Color.White;
+        }
+    }
+
+    private static int RunHostSelfTests()
+    {
+        try
+        {
+            VibeMicConfig defaults = VibeMicConfig.Default();
+            if (defaults.schemaVersion != ConfigSchemaVersion || defaults.voiceMode != "hold" ||
+                defaults.onboardingVersion != CurrentOnboardingVersion || defaults.onboardingStep != 0 ||
+                defaults.theme != "light" || defaults.resumeSetupAfterRestart)
+                throw new InvalidOperationException("Default configuration invariant failed");
+            if (!HasStableVoiceProfile(defaults) || defaults.gain != StableVoiceGain ||
+                defaults.drainMs != StableVoiceDrainMs || defaults.audioEndpointName != StableVoiceEndpoint)
+                throw new InvalidOperationException("Stable voice profile invariant failed");
+            if (defaults.mappings["功能键:short"] != "ctrl+c" || defaults.mappings["功能键:long"] != "ctrl+v" ||
+                defaults.mappings["TV"] != "task-switcher" || defaults.mappings["Home"] != "win+d" ||
+                defaults.mappings["确认键"] != "enter" || defaults.mappings["上键"] != "up" ||
+                defaults.mappings["下键"] != "down" || defaults.mappings["左键"] != "left" ||
+                defaults.mappings["右键"] != "right" || defaults.mappings.Count != 10)
+                throw new InvalidOperationException("Default remote mapping invariant failed");
+            List<ShortcutChoice> directionChoices = ShortcutChoicesFor("上键", "win+shift+s");
+            if (!IsSupportedDirectionAction("win+shift+s") ||
+                FindShortcutChoice(directionChoices, "win+shift+s") <= 0 ||
+                CustomActionText("win+shift+s") != "区域截图")
+                throw new InvalidOperationException("Direction screenshot action invariant failed");
+
+            VibeMicConfig continuous = VibeMicConfig.Default();
+            continuous.schemaVersion = 24;
+            continuous.voiceMode = "continuous";
+            continuous.onboardingStep = 7;
+            continuous.theme = "system";
+            continuous.inputMethodHotkey = WeChatV12Hotkey;
+            continuous.mappings["电源键:short"] = "open-url:https://example.com";
+            if (!MigrateConfig(continuous) || continuous.schemaVersion != ConfigSchemaVersion ||
+                continuous.voiceMode != "hold" || continuous.onboardingStep != 7 || continuous.theme != "light" ||
+                continuous.inputMethodHotkey != WeChatStableHotkey ||
+                continuous.mappings.ContainsKey("电源键:short") ||
+                continuous.mappings["TV"] != "task-switcher" || continuous.mappings["上键"] != "up")
+                throw new InvalidOperationException("Schema 24 migration did not restore the stable hardware profile");
+
+            VibeMicConfig invalid = VibeMicConfig.Default();
+            invalid.schemaVersion = 24;
+            invalid.theme = "neon";
+            invalid.onboardingStep = 99;
+            invalid.setupCompleted = false;
+            invalid.resumeSetupAfterRestart = true;
+            MigrateConfig(invalid);
+            if (invalid.theme != "light" || invalid.onboardingStep != 0 || !invalid.resumeSetupAfterRestart)
+                throw new InvalidOperationException("Onboarding or theme recovery invariant failed");
+
+            string atomicPath = Path.Combine(Path.GetTempPath(), "vibe-flow-config-test-" + Guid.NewGuid().ToString("N") + ".json");
+            string atomicBackup = atomicPath + ".bak";
+            try
+            {
+                File.WriteAllText(atomicPath, "first", Encoding.UTF8);
+                WriteTextAtomically(atomicPath, "second", atomicBackup);
+                if (File.ReadAllText(atomicPath, Encoding.UTF8) != "second" ||
+                    File.ReadAllText(atomicBackup, Encoding.UTF8) != "first" || File.Exists(atomicPath + ".tmp"))
+                    throw new InvalidOperationException("Atomic configuration replacement failed");
+            }
+            finally
+            {
+                try { if (File.Exists(atomicPath)) File.Delete(atomicPath); } catch { }
+                try { if (File.Exists(atomicBackup)) File.Delete(atomicBackup); } catch { }
+                try { if (File.Exists(atomicPath + ".tmp")) File.Delete(atomicPath + ".tmp"); } catch { }
+            }
+
+            Console.WriteLine("Vibe Flow host self-test passed.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("Vibe Flow host self-test failed: " + ex.Message);
+            return 1;
+        }
+    }
+
+    private static bool WindowsUsesDarkApps()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", false))
+            {
+                object value = key == null ? null : key.GetValue("AppsUseLightTheme");
+                return value != null && Convert.ToInt32(value) == 0;
+            }
+        }
+        catch { return false; }
+    }
+
+    private Color StatusSurface(string state)
+    {
+        if (!darkTheme)
+        {
+            if (state == "recording") return Color.FromArgb(244, 242, 255);
+            if (state == "recovering" || state == "processing") return Color.FromArgb(239, 249, 252);
+            if (state == "completed" || state == "ready") return Color.FromArgb(238, 250, 244);
+            if (state == "error") return Color.FromArgb(255, 242, 242);
+            if (state == "connecting") return Color.FromArgb(255, 248, 234);
+            return Color.FromArgb(248, 249, 252);
+        }
+        if (state == "recording") return Color.FromArgb(42, 37, 61);
+        if (state == "recovering" || state == "processing") return Color.FromArgb(30, 48, 54);
+        if (state == "completed" || state == "ready") return Color.FromArgb(29, 50, 40);
+        if (state == "error") return Color.FromArgb(57, 34, 39);
+        if (state == "connecting") return Color.FromArgb(57, 46, 29);
+        return surfaceBackground;
     }
 
     private void BuildShell()
@@ -272,7 +544,7 @@ internal sealed class VibeMicForm : Form
         var sidebar = new Panel();
         sidebar.Dock = DockStyle.Left;
         sidebar.Width = 232;
-        sidebar.BackColor = Color.FromArgb(249, 251, 255);
+        sidebar.BackColor = sidebarBackground;
         sidebar.Paint += delegate(object sender, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
@@ -296,12 +568,12 @@ internal sealed class VibeMicForm : Form
         var brand = NewLabel("言灵", 19f, FontStyle.Bold, ink);
         brand.Location = new Point(82, 23);
         brand.AutoSize = true;
-        var sub = NewLabel("VIBE FLOW REMOTE · V1", 7.4f, FontStyle.Bold, violet);
+        var sub = NewLabel("VIBE FLOW REMOTE · V1.2", 7.4f, FontStyle.Bold, violet);
         sub.Location = new Point(84, 58);
         sub.AutoSize = true;
 
-        string[] navText = { "总览", "语音听写", "按键快捷方式", "连接与自检", "偏好设置" };
-        string[] navIcon = { "overview", "voice", "shortcuts", "diagnostics", "settings" };
+        string[] navText = { "首页", "快捷键", "语音", "自检", "设置" };
+        string[] navIcon = { "overview", "shortcuts", "voice", "diagnostics", "settings" };
         for (int i = 0; i < navText.Length; i++)
         {
             int page = i;
@@ -315,8 +587,8 @@ internal sealed class VibeMicForm : Form
             button.Padding = new Padding(18, 0, 10, 0);
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(239, 242, 250);
-            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(229, 234, 247);
+            button.FlatAppearance.MouseOverBackColor = darkTheme ? Color.FromArgb(43, 45, 56) : Color.FromArgb(239, 242, 250);
+            button.FlatAppearance.MouseDownBackColor = darkTheme ? Color.FromArgb(50, 52, 65) : Color.FromArgb(229, 234, 247);
             button.BackColor = Color.Transparent;
             button.ForeColor = ink;
             button.Tag = navIcon[i];
@@ -338,7 +610,7 @@ internal sealed class VibeMicForm : Form
 
         connectionBadge.Text = "●  正在检查连接";
         connectionBadge.ForeColor = amber;
-        connectionBadge.BackColor = Color.White;
+        connectionBadge.BackColor = cardBackground;
         connectionBadge.TextAlign = ContentAlignment.MiddleCenter;
         connectionBadge.Location = new Point(22, 12);
         connectionBadge.Size = new Size(176, 46);
@@ -358,9 +630,9 @@ internal sealed class VibeMicForm : Form
 
         content.Dock = DockStyle.Fill;
         content.Padding = new Padding(34, 26, 34, 26);
-        content.BackColor = Color.FromArgb(245, 247, 251);
+        content.BackColor = pageBackground;
         content.AutoScroll = true;
-        content.AutoScrollMinSize = new Size(1030, 744);
+        content.AutoScrollMinSize = new Size(1000, 744);
         content.Paint += PaintWorkspaceTexture;
         Controls.Add(content);
         Controls.Add(sidebar);
@@ -399,7 +671,7 @@ internal sealed class VibeMicForm : Form
         toastPanel.Size = new Size(420, 58);
         toastPanel.Location = new Point(Math.Max(240, ClientSize.Width - 444), Math.Max(80, ClientSize.Height - 82));
         toastPanel.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
-        toastPanel.BackColor = Color.White;
+        toastPanel.BackColor = cardBackground;
         toastPanel.BorderColor = Color.FromArgb(203, 211, 231);
         toastPanel.Radius = 8;
         toastPanel.Visible = false;
@@ -433,7 +705,8 @@ internal sealed class VibeMicForm : Form
         currentPageIndex = Math.Max(0, Math.Min(4, index));
         for (int i = 0; i < navButtons.Count; i++)
         {
-            navButtons[i].BackColor = i == currentPageIndex ? Color.FromArgb(233, 237, 255) : Color.Transparent;
+            navButtons[i].BackColor = i == currentPageIndex ?
+                (darkTheme ? Color.FromArgb(43, 45, 53) : Color.FromArgb(233, 237, 255)) : Color.Transparent;
             navButtons[i].ForeColor = i == currentPageIndex ? violet : ink;
             navButtons[i].Font = new Font("Microsoft YaHei UI", 10f, i == currentPageIndex ? FontStyle.Bold : FontStyle.Regular);
             Image previousIcon = navButtons[i].Image;
@@ -444,11 +717,12 @@ internal sealed class VibeMicForm : Form
         }
         content.SuspendLayout();
         content.AutoScrollPosition = Point.Empty;
+        content.AutoScrollMinSize = currentPageIndex == PageShortcuts ? new Size(1000, 790) : new Size(1000, 744);
         content.Controls.Clear();
-        if (currentPageIndex == 0) BuildOverview();
-        else if (currentPageIndex == 1) BuildVoicePage();
-        else if (currentPageIndex == 2) BuildMappingsPage();
-        else if (currentPageIndex == 3) BuildDevicePage();
+        if (currentPageIndex == PageHome) BuildOverview();
+        else if (currentPageIndex == PageShortcuts) BuildMappingsPage();
+        else if (currentPageIndex == PageVoice) BuildVoicePage();
+        else if (currentPageIndex == PageSelfCheck) BuildDevicePage();
         else BuildSettingsPage();
         content.ResumeLayout();
         ActiveControl = null;
@@ -456,14 +730,14 @@ internal sealed class VibeMicForm : Form
 
     private void BuildOverview()
     {
-        AddPageTitle("总览", "按住听写、连接状态与遥控器快捷操作");
+        AddPageTitle("首页", "按住听写、连接状态与遥控器快捷操作");
 
         var hero = NewCard(new Point(34, 92), new Size(960, 322));
         heroPanel = hero;
         hero.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         hero.Paint += PaintHeroSurface;
 
-        heroStateLabel = NewLabel(IsCapturing ? (UsesLongDictation(config.voiceMode) ? "CONTINUOUS DICTATION" : "PUSH TO TALK") : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
+        heroStateLabel = NewLabel(IsCapturing ? "PUSH TO TALK" : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
         heroStateLabel.Location = new Point(52, 34);
         heroStateLabel.AutoSize = true;
         heroTitle = NewLabel(IsCapturing ? "正在连接" : "语音桥接已暂停", 27f, FontStyle.Bold, ink);
@@ -476,7 +750,7 @@ internal sealed class VibeMicForm : Form
         string[,] linkFacts = {
             { "●", "RC003 遥控器" },
             { "●", ProviderDisplayName(config.inputMethod) },
-            { "●", UsesLongDictation(config.voiceMode) ? "连续听写 · 稳定模式" : "按住说话 · 兼容模式" }
+            { "●", "按住说话 · 稳定模式" }
         };
         Color[] linkColors = { violet, cyan, green };
         int[] linkWidths = { 132, 154, 176 };
@@ -493,15 +767,13 @@ internal sealed class VibeMicForm : Form
         bridgeButton = PrimaryButton(IsCapturing ? "管理语音桥接" : "启动语音桥接", new Point(52, 217), new Size(152, 44));
         bridgeButton.Click += delegate
         {
-            if (IsCapturing) ShowPage(1);
+            if (IsCapturing) ShowPage(PageVoice);
             else ToggleCapture();
         };
         var scan = SecondaryButton("检查连接", new Point(216, 217), new Size(124, 44));
         scan.Click += delegate { ScanDevice(); };
 
-        var gestureHint = NewLabel(UsesLongDictation(config.voiceMode)
-            ? "单击开始  ·  无需持续按住  ·  再按一次结束"
-            : "按住说话  ·  松开后交给转写工具整理", 8.7f, FontStyle.Regular, muted);
+        var gestureHint = NewLabel("按住说话  ·  松开后交给转写工具整理  ·  确认键发送", 8.7f, FontStyle.Regular, muted);
         gestureHint.Location = new Point(52, 276);
         gestureHint.Size = new Size(420, 24);
 
@@ -520,10 +792,8 @@ internal sealed class VibeMicForm : Form
 
         var flow = NewCard(new Point(34, 430), new Size(470, 178));
         flow.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-        flow.Controls.Add(SectionTitle(UsesLongDictation(config.voiceMode) ? "连续听写" : "开始一次听写", "\uE720", new Point(24, 18)));
-        string[] steps = UsesLongDictation(config.voiceMode)
-            ? new string[] { "单击开始", "自然连续说话", "再次单击结束" }
-            : new string[] { "按住录音键", "说出内容", "自动回填文字" };
+        flow.Controls.Add(SectionTitle("开始一次听写", "\uE720", new Point(24, 18)));
+        string[] steps = new string[] { "按住录音键", "持续说出内容", "松开完成转译" };
         string[] icons = { "\uE720", "\uE9D2", "\uE724" };
         for (int i = 0; i < 3; i++)
         {
@@ -532,7 +802,7 @@ internal sealed class VibeMicForm : Form
             circle.Location = new Point(x, 52);
             circle.Size = new Size(48, 48);
             circle.Radius = 24;
-            circle.BackColor = i == 0 ? Color.FromArgb(237, 235, 255) : Color.FromArgb(246, 249, 253);
+            circle.BackColor = i == 0 ? (darkTheme ? Color.FromArgb(45, 47, 55) : Color.FromArgb(237, 235, 255)) : surfaceBackground;
             circle.BorderColor = i == 0 ? Color.FromArgb(209, 204, 255) : line;
             var glyph = NewLabel(icons[i], 15f, FontStyle.Regular, i == 1 ? cyan : violet);
             glyph.Font = new Font("Segoe MDL2 Assets", 15f, FontStyle.Regular);
@@ -554,7 +824,7 @@ internal sealed class VibeMicForm : Form
                 flow.Controls.Add(connector);
             }
         }
-        activityLabel = NewLabel(UsesLongDictation(config.voiceMode) ? "已就绪 · 单击开始，再按一次结束 · 30 分钟保护" : "已就绪，等待按下录音键", 9.5f, FontStyle.Bold, muted);
+        activityLabel = NewLabel("已就绪，等待按住录音键", 9.5f, FontStyle.Bold, muted);
         activityLabel.Location = new Point(24, 142);
         activityLabel.Size = new Size(420, 22);
         activityLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -564,9 +834,9 @@ internal sealed class VibeMicForm : Form
         shortcuts.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         shortcuts.Controls.Add(SectionTitle("常用按键", "\uE765", new Point(24, 18)));
         string[,] quick = {
-            { "录音", UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写" }, { "确认", "确认 / 发送" },
+            { "录音", "按住听写 / 松开结束" }, { "确认", "确认 / 发送" },
             { "Home", "显示桌面" }, { "TV", "任务切换" },
-            { "功能键", "打开客户端" }, { "方向键", "导航 / 调音量" }
+            { "功能键", "短按复制 / 长按粘贴" }, { "方向键", "标准方向导航" }
         };
         for (int i = 0; i < quick.GetLength(0); i++)
         {
@@ -662,7 +932,7 @@ internal sealed class VibeMicForm : Form
         var stateBand = new Panel();
         stateBand.Location = new Point(30, 64);
         stateBand.Size = new Size(900, 62);
-        stateBand.BackColor = IsCapturing ? Color.FromArgb(238, 250, 244) : Color.FromArgb(246, 248, 252);
+        stateBand.BackColor = IsCapturing ? StatusSurface("ready") : surfaceBackground;
         voiceBridgeStateLabel = NewLabel(IsCapturing ? "●  已就绪 · " + VoiceReadyInstruction(config.voiceMode) : "●  语音桥接已暂停", 10.5f, FontStyle.Bold,
             IsCapturing ? green : muted);
         voiceBridgeStateLabel.Location = new Point(22, 19);
@@ -680,7 +950,7 @@ internal sealed class VibeMicForm : Form
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "Typeless", "Windows 语音输入", "Voquill（开源）", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "Typeless", "豆包输入法", "Windows 语音输入", "其他语音工具" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -693,7 +963,8 @@ internal sealed class VibeMicForm : Form
         var hotkey = StyledTextBox(config.inputMethodHotkey, new Point(220, 202), new Size(220, 34));
         var triggerMode = StyledCombo(new Point(458, 200), new Size(184, 38));
         PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-        triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
+        triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
+            config.inputMethodTrigger == "hold" ? 1 : 0;
         var hotkeyHelp = NewLabel(ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger), 9f, FontStyle.Regular, muted);
         hotkeyHelp.Location = new Point(658, 207);
         hotkeyHelp.Size = new Size(242, 25);
@@ -702,12 +973,13 @@ internal sealed class VibeMicForm : Form
         card.Controls.Add(hotkeyHelp);
 
         AddFieldLabel(card, "录音方式", 260);
-        var voiceMode = StyledCombo(new Point(220, 256), new Size(330, 38));
-        voiceMode.Items.AddRange(new object[] { "连续听写（推荐 · 单击开始/结束）", "按住说话（兼容 · 松开即结束）" });
-        voiceMode.SelectedIndex = NormalizeVoiceMode(config.voiceMode) == "continuous" ? 0 : 1;
+        var voiceMode = NewLabel("按住说话 · 松开结束", 10f, FontStyle.Bold, violet);
+        voiceMode.Location = new Point(220, 256);
+        voiceMode.Size = new Size(270, 38);
+        voiceMode.TextAlign = ContentAlignment.MiddleLeft;
         var voiceModeHelp = NewLabel(VoiceModeHelp(config.voiceMode), 9f, FontStyle.Regular, muted);
-        voiceModeHelp.Location = new Point(570, 263);
-        voiceModeHelp.Size = new Size(330, 25);
+        voiceModeHelp.Location = new Point(548, 263);
+        voiceModeHelp.Size = new Size(370, 25);
         card.Controls.Add(voiceMode);
         card.Controls.Add(voiceModeHelp);
 
@@ -749,7 +1021,9 @@ internal sealed class VibeMicForm : Form
 
         var autoRoute = StyledCheck("听写时自动使用遥控器麦克风（推荐）", config.autoRouteVirtualMicrophone, new Point(212, 444));
         autoRoute.Size = new Size(330, 34);
-        autoRoute.Enabled = advancedAudioUnlocked;
+        autoRoute.AutoCheck = advancedAudioUnlocked;
+        autoRoute.TabStop = advancedAudioUnlocked;
+        if (!advancedAudioUnlocked) autoRoute.ForeColor = muted;
         var routeHelp = NewLabel("结束听写后自动恢复原来的 Windows 麦克风", 8.9f, FontStyle.Regular, muted);
         routeHelp.Location = new Point(548, 451);
         routeHelp.Size = new Size(350, 24);
@@ -767,7 +1041,7 @@ internal sealed class VibeMicForm : Form
         start.Click += delegate { ToggleCapture(); start.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接"; };
         var test = SecondaryButton("测试所选工具", new Point(386, 524), new Size(148, 44));
         test.Click += delegate { TestVoiceHotkey(); };
-        var sound = SecondaryButton(config.inputMethod == "typeless" || config.inputMethod == "voquill" ? "获取所选工具" : "检查麦克风设置",
+        var sound = SecondaryButton(config.inputMethod == "typeless" || config.inputMethod == "doubao" ? "获取所选工具" : "检查麦克风设置",
             new Point(548, 524), new Size(158, 44));
         sound.Click += delegate { OpenProviderHelp(config.inputMethod); };
         var profileAction = SecondaryButton(stableVoiceProfile ? "调整高级参数" : "恢复稳定参数", new Point(720, 524), new Size(170, 44));
@@ -794,7 +1068,7 @@ internal sealed class VibeMicForm : Form
             ApplyStableVoiceProfile(config);
             SaveConfig();
             RestartCaptureForAudioSettings();
-            ShowPage(1);
+            ShowPage(PageVoice);
             ShowToast("已恢复真机验证的稳定语音参数", "success");
         };
         card.Controls.Add(start);
@@ -829,14 +1103,15 @@ internal sealed class VibeMicForm : Form
             ApplyProviderProfile(config, ProviderKeyFromIndex(provider.SelectedIndex));
             hotkey.Text = config.inputMethodHotkey;
             PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-            triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
+            triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
+                config.inputMethodTrigger == "hold" ? 1 : 0;
             hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             providerStatus.Text = ProviderStatusText(config.inputMethod);
             providerStatus.ForeColor = IsProviderRunning(config.inputMethod) ? green : amber;
             updating = false;
             SaveConfig();
             RestartCaptureForAudioSettings();
-            BeginInvoke(new Action(delegate { ShowPage(1); }));
+            BeginInvoke(new Action(delegate { ShowPage(PageVoice); }));
         };
         hotkey.Leave += delegate
         {
@@ -844,17 +1119,16 @@ internal sealed class VibeMicForm : Form
             if (!IsValidTranscriptionHotkey(value))
             {
                 hotkey.Text = config.inputMethodHotkey;
-                Toast("快捷键格式不正确，请使用例如 ctrl+win+shift、rightalt 或 win+h");
+                Toast("快捷键格式不正确，请使用例如 ctrl+win、rightalt 或 win+h");
                 return;
             }
             if (value == config.inputMethodHotkey) return;
             config.inputMethodHotkey = value;
             if (NormalizeProviderKey(config.inputMethod) == "wechat")
             {
-                if (value == WeChatAiHotkey) config.inputMethodTrigger = "toggle";
-                else if (value == WeChatCompatibilityHotkey) config.inputMethodTrigger = "hold";
+                config.inputMethodTrigger = "toggle";
                 updating = true;
-                triggerMode.SelectedIndex = config.inputMethodTrigger == "hold" ? 1 : 0;
+                triggerMode.SelectedIndex = 0;
                 updating = false;
                 hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             }
@@ -867,28 +1141,14 @@ internal sealed class VibeMicForm : Form
             string value = triggerMode.SelectedIndex == 1 ? "hold" : "toggle";
             if (NormalizeProviderKey(config.inputMethod) == "wechat")
             {
-                string profileHotkey = value == "hold" ? WeChatCompatibilityHotkey : WeChatAiHotkey;
-                if (value == config.inputMethodTrigger && profileHotkey == config.inputMethodHotkey) return;
-                config.inputMethodHotkey = profileHotkey;
-                hotkey.Text = profileHotkey;
+                value = "toggle";
+                if (value == config.inputMethodTrigger) return;
             }
             else if (value == config.inputMethodTrigger) return;
             config.inputMethodTrigger = value;
             hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             SaveConfig();
             RestartCaptureForAudioSettings();
-        };
-        voiceMode.SelectedIndexChanged += delegate
-        {
-            string value = voiceMode.SelectedIndex == 0 ? "continuous" : "hold";
-            if (value == NormalizeVoiceMode(config.voiceMode)) return;
-            config.voiceMode = value;
-            voiceModeHelp.Text = VoiceModeHelp(value);
-            SaveConfig();
-            RestartCaptureForAudioSettings();
-            ShowToast(value == "continuous"
-                ? "连续听写已开启：单击开始，再次单击结束"
-                : "按住说话已开启：按下开始，松开立即结束", "success");
         };
         processing.SelectedIndexChanged += delegate
         {
@@ -917,8 +1177,221 @@ internal sealed class VibeMicForm : Form
 
     private void BuildMappingsPage()
     {
-        AddPageTitle("按键快捷方式", "为高频操作分配实体按键，修改后立即保存");
-        var mappings = NewCard(new Point(34, 100), new Size(620, 610));
+        content.AutoScrollMinSize = new Size(1000, 790);
+        AddPageTitle("快捷键", "只配置真实会上报的方向键；默认保持标准方向导航");
+
+        var remoteCard = NewCard(new Point(34, 100), new Size(356, 680));
+        remoteCard.Controls.Add(SectionTitle("遥控器", "\uE7F4", new Point(24, 20)));
+        var remoteHint = NewLabel("实体按键实时反馈", 8.7f, FontStyle.Regular, muted);
+        remoteHint.Location = new Point(202, 23);
+        remoteHint.Size = new Size(130, 24);
+        remoteHint.TextAlign = ContentAlignment.MiddleRight;
+        var previewRemote = new RemoteVisual();
+        previewRemote.Location = new Point(20, 58);
+        previewRemote.Size = new Size(316, 386);
+        previewRemote.IsActive = true;
+        previewRemote.ShowCallouts = true;
+        previewRemote.AccentColor = violet;
+
+        var fixedTitle = NewLabel("已验证的固定按键", 9.3f, FontStyle.Bold, ink);
+        fixedTitle.Location = new Point(24, 458);
+        fixedTitle.Size = new Size(160, 24);
+        string fixedText =
+            "录音键   按住听写，松开结束\r\n" +
+            "功能键   短按复制，长按粘贴\r\n" +
+            "确认键   Enter / 确认发送\r\n" +
+            "Home     显示桌面\r\n" +
+            "TV       打开任务视图，方向选择\r\n" +
+            "方向键   默认导航，可分别自定义";
+        var fixedList = NewLabel(fixedText, 8.9f, FontStyle.Regular, muted);
+        fixedList.Location = new Point(24, 490);
+        fixedList.Size = new Size(306, 142);
+        var unsupported = NewLabel("开机、返回和独立音量键未检测到稳定按键报告，因此不做映射。", 8.2f, FontStyle.Regular, amber);
+        unsupported.Location = new Point(24, 630);
+        unsupported.Size = new Size(306, 42);
+        remoteCard.Controls.Add(remoteHint);
+        remoteCard.Controls.Add(previewRemote);
+        remoteCard.Controls.Add(fixedTitle);
+        remoteCard.Controls.Add(fixedList);
+        remoteCard.Controls.Add(unsupported);
+
+        var editor = NewCard(new Point(406, 100), new Size(588, 680));
+        editor.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        editor.Controls.Add(SectionTitle("方向键自定义", "\uE765", new Point(26, 20)));
+        var editorHint = NewLabel("按真实方向盘选择，每个键只执行一个动作", 8.7f, FontStyle.Regular, muted);
+        editorHint.Location = new Point(326, 23);
+        editorHint.Size = new Size(230, 24);
+        editorHint.TextAlign = ContentAlignment.MiddleRight;
+        editor.Controls.Add(editorHint);
+
+        string[] keys = { "上键", "下键", "左键", "右键" };
+        string[] labels = { "上键", "下键", "左键", "右键" };
+        string[] selectorLabels = { "↑  上键", "↓  下键", "←  左键", "→  右键" };
+        string[] controls = { "up", "down", "left", "right" };
+        string[] defaultActions = { "up", "down", "left", "right" };
+        Point[] selectorLocations = {
+            new Point(208, 60), new Point(208, 158), new Point(76, 109), new Point(340, 109)
+        };
+        var selectorButtons = new Button[4];
+        var configuration = new Panel();
+        configuration.Location = new Point(24, 220);
+        configuration.Size = new Size(540, 430);
+        configuration.BackColor = Color.Transparent;
+        editor.Controls.Add(configuration);
+        string selectedKey = keys[0];
+        Action renderConfiguration = null;
+
+        for (int i = 0; i < keys.Length; i++)
+        {
+            string key = keys[i];
+            var selector = SecondaryButton(selectorLabels[i], selectorLocations[i], new Size(124, 40));
+            selectorButtons[i] = selector;
+            selector.Click += delegate
+            {
+                selectedKey = key;
+                if (renderConfiguration != null) renderConfiguration();
+            };
+            editor.Controls.Add(selector);
+        }
+
+        renderConfiguration = delegate
+        {
+            while (configuration.Controls.Count > 0) configuration.Controls[0].Dispose();
+            int selectedIndex = Array.IndexOf(keys, selectedKey);
+            if (selectedIndex < 0) selectedIndex = 0;
+            for (int i = 0; i < selectorButtons.Length; i++)
+            {
+                selectorButtons[i].BackColor = i == selectedIndex ?
+                    (darkTheme ? Color.FromArgb(46, 48, 56) : Color.FromArgb(233, 237, 255)) : cardBackground;
+                selectorButtons[i].ForeColor = i == selectedIndex ? violet : ink;
+            }
+            previewRemote.HighlightedControl = controls[selectedIndex];
+            previewRemote.Invalidate();
+
+            string defaultAction = defaultActions[selectedIndex];
+            string currentAction = GetMapping(selectedKey, defaultAction);
+            bool disabled = IsDisabledAction(currentAction);
+
+            var title = NewLabel(labels[selectedIndex], 16f, FontStyle.Bold, ink);
+            title.Location = new Point(2, 4);
+            title.Size = new Size(180, 34);
+            bool observedNow = HasObservedPhysicalButton(selectedKey);
+            var physicalState = NewLabel(observedNow ? "●  已识别实体按键" : "●  尚未收到该实体键",
+                9f, FontStyle.Bold, observedNow ? green : amber);
+            physicalState.Location = new Point(292, 8);
+            physicalState.Size = new Size(238, 28);
+            physicalState.TextAlign = ContentAlignment.MiddleRight;
+            configuration.Controls.Add(title);
+            configuration.Controls.Add(physicalState);
+
+            var verify = SecondaryButton("识别实体键", new Point(2, 54), new Size(126, 38));
+            verify.Click += delegate
+            {
+                long baseline = InputBridgeLogLength();
+                physicalState.Text = "●  请按一次遥控器上的" + labels[selectedIndex];
+                physicalState.ForeColor = cyan;
+                var timer = new System.Windows.Forms.Timer();
+                timer.Interval = 250;
+                int ticks = 0;
+                timer.Tick += delegate
+                {
+                    ticks++;
+                    if (physicalState.IsDisposed || HasObservedPhysicalButtonSince(selectedKey, baseline))
+                    {
+                        timer.Stop();
+                        timer.Dispose();
+                        if (!physicalState.IsDisposed)
+                        {
+                            physicalState.Text = "●  实体按键识别成功";
+                            physicalState.ForeColor = green;
+                            previewRemote.HighlightedControl = controls[selectedIndex];
+                            previewRemote.Invalidate();
+                        }
+                    }
+                    else if (ticks >= 40)
+                    {
+                        timer.Stop();
+                        timer.Dispose();
+                        physicalState.Text = "●  未收到按键；请打开自检";
+                        physicalState.ForeColor = coral;
+                    }
+                };
+                timer.Start();
+            };
+            var disabledToggle = StyledCheck("禁用这个方向键", disabled, new Point(160, 56));
+            disabledToggle.Size = new Size(190, 36);
+            configuration.Controls.Add(verify);
+            configuration.Controls.Add(disabledToggle);
+
+            var actionLabel = NewLabel("执行动作", 9.5f, FontStyle.Bold, ink);
+            actionLabel.Location = new Point(2, 124);
+            actionLabel.Size = new Size(100, 26);
+            var actionBox = StyledCombo(new Point(2, 154), new Size(400, 40));
+            List<ShortcutChoice> choices = ShortcutChoicesFor(selectedKey, currentAction);
+            foreach (ShortcutChoice choice in choices) actionBox.Items.Add(choice);
+            actionBox.SelectedIndex = FindShortcutChoice(choices, currentAction);
+            var actionTest = SecondaryButton("立即测试", new Point(416, 154), new Size(108, 40));
+            actionTest.Click += delegate
+            {
+                TestMappingAction(labels[selectedIndex], GetMapping(selectedKey, defaultAction));
+            };
+
+            actionBox.SelectedIndexChanged += delegate
+            {
+                ShortcutChoice selected = actionBox.SelectedItem as ShortcutChoice;
+                if (selected == null) return;
+                SetMapping(selectedKey, selected.Shortcut);
+                config.mappingPreset = "custom";
+                SaveConfig();
+                ShowToast(labels[selectedIndex] + "配置已保存并生效", "success");
+            };
+
+            disabledToggle.CheckedChanged += delegate
+            {
+                SetMapping(selectedKey, disabledToggle.Checked ? "none" : defaultAction);
+                SaveConfig();
+                renderConfiguration();
+                ShowToast(disabledToggle.Checked ? labels[selectedIndex] + "已禁用" : labels[selectedIndex] + "已恢复方向导航", "success");
+            };
+
+            var reset = SecondaryButton("恢复方向导航", new Point(2, 238), new Size(142, 40));
+            reset.Click += delegate
+            {
+                SetMapping(selectedKey, defaultAction);
+                SaveConfig();
+                renderConfiguration();
+                ShowToast(labels[selectedIndex] + "已恢复方向导航", "success");
+            };
+            var save = PrimaryButton("保存并应用", new Point(158, 238), new Size(138, 40));
+            save.Click += delegate
+            {
+                SaveConfig();
+                StartKeyboardBridge();
+                ShowToast("方向键配置已应用", "success");
+            };
+            var note = NewLabel("TV 键打开 Windows 任务视图；上下左右移动选择，确认键进入，再按 TV 关闭。任务视图打开时，方向键配置不会抢占导航。",
+                8.8f, FontStyle.Regular, muted);
+            note.Location = new Point(2, 310);
+            note.Size = new Size(520, 66);
+            configuration.Controls.Add(actionLabel);
+            configuration.Controls.Add(actionBox);
+            configuration.Controls.Add(actionTest);
+            configuration.Controls.Add(reset);
+            configuration.Controls.Add(save);
+            configuration.Controls.Add(note);
+        };
+
+        renderConfiguration();
+        content.Controls.Add(remoteCard);
+        content.Controls.Add(editor);
+    }
+
+    private void BuildMappingsPageLegacy()
+    {
+        for (int i = 0; i < customButtonStatusLabels.Length; i++) customButtonStatusLabels[i] = null;
+        content.AutoScrollMinSize = new Size(1030, 990);
+        AddPageTitle("按键快捷方式", "所有真实遥控器按键统一配置；选择后自动保存，可立即测试");
+        var mappings = NewCard(new Point(34, 100), new Size(620, 850));
         mappings.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         mappings.Controls.Add(SectionTitle("快捷方式方案", "\uE765", new Point(24, 20)));
 
@@ -936,10 +1409,10 @@ internal sealed class VibeMicForm : Form
             ApplyMappingPreset(preset.SelectedIndex == 1 ? "editing" : preset.SelectedIndex == 2 ? "review" : "coding");
             SaveConfig();
             StartKeyboardBridge();
-            ShowPage(2);
+            ShowPage(PageShortcuts);
             Toast("按键方案已应用");
         };
-        var presetHelp = NewLabel("先选常用模板，再按习惯微调；同一功能重复分配时会提醒。", 8.4f, FontStyle.Regular, muted);
+        var presetHelp = NewLabel("Home、TV、功能键等均可自定义；可打开本机应用、切换运行中的程序或访问网页。", 8.4f, FontStyle.Regular, muted);
         presetHelp.Location = new Point(24, 96);
         presetHelp.Size = new Size(548, 24);
         mappings.Controls.Add(presetLabel);
@@ -947,7 +1420,7 @@ internal sealed class VibeMicForm : Form
         mappings.Controls.Add(applyPreset);
         mappings.Controls.Add(presetHelp);
 
-        var preview = NewCard(new Point(670, 100), new Size(324, 610));
+        var preview = NewCard(new Point(670, 100), new Size(324, 850));
         preview.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         preview.Controls.Add(SectionTitle("遥控器功能速查", "\uE7F4", new Point(24, 20)));
         var previewHint = NewLabel("悬停或选择左侧按键，快速定位实体位置", 8.5f, FontStyle.Regular, muted);
@@ -960,13 +1433,13 @@ internal sealed class VibeMicForm : Form
         previewRemote.ShowCallouts = true;
         previewRemote.AccentColor = violet;
         previewRemote.HighlightedControl = "voice";
-        var mappingSelection = NewLabel("录音键\r\n" + (UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写"), 9.2f, FontStyle.Bold, violet);
+        var mappingSelection = NewLabel("录音键\r\n按住听写 / 松开结束", 9.2f, FontStyle.Bold, violet);
         mappingSelection.Location = new Point(24, 454);
         mappingSelection.Size = new Size(276, 54);
         mappingSelection.TextAlign = ContentAlignment.MiddleCenter;
         mappingSelection.BackColor = Color.FromArgb(243, 241, 255);
         ApplyRoundedRegion(mappingSelection, 6);
-        var previewHelp = NewLabel("独立音量 +/-：此型号未检测到稳定事件\r\n当前由长按 ↑ / ↓ 调节音量", 7.8f, FontStyle.Regular, amber);
+        var previewHelp = NewLabel("返回、独立音量和开机键需由遥控器真实上报。\r\n若设备不支持，自检会明确显示。", 7.8f, FontStyle.Regular, amber);
         previewHelp.Location = new Point(24, 526);
         previewHelp.Size = new Size(276, 46);
         previewHelp.TextAlign = ContentAlignment.MiddleCenter;
@@ -981,9 +1454,13 @@ internal sealed class VibeMicForm : Form
             { "Home", "win+d", "默认：显示桌面" },
             { "TV", "task-switcher", "打开任务切换，左右选择" },
             { "功能键", "launch-client:chatgpt", "打开或切回所选客户端" },
-            { "方向键", "direction-volume-fallback", "短按导航；长按上下调音量" }
+            { "方向键", "passthrough", "标准方向键，不附加组合手势" },
+            { "返回键", "alt+left", "返回上一页或上一个界面" },
+            { "音量 +", "volumeup", "调高 Windows 系统音量" },
+            { "音量 -", "volumedown", "调低 Windows 系统音量" },
+            { "电源键", "escape", "默认安全动作：取消 / Esc" }
         };
-        string[] rowGlyphs = { "\uE720", "\uE73E", "\uE80F", "TV", "\uE765", "\uE7AD" };
+        string[] rowGlyphs = { "\uE720", "\uE73E", "\uE80F", "TV", "\uE765", "\uE7AD", "\uE72B", "\uE767", "\uE767", "\uE7E8" };
         var mappingRows = new List<Panel>();
         for (int i = 0; i < rows.GetLength(0); i++)
         {
@@ -1021,7 +1498,7 @@ internal sealed class VibeMicForm : Form
                 rowBand.BackColor = Color.FromArgb(248, 247, 255);
                 previewRemote.HighlightedControl = previewControl;
                 ShortcutChoice selected = input.SelectedItem as ShortcutChoice;
-                string selectedText = rowIndex == 0 ? (UsesLongDictation(config.voiceMode) ? "单击开始 / 再按结束" : "按住听写") : rowIndex == 5 ? "短按导航 · 长按上下调音量" : selected == null ? rows[rowIndex, 2] : selected.Label;
+                string selectedText = rowIndex == 0 ? "按住听写 / 松开结束" : rowIndex == 5 ? "标准方向键" : selected == null ? rows[rowIndex, 2] : selected.Label;
                 mappingSelection.Text = rows[rowIndex, 0] + "\r\n" + selectedText;
                 previewRemote.Invalidate();
             };
@@ -1034,32 +1511,52 @@ internal sealed class VibeMicForm : Form
             {
                 ShortcutChoice selected = input.SelectedItem as ShortcutChoice;
                 if (selected == null || !input.Enabled) return;
+                string resolvedAction = ResolveCustomActionSelection(selected.Shortcut, this);
+                if (string.IsNullOrWhiteSpace(resolvedAction))
+                {
+                    input.SelectedIndex = FindShortcutChoice(choices, currentAction);
+                    return;
+                }
                 config.mappingPreset = "custom";
                 string selectedKey = rows[rowIndex, 0] == "方向键" ? "上 / 下 / 左 / 右" : rows[rowIndex, 0];
-                SetMapping(selectedKey, selected.Shortcut);
+                SetMapping(selectedKey, resolvedAction);
                 SaveConfig();
                 updatePreview();
-                string conflict = FindMappingConflict(selectedKey, selected.Shortcut);
+                string conflict = FindMappingConflict(selectedKey, resolvedAction);
                 ShowToast(string.IsNullOrEmpty(conflict)
                     ? rows[rowIndex, 0] + "已设为“" + selected.Label + "”"
                     : "已保存；" + rows[rowIndex, 0] + "与" + conflict + "使用相同功能",
                     string.IsNullOrEmpty(conflict) ? "success" : "warning");
+                if (!string.Equals(resolvedAction, selected.Shortcut, StringComparison.OrdinalIgnoreCase)) ShowPage(PageShortcuts);
             };
-            var hint = NewLabel(rows[i, 2], 8.4f, FontStyle.Regular, muted);
-            hint.Location = new Point(370, 9);
-            hint.Size = new Size(194, 40);
-            hint.TextAlign = ContentAlignment.MiddleLeft;
-            hint.MouseEnter += delegate { updatePreview(); };
+            var test = SecondaryButton("测试", new Point(370, 10), new Size(82, 36));
+            test.Enabled = input.Enabled;
+            test.Click += delegate
+            {
+                string action = GetMapping(configKey, rows[rowIndex, 1]);
+                TestMappingAction(configKey, action);
+            };
+            var reset = SecondaryButton("恢复", new Point(464, 10), new Size(82, 36));
+            reset.Enabled = input.Enabled;
+            reset.Click += delegate
+            {
+                SetMapping(configKey, rows[rowIndex, 1]);
+                config.mappingPreset = "custom";
+                SaveConfig();
+                ShowToast(rows[rowIndex, 0] + "已恢复默认功能", "success");
+                ShowPage(PageShortcuts);
+            };
             rowBand.Controls.Add(icon);
             rowBand.Controls.Add(name);
             rowBand.Controls.Add(input);
-            rowBand.Controls.Add(hint);
+            rowBand.Controls.Add(test);
+            rowBand.Controls.Add(reset);
             mappings.Controls.Add(rowBand);
             if (i == 0) updatePreview();
         }
-        var save = PrimaryButton("保存并应用", new Point(144, 538), new Size(132, 42));
+        var save = PrimaryButton("保存并应用", new Point(144, 780), new Size(132, 42));
         save.Click += delegate { SaveConfig(); StartKeyboardBridge(); ShowToast("按键快捷方式已保存并生效", "success"); };
-        var openBridge = SecondaryButton("打开高级配置", new Point(290, 538), new Size(150, 42));
+        var openBridge = SecondaryButton("打开高级配置", new Point(290, 780), new Size(150, 42));
         openBridge.Click += delegate { Process.Start(Path.Combine(root, "voxdeck-shortcuts.json")); };
         mappings.Controls.Add(save);
         mappings.Controls.Add(openBridge);
@@ -1068,6 +1565,131 @@ internal sealed class VibeMicForm : Form
     }
 
     private void BuildDevicePage()
+    {
+        AddPageTitle("一键自检", "逐项说明正确状态、当前状态、原因和修复入口");
+        SelfCheckReport report = BuildSelfCheckReport();
+        int checksHeight = 66 + report.Items.Count * 112;
+        int diagnosticsY = 302 + checksHeight;
+        content.AutoScrollMinSize = new Size(1000, diagnosticsY + 326);
+
+        var overview = NewCard(new Point(34, 100), new Size(960, 120));
+        overview.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        overview.BackColor = report.FailedCount > 0 ? StatusSurface("error") :
+            report.WarningCount > 0 || report.CheckingCount > 0 ? StatusSurface("connecting") : StatusSurface("ready");
+        var score = new RoundPanel();
+        score.Location = new Point(24, 22);
+        score.Size = new Size(76, 76);
+        score.Radius = 38;
+        score.BackColor = report.FailedCount > 0 ? StatusSurface("error") :
+            report.WarningCount > 0 || report.CheckingCount > 0 ? StatusSurface("connecting") : StatusSurface("ready");
+        score.BorderColor = report.FailedCount > 0 ? Color.FromArgb(238, 185, 185) :
+            report.WarningCount > 0 ? Color.FromArgb(242, 211, 151) : Color.FromArgb(164, 225, 193);
+        var scoreValue = NewLabel(report.PassedCount + "/" + report.Items.Count, 14f, FontStyle.Bold,
+            report.FailedCount > 0 ? coral : report.WarningCount > 0 ? amber : green);
+        scoreValue.Dock = DockStyle.Fill;
+        scoreValue.TextAlign = ContentAlignment.MiddleCenter;
+        score.Controls.Add(scoreValue);
+        var headline = NewLabel(report.Headline, 16f, FontStyle.Bold, ink);
+        headline.Location = new Point(124, 22);
+        headline.Size = new Size(510, 34);
+        var overviewDetail = NewLabel(report.Detail, 9.1f, FontStyle.Regular, muted);
+        overviewDetail.Location = new Point(125, 61);
+        overviewDetail.Size = new Size(540, 38);
+        var rerun = PrimaryButton("重新自检", new Point(696, 38), new Size(112, 42));
+        rerun.Click += delegate { RunSelfCheckAndRefresh(); };
+        var setup = SecondaryButton("首次设置", new Point(820, 38), new Size(112, 42));
+        setup.Click += delegate { ShowSetupWizard(); };
+        overview.Controls.Add(score);
+        overview.Controls.Add(headline);
+        overview.Controls.Add(overviewDetail);
+        overview.Controls.Add(rerun);
+        overview.Controls.Add(setup);
+
+        var legend = NewCard(new Point(34, 236), new Size(960, 50));
+        legend.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        string[] legendText = { "正常", "正在检测", "需要配置", "错误", "不支持" };
+        Color[] legendColors = { green, cyan, amber, coral, Color.FromArgb(142, 151, 170) };
+        for (int i = 0; i < legendText.Length; i++)
+        {
+            var item = NewLabel("●  " + legendText[i], 8.6f, FontStyle.Bold, legendColors[i]);
+            item.Location = new Point(30 + i * 174, 14);
+            item.Size = new Size(150, 24);
+            legend.Controls.Add(item);
+        }
+
+        var checks = NewCard(new Point(34, 302), new Size(960, checksHeight));
+        checks.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        checks.Controls.Add(SectionTitle("检查结果", "\uE9D9", new Point(24, 18)));
+        var checkHint = NewLabel("修复后返回言灵会自动重新检测，无需重新开始教程。", 8.7f, FontStyle.Regular, muted);
+        checkHint.Location = new Point(520, 21);
+        checkHint.Size = new Size(410, 24);
+        checkHint.TextAlign = ContentAlignment.MiddleRight;
+        checks.Controls.Add(checkHint);
+        for (int i = 0; i < report.Items.Count; i++) AddSelfCheckRow(checks, report.Items[i], 54 + i * 112);
+
+        var diagnostics = NewCard(new Point(34, diagnosticsY), new Size(960, 290));
+        diagnostics.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        diagnostics.Controls.Add(SectionTitle("高级诊断", "\uE720", new Point(24, 18)));
+        var summaryTitle = NewLabel("最近一次听写", 9f, FontStyle.Bold, muted);
+        summaryTitle.Location = new Point(24, 55);
+        summaryTitle.Size = new Size(160, 24);
+        var summaryBand = new Panel();
+        summaryBand.Location = new Point(24, 82);
+        summaryBand.Size = new Size(548, 132);
+        summaryBand.BackColor = surfaceBackground;
+        var summary = NewLabel(BuildSessionHealthSummary(), 8.2f, FontStyle.Regular, ink);
+        summary.Location = new Point(12, 8);
+        summary.Size = new Size(524, 116);
+        summaryBand.Controls.Add(summary);
+        var rawTitle = NewLabel("技术日志片段", 9f, FontStyle.Bold, muted);
+        rawTitle.Location = new Point(594, 55);
+        rawTitle.Size = new Size(160, 24);
+        logBox = new TextBox();
+        logBox.Location = new Point(594, 82);
+        logBox.Size = new Size(340, 132);
+        logBox.Multiline = true;
+        logBox.ScrollBars = ScrollBars.Vertical;
+        logBox.ReadOnly = true;
+        logBox.BorderStyle = BorderStyle.FixedSingle;
+        logBox.BackColor = inputBackground;
+        logBox.ForeColor = muted;
+        logBox.Font = new Font("Consolas", 7.8f);
+        logBox.Text = LoadRecentDiagnostics();
+        var copy = PrimaryButton("复制问题摘要", new Point(24, 230), new Size(138, 38));
+        copy.Click += delegate
+        {
+            Clipboard.SetText(BuildProblemSummary());
+            ShowToast("问题摘要已复制，可直接粘贴到 GitHub Issue", "success");
+        };
+        var export = SecondaryButton("导出诊断", new Point(174, 230), new Size(116, 38));
+        export.Click += delegate { ExportDiagnostics(); };
+        var openLogs = SecondaryButton("打开日志", new Point(302, 230), new Size(108, 38));
+        openLogs.Click += delegate { OpenLogFolder(); };
+        var captureAudio = SecondaryButton("诊断下一段音频", new Point(422, 230), new Size(150, 38));
+        captureAudio.Click += delegate { CaptureNextAudioDiagnostic(); };
+        var privacy = NewLabel("日志不包含录音、转译文字或完整设备标识", 8.4f, FontStyle.Regular, muted);
+        privacy.Location = new Point(594, 237);
+        privacy.Size = new Size(340, 24);
+        privacy.TextAlign = ContentAlignment.MiddleRight;
+        diagnostics.Controls.Add(summaryTitle);
+        diagnostics.Controls.Add(summaryBand);
+        diagnostics.Controls.Add(rawTitle);
+        diagnostics.Controls.Add(logBox);
+        diagnostics.Controls.Add(copy);
+        diagnostics.Controls.Add(export);
+        diagnostics.Controls.Add(openLogs);
+        diagnostics.Controls.Add(captureAudio);
+        diagnostics.Controls.Add(privacy);
+
+        content.Controls.Add(overview);
+        content.Controls.Add(legend);
+        content.Controls.Add(checks);
+        content.Controls.Add(diagnostics);
+        logBox.SelectionStart = logBox.TextLength;
+        logBox.ScrollToCaret();
+    }
+
+    private void BuildDevicePageLegacy()
     {
         AddPageTitle("连接与自检", "自动定位蓝牙、音频路由、转写工具与最近一次听写问题");
         SelfCheckReport report = BuildSelfCheckReport();
@@ -1164,8 +1786,9 @@ internal sealed class VibeMicForm : Form
 
     private void BuildSettingsPage()
     {
+        content.AutoScrollMinSize = new Size(1000, 790);
         AddPageTitle("偏好设置", "让言灵按你的习惯在后台运行");
-        var startupCard = NewCard(new Point(34, 100), new Size(580, 310));
+        var startupCard = NewCard(new Point(34, 100), new Size(580, 360));
         startupCard.Controls.Add(SectionTitle("启动与窗口", "\uE713", new Point(28, 22)));
         var start = StyledCheck("打开言灵后自动连接遥控器", config.startBridgeOnLaunch, new Point(32, 70));
         start.CheckedChanged += delegate { config.startBridgeOnLaunch = start.Checked; SaveConfig(); };
@@ -1173,10 +1796,22 @@ internal sealed class VibeMicForm : Form
         traySetting.CheckedChanged += delegate { config.minimizeToTray = traySetting.Checked; SaveConfig(); };
         var startup = StyledCheck("登录 Windows 后自动启动言灵", config.launchAtStartup, new Point(32, 166));
         startup.CheckedChanged += delegate { config.launchAtStartup = startup.Checked; SetLaunchAtStartup(startup.Checked); SaveConfig(); };
+        var themeLabel = NewLabel("界面主题", 9.5f, FontStyle.Bold, ink);
+        themeLabel.Location = new Point(32, 218);
+        themeLabel.Size = new Size(120, 30);
+        var theme = StyledCombo(new Point(176, 212), new Size(220, 38));
+        theme.Items.AddRange(new object[] { "跟随 Windows", "白天（默认）", "夜间" });
+        theme.SelectedIndex = config.theme == "light" ? 1 : config.theme == "dark" ? 2 : 0;
+        theme.SelectedIndexChanged += delegate
+        {
+            config.theme = theme.SelectedIndex == 1 ? "light" : theme.SelectedIndex == 2 ? "dark" : "system";
+            SaveConfig();
+            ShowToast("主题已保存，下次打开言灵时完整应用", "success");
+        };
         var startupBand = new Panel();
-        startupBand.Location = new Point(30, 222);
+        startupBand.Location = new Point(30, 282);
         startupBand.Size = new Size(520, 58);
-        startupBand.BackColor = Color.FromArgb(246, 249, 253);
+        startupBand.BackColor = surfaceBackground;
         var startupState = NewLabel((config.launchAtStartup ? "●  已设置开机启动" : "●  仅在手动打开后运行") + "  ·  " +
             (config.minimizeToTray ? "关闭窗口后保持连接" : "关闭窗口时退出"), 9f, FontStyle.Bold,
             config.launchAtStartup ? green : muted);
@@ -1186,9 +1821,11 @@ internal sealed class VibeMicForm : Form
         startupCard.Controls.Add(start);
         startupCard.Controls.Add(traySetting);
         startupCard.Controls.Add(startup);
+        startupCard.Controls.Add(themeLabel);
+        startupCard.Controls.Add(theme);
         startupCard.Controls.Add(startupBand);
 
-        var feedbackCard = NewCard(new Point(630, 100), new Size(364, 310));
+        var feedbackCard = NewCard(new Point(630, 100), new Size(364, 360));
         feedbackCard.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         feedbackCard.Controls.Add(SectionTitle("交互反馈", "\uE8BD", new Point(26, 22)));
         var feedbackSound = StyledCheck("录音结束或失败时播放提示音", config.soundFeedbackEnabled, new Point(28, 72));
@@ -1216,11 +1853,13 @@ internal sealed class VibeMicForm : Form
         feedbackCard.Controls.Add(feedbackNote);
         feedbackCard.Controls.Add(feedbackState);
 
-        var privacyCard = NewCard(new Point(34, 426), new Size(960, 280));
+        var privacyCard = NewCard(new Point(34, 476), new Size(960, 280));
         privacyCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         var privacyTitle = SectionTitle("隐私与维护", "\uEA18", new Point(28, 22));
         var privacy = StyledCheck("本地安全模式：默认不保存录音、不上传音频、不读取听写文字", true, new Point(32, 62));
-        privacy.Enabled = false;
+        privacy.AutoCheck = false;
+        privacy.TabStop = false;
+        privacy.ForeColor = muted;
         var privacyNote = NewLabel("普通日志只记录连接状态与聚合指标，单个日志自动限制为 4 MB。诊断音频必须每次明确确认。", 8.8f, FontStyle.Regular, muted);
         privacyNote.Location = new Point(34, 104);
         privacyNote.Size = new Size(830, 28);
@@ -1275,7 +1914,7 @@ internal sealed class VibeMicForm : Form
         release.Size = new Size(104, 30);
         release.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         release.TextAlign = ContentAlignment.MiddleCenter;
-        release.BackColor = Color.FromArgb(235, 249, 242);
+        release.BackColor = StatusSurface("ready");
         ApplyRoundedRegion(release, 6);
         content.Controls.Add(a);
         content.Controls.Add(b);
@@ -1303,7 +1942,7 @@ internal sealed class VibeMicForm : Form
         var panel = new RoundPanel();
         panel.Location = location;
         panel.Size = size;
-        panel.BackColor = Color.White;
+        panel.BackColor = cardBackground;
         panel.BorderColor = line;
         panel.Radius = 8;
         return panel;
@@ -1418,10 +2057,10 @@ internal sealed class VibeMicForm : Form
     private Button SecondaryButton(string text, Point location, Size size)
     {
         var b = FlatButton(text, location, size);
-        b.BackColor = Color.FromArgb(249, 249, 253);
+        b.BackColor = darkTheme ? surfaceBackground : Color.FromArgb(249, 249, 253);
         b.ForeColor = violet;
-        b.FlatAppearance.MouseOverBackColor = Color.FromArgb(238, 240, 255);
-        b.FlatAppearance.MouseDownBackColor = Color.FromArgb(226, 230, 250);
+        b.FlatAppearance.MouseOverBackColor = darkTheme ? Color.FromArgb(47, 49, 57) : Color.FromArgb(238, 240, 255);
+        b.FlatAppearance.MouseDownBackColor = darkTheme ? Color.FromArgb(53, 55, 64) : Color.FromArgb(226, 230, 250);
         return b;
     }
 
@@ -1470,7 +2109,8 @@ internal sealed class VibeMicForm : Form
         c.DropDownStyle = ComboBoxStyle.DropDownList;
         c.FlatStyle = FlatStyle.Flat;
         c.Font = new Font("Microsoft YaHei UI", 9.5f);
-        c.BackColor = Color.White;
+        c.BackColor = inputBackground;
+        c.ForeColor = ink;
         return c;
     }
 
@@ -1482,6 +2122,8 @@ internal sealed class VibeMicForm : Form
         t.Size = size;
         t.BorderStyle = BorderStyle.FixedSingle;
         t.Font = new Font("Microsoft YaHei UI", 9.5f);
+        t.BackColor = inputBackground;
+        t.ForeColor = ink;
         return t;
     }
 
@@ -1526,23 +2168,52 @@ internal sealed class VibeMicForm : Form
     protected override void OnShown(EventArgs e)
     {
         base.OnShown(e);
-        if (backgroundLaunch)
+        if (uiSmokeMode) return;
+        bool resumeIncompleteSetup = !config.setupCompleted && config.resumeSetupAfterRestart;
+        if (backgroundLaunch && !resumeIncompleteSetup)
         {
             Hide();
             ShowInTaskbar = false;
         }
         if (!config.setupCompleted)
         {
-            if (!backgroundLaunch) ShowSetupWizard();
+            if (resumeIncompleteSetup)
+            {
+                ShowInTaskbar = true;
+                Rectangle area = Screen.PrimaryScreen.WorkingArea;
+                Location = new Point(area.Left + Math.Max(0, (area.Width - Width) / 2),
+                    area.Top + Math.Max(0, (area.Height - Height) / 2));
+                Show();
+                Activate();
+                HostLog("ONBOARDING RESUME after_restart=true step=" + config.onboardingStep);
+                BeginInvoke(new Action(ShowSetupWizard));
+            }
+            else if (!backgroundLaunch) ShowSetupWizard();
             return;
         }
-        StartKeyboardBridge();
+        if (config.launchAtStartup && !IsLaunchAtStartupRegistered())
+        {
+            SetLaunchAtStartup(true);
+            HostLog("STARTUP REPAIRED=true reason=registry_entry_missing_or_stale");
+        }
+        // StartCapture owns bridge startup so login initializes the two services
+        // once, in order, instead of starting the bridge and immediately probing
+        // its still-unwritten health file a second time.
         if (config.startBridgeOnLaunch && !IsCapturing) StartCapture();
+        else StartKeyboardBridge();
         WarmConfiguredProviderAsync(false);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        if (uiSmokeMode)
+        {
+            applicationExiting = true;
+            if (visualTimer != null) { visualTimer.Stop(); visualTimer.Dispose(); visualTimer = null; }
+            if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
+            base.OnFormClosing(e);
+            return;
+        }
         if (config.minimizeToTray && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
@@ -1550,9 +2221,13 @@ internal sealed class VibeMicForm : Form
             return;
         }
         applicationExiting = true;
+        ClearPendingCustomButtonCapture("application_exit");
         if (activityTimer != null) { activityTimer.Stop(); activityTimer.Dispose(); activityTimer = null; }
         if (visualTimer != null) { visualTimer.Stop(); visualTimer.Dispose(); visualTimer = null; }
         if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
+        if (systemRecoveryTimer != null) { systemRecoveryTimer.Stop(); systemRecoveryTimer.Dispose(); systemRecoveryTimer = null; }
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
         StopCapture();
         StopKeyboardBridge();
         ReleaseHeldProviderHotkey("app_exit");
@@ -1572,10 +2247,24 @@ internal sealed class VibeMicForm : Form
         try { if (providerHotkeyTapEvent != null) { providerHotkeyTapEvent.Set(); providerHotkeyTapEvent.Dispose(); } } catch { }
         try { if (providerHotkeyDownEvent != null) { providerHotkeyDownEvent.Set(); providerHotkeyDownEvent.Dispose(); } } catch { }
         try { if (providerHotkeyUpEvent != null) { providerHotkeyUpEvent.Set(); providerHotkeyUpEvent.Dispose(); } } catch { }
+        try { if (inputTargetMissingEvent != null) { inputTargetMissingEvent.Set(); inputTargetMissingEvent.Dispose(); } } catch { }
         try { if (recordingStartCueEvent != null) { recordingStartCueEvent.Dispose(); recordingStartCueEvent = null; } } catch { }
         try { if (recordingStopCueEvent != null) { recordingStopCueEvent.Dispose(); recordingStopCueEvent = null; } } catch { }
         tray.Visible = false;
         base.OnFormClosing(e);
+    }
+
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        if (!refreshSelfCheckOnActivate || currentPageIndex != PageSelfCheck || IsDisposed) return;
+        refreshSelfCheckOnActivate = false;
+        BeginInvoke(new Action(delegate
+        {
+            windowsHardwareProbeAt = DateTime.MinValue;
+            ShowPage(PageSelfCheck);
+            ShowToast("已根据 Windows 当前设置重新检测", "info");
+        }));
     }
 
     private void ShowMainWindow()
@@ -1602,15 +2291,36 @@ internal sealed class VibeMicForm : Form
 
     private void StartCapture()
     {
+        if (IsCapturing)
+        {
+            HostLog("CAPTURE START skipped=true reason=already_running pid=" + captureProcess.Id);
+            return;
+        }
         config = LoadConfig();
         captureStopping = false;
         bridgeReady = false;
+        captureNotReadySince = DateTime.MinValue;
+        captureHeartbeatUnhealthySince = DateTime.MinValue;
         string script = Path.Combine(root, "scripts", "remote-voice-capture.ps1");
         string nativeCapture = Path.Combine(root, "VibeMicAtvvCapture.exe");
         if (!File.Exists(nativeCapture) && !File.Exists(script)) { Toast("语音组件不完整，请重新安装言灵"); return; }
         try
         {
+            // A host restart must not tear down a healthy ATVV session. Windows
+            // can keep the old GATT handle reserved for tens of seconds after
+            // a process exits, which makes an otherwise valid startup look
+            // broken. Attach to the already-running session first.
+            StartKeyboardBridge();
+            if (TryAttachExistingCapture())
+            {
+                UpdateCaptureUi();
+                return;
+            }
             StopOrphanCaptureCore();
+            // Windows may keep the previous Bluetooth GATT session alive for a
+            // short period after the process exits. Starting immediately can
+            // return AccessDenied for the new write characteristic.
+            Thread.Sleep(CaptureRestartReleaseDelayMs);
             StartKeyboardBridge();
             if (File.Exists(eventsPath)) File.Delete(eventsPath);
             lastEventLength = 0;
@@ -1669,6 +2379,8 @@ internal sealed class VibeMicForm : Form
     {
         captureStopping = true;
         bridgeReady = false;
+        captureNotReadySince = DateTime.MinValue;
+        captureHeartbeatUnhealthySince = DateTime.MinValue;
         if (reconnectTimer != null) { reconnectTimer.Stop(); reconnectTimer.Dispose(); reconnectTimer = null; }
         try
         {
@@ -1821,6 +2533,19 @@ internal sealed class VibeMicForm : Form
         StartCapture();
     }
 
+    private void HandleMissingInputTarget()
+    {
+        const string message = "请先点击目标应用的输入框，再按住录音键";
+        HostLog("INPUT TARGET MISSING user_action=focus_editable_text_box");
+        if (Visible && WindowState != FormWindowState.Minimized) ShowToast(message, "warning");
+        else
+        {
+            tray.BalloonTipTitle = "言灵尚未开始听写";
+            tray.BalloonTipText = message;
+            tray.ShowBalloonTip(3500);
+        }
+    }
+
     private void HandleProviderHotkeyTapRequest()
     {
         if (applicationExiting) return;
@@ -1962,7 +2687,7 @@ internal sealed class VibeMicForm : Form
                     using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicVoiceKeyPressed"))
                     {
                         bool delivered = handle.Set();
-                        HostLog("VOICE WAKE replay mode=continuous delivered=" + delivered +
+                        HostLog("VOICE WAKE replay mode=push_to_talk delivered=" + delivered +
                             " waited_ms=" + (attempt * 25));
                         return;
                     }
@@ -1970,12 +2695,12 @@ internal sealed class VibeMicForm : Form
                 catch (WaitHandleCannotBeOpenedException) { }
                 catch (Exception ex)
                 {
-                    HostLog("VOICE WAKE replay failed mode=continuous error=" + ex.Message);
+                    HostLog("VOICE WAKE replay failed mode=push_to_talk error=" + ex.Message);
                     return;
                 }
                 Thread.Sleep(25);
             }
-            HostLog("VOICE WAKE replay failed mode=continuous reason=capture_event_timeout");
+            HostLog("VOICE WAKE replay failed mode=push_to_talk reason=capture_event_timeout");
         });
     }
 
@@ -2116,28 +2841,237 @@ internal sealed class VibeMicForm : Form
         }
     }
 
+    private bool TryAttachExistingCapture()
+    {
+        string executable = Path.GetFullPath(Path.Combine(root, "VibeMicAtvvCapture.exe"));
+        Process[] running = Process.GetProcessesByName("VibeMicAtvvCapture");
+        try
+        {
+            foreach (Process process in running)
+            {
+                try
+                {
+                    if (process.HasExited) continue;
+                    string runningPath = Path.GetFullPath(process.MainModule.FileName);
+                    if (!runningPath.Equals(executable, StringComparison.OrdinalIgnoreCase)) continue;
+                    Dictionary<string, object> captureHealth;
+                    string captureHealthError;
+                    if (!TryReadCaptureHeartbeat(process, out captureHealth, out captureHealthError))
+                    {
+                        HostLog("CAPTURE ATTACH rejected=true pid=" + process.Id +
+                            " reason=" + (captureHealthError ?? "heartbeat_invalid"));
+                        continue;
+                    }
+
+                    Process attached = process;
+                    captureProcess = attached;
+                    captureProcess.EnableRaisingEvents = true;
+                    captureProcess.Exited += delegate
+                    {
+                        try { BeginInvoke(new Action(delegate { CaptureExited(attached); })); }
+                        catch { }
+                    };
+                    captureStartedAt = attached.StartTime.ToLocalTime();
+                    bridgeReady = RuntimeLogReadySince(captureStartedAt);
+                    reconnectAttempt = 0;
+                    HostLog("CAPTURE ATTACHED existing=true pid=" + attached.Id +
+                        " atvv_ready=" + bridgeReady + " reason=preserve_gatt_session");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    HostLog("CAPTURE ATTACH skipped=true error=" + ex.GetType().Name);
+                }
+            }
+        }
+        finally
+        {
+            foreach (Process process in running)
+            {
+                if (!object.ReferenceEquals(process, captureProcess)) process.Dispose();
+            }
+        }
+        return false;
+    }
+
+    private bool TryReadCaptureHeartbeat(Process process, out Dictionary<string, object> health, out string error)
+    {
+        health = null;
+        error = null;
+        if (process == null)
+        {
+            error = "process_missing";
+            return false;
+        }
+        string path = Path.Combine(sessionDir, "capture-health.json");
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    error = "heartbeat_missing";
+                }
+                else
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                    {
+                        health = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                    }
+                    if (health == null)
+                    {
+                        error = "heartbeat_empty";
+                    }
+                    else if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds > 7)
+                    {
+                        error = "heartbeat_stale";
+                    }
+                    else
+                    {
+                        object value;
+                        int pid = health.TryGetValue("pid", out value) ? Convert.ToInt32(value) : 0;
+                        if (pid != process.Id) error = "heartbeat_pid_mismatch";
+                        else
+                        {
+                            string state = health.ContainsKey("state") ? Convert.ToString(health["state"]) : "";
+                            if (state.Equals("stopped", StringComparison.OrdinalIgnoreCase) ||
+                                state.Equals("error", StringComparison.OrdinalIgnoreCase)) error = "heartbeat_state_" + state;
+                            else
+                            {
+                                DateTime processStart = process.StartTime.ToUniversalTime();
+                                DateTime recordedStart;
+                                string recorded = health.ContainsKey("process_started_utc")
+                                    ? Convert.ToString(health["process_started_utc"]) : "";
+                                if (!DateTime.TryParse(recorded, CultureInfo.InvariantCulture,
+                                    DateTimeStyles.RoundtripKind, out recordedStart))
+                                    error = "heartbeat_start_missing";
+                                else if (Math.Abs((recordedStart.ToUniversalTime() - processStart).TotalSeconds) > 3)
+                                    error = "heartbeat_start_mismatch";
+                                else return true;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { error = ex.GetType().Name; }
+            if (attempt < 2) Thread.Sleep(25);
+        }
+        return false;
+    }
+
+    private bool RuntimeLogReadySince(DateTime startedAt)
+    {
+        try
+        {
+            string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
+            if (!File.Exists(path)) return false;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            {
+                long length = stream.Length;
+                long start = Math.Max(0, length - 128 * 1024);
+                stream.Seek(start, SeekOrigin.Begin);
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) < 0 || line.Length < 23)
+                            continue;
+                        DateTime timestamp;
+                        if (DateTime.TryParse(line.Substring(0, 23), CultureInfo.InvariantCulture,
+                            DateTimeStyles.None, out timestamp) && timestamp >= startedAt.AddSeconds(-1))
+                            return true;
+                    }
+                }
+            }
+        }
+        catch { return false; }
+        return false;
+    }
+
     private void StartKeyboardBridge()
     {
         try
         {
             SyncKeyboardBridgeConfig();
+            string executable = Path.GetFullPath(Path.Combine(root, "VoxDeckInputBridge.exe"));
             Process[] running = Process.GetProcessesByName("VoxDeckInputBridge");
             if (running.Length > 0)
             {
-                keyboardBridgeProcess = running[0];
-                for (int i = 1; i < running.Length; i++) running[i].Dispose();
-                return;
+                Process reusable = null;
+                bool stale = false;
+                foreach (Process process in running)
+                {
+                    try
+                    {
+                        string runningPath = Path.GetFullPath(process.MainModule.FileName);
+                        // A hidden WinForms bridge can report Responding=false while its
+                        // message pump and low-level hook are still healthy. The health
+                        // heartbeat is the authoritative liveness signal.
+                        if (runningPath.Equals(executable, StringComparison.OrdinalIgnoreCase) && !process.HasExited)
+                            reusable = process;
+                        else stale = true;
+                    }
+                    catch { stale = true; }
+                    if (!object.ReferenceEquals(process, reusable)) process.Dispose();
+                }
+                bool reusableHealthy = false;
+                bool reusableStarting = false;
+                if (reusable != null && !stale)
+                {
+                    Dictionary<string, object> health;
+                    string healthError;
+                    reusableHealthy = TryReadBridgeHealth(Path.Combine(root, "input-bridge-health.json"),
+                        out health, out healthError) && health != null &&
+                        health.ContainsKey("state") && string.Equals(Convert.ToString(health["state"]), "running", StringComparison.OrdinalIgnoreCase) &&
+                        health.ContainsKey("hook_installed") && Convert.ToBoolean(health["hook_installed"]) &&
+                        health.ContainsKey("raw_input_registered") && Convert.ToBoolean(health["raw_input_registered"]) &&
+                        health.ContainsKey("raw_input_device_present") && Convert.ToBoolean(health["raw_input_device_present"]);
+                    if (!reusableHealthy)
+                        HostLog("KEYBOARD BRIDGE reuse_rejected=true reason=" + (healthError ?? "health_not_ready"));
+                    try
+                    {
+                        DateTime processStartedUtc = reusable.StartTime.ToUniversalTime();
+                        reusableStarting = (DateTime.UtcNow - processStartedUtc).TotalSeconds < BridgeHealthStartupGraceSeconds;
+                    }
+                    catch
+                    {
+                        reusableStarting = keyboardBridgeStartedAt != DateTime.MinValue &&
+                            (DateTime.UtcNow - keyboardBridgeStartedAt).TotalSeconds < BridgeHealthStartupGraceSeconds;
+                    }
+                }
+                if (reusable != null && !stale && (reusableHealthy || reusableStarting))
+                {
+                    keyboardBridgeProcess = reusable;
+                    keyboardBridgeStartedAt = DateTime.UtcNow;
+                    HostLog("KEYBOARD BRIDGE reused=true pid=" + reusable.Id +
+                        (reusableStarting ? " reason=startup_grace" : " reason=healthy"));
+                    return;
+                }
+                StopKeyboardBridge();
             }
-            string executable = Path.Combine(root, "VoxDeckInputBridge.exe");
             if (!File.Exists(executable)) { HostLog("KEYBOARD BRIDGE missing=true"); return; }
             var start = new ProcessStartInfo(executable, "--background");
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
             start.WindowStyle = ProcessWindowStyle.Hidden;
             keyboardBridgeProcess = Process.Start(start);
+            keyboardBridgeStartedAt = DateTime.UtcNow;
             HostLog("KEYBOARD BRIDGE started=true pid=" + keyboardBridgeProcess.Id);
         }
         catch (Exception ex) { HostLog("KEYBOARD BRIDGE start_failed=true error=" + ex.Message); }
+    }
+
+    private void RestartKeyboardBridge(string reason)
+    {
+        if (applicationExiting || (DateTime.UtcNow - lastKeyboardBridgeRecoveryAt).TotalSeconds < 10) return;
+        lastKeyboardBridgeRecoveryAt = DateTime.UtcNow;
+        HostLog("KEYBOARD BRIDGE recovery=start reason=" + reason);
+        StopKeyboardBridge();
+        StartKeyboardBridge();
     }
 
     private void StopKeyboardBridge()
@@ -2154,8 +3088,100 @@ internal sealed class VibeMicForm : Form
                 catch { }
                 finally { process.Dispose(); }
             }
+            keyboardBridgeProcess = null;
         }
         catch { }
+    }
+
+    private void PollKeyboardBridgeHealth()
+    {
+        if (applicationExiting || !config.setupCompleted) return;
+        string healthPath = Path.Combine(root, "input-bridge-health.json");
+        if (!IsCurrentProcessRunningFromRoot("VoxDeckInputBridge"))
+        {
+            keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
+            RestartKeyboardBridge("process_missing");
+            return;
+        }
+        if (keyboardBridgeStartedAt != DateTime.MinValue &&
+            (DateTime.UtcNow - keyboardBridgeStartedAt).TotalSeconds < BridgeHealthStartupGraceSeconds) return;
+
+        Dictionary<string, object> health;
+        string readError;
+        bool read = TryReadBridgeHealth(healthPath, out health, out readError);
+        bool unhealthy = !read;
+        object state = null;
+        object hook = null;
+        object rawInput = null;
+        object rawDevice = null;
+        if (read)
+        {
+            unhealthy = health == null ||
+                !health.TryGetValue("state", out state) ||
+                !string.Equals(Convert.ToString(state), "running", StringComparison.OrdinalIgnoreCase) ||
+                !health.TryGetValue("hook_installed", out hook) || !Convert.ToBoolean(hook) ||
+                !health.TryGetValue("raw_input_registered", out rawInput) || !Convert.ToBoolean(rawInput) ||
+                !health.TryGetValue("raw_input_device_present", out rawDevice) || !Convert.ToBoolean(rawDevice);
+        }
+        if (!unhealthy)
+        {
+            keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        if (keyboardBridgeHealthUnhealthySince == DateTime.MinValue)
+        {
+            keyboardBridgeHealthUnhealthySince = now;
+            HostLog("KEYBOARD BRIDGE health_degraded=true error=" + (readError ?? "invalid heartbeat") +
+                " state=" + (health == null ? "missing" : Convert.ToString(state)) +
+                " hook=" + (health != null && health.TryGetValue("hook_installed", out hook) ? Convert.ToString(hook) : "missing") +
+                " raw_input=" + (health != null && health.TryGetValue("raw_input_registered", out rawInput) ? Convert.ToString(rawInput) : "missing") +
+                " raw_device=" + (health != null && health.TryGetValue("raw_input_device_present", out rawDevice) ? Convert.ToString(rawDevice) : "missing"));
+        }
+        if ((now - keyboardBridgeHealthUnhealthySince).TotalSeconds >= BridgeHealthFailureRecoverySeconds)
+        {
+            HostLog("KEYBOARD BRIDGE health_invalid=true duration_s=" +
+                (now - keyboardBridgeHealthUnhealthySince).TotalSeconds.ToString("0") +
+                " action=recover");
+            keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
+            RestartKeyboardBridge("heartbeat_stale");
+        }
+    }
+
+    private static bool TryReadBridgeHealth(string path, out Dictionary<string, object> health, out string error)
+    {
+        health = null;
+        error = null;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    error = "heartbeat_missing";
+                }
+                else
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                    {
+                        health = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+                    }
+                    if (health != null)
+                    {
+                        DateTime modified = File.GetLastWriteTimeUtc(path);
+                        if ((DateTime.UtcNow - modified).TotalSeconds <= 7) return true;
+                        error = "heartbeat_stale";
+                    }
+                    else error = "heartbeat_empty";
+                }
+            }
+            catch (Exception ex) { error = ex.Message; }
+            if (attempt < 2) Thread.Sleep(25);
+        }
+        return false;
     }
 
     private static void SignalEvent(string name)
@@ -2188,7 +3214,7 @@ internal sealed class VibeMicForm : Form
             }
         });
         Toast("已测试 " + ProviderDisplayName(provider) + " 快捷键 " + shortcut.Replace("+", " + ") +
-            (hold ? "（按住触发）" : "（单击开始，再次单击结束）"));
+            (hold ? "（按住触发）" : "（切换触发，测试会自动结束）"));
     }
 
     private static bool SendConfiguredHotkey(string shortcut, bool keyUp)
@@ -2293,6 +3319,690 @@ internal sealed class VibeMicForm : Form
         {
             using (var wizard = new Form())
             {
+                wizard.Text = "首次设置 · " + DisplayProductName;
+                wizard.ClientSize = new Size(1040, 720);
+                wizard.FormBorderStyle = FormBorderStyle.FixedDialog;
+                wizard.MaximizeBox = false;
+                wizard.MinimizeBox = false;
+                wizard.StartPosition = FormStartPosition.CenterParent;
+                wizard.BackColor = pageBackground;
+                wizard.Font = Font;
+                wizard.Icon = Icon;
+
+                var rail = new Panel();
+                rail.Dock = DockStyle.Left;
+                rail.Width = 250;
+                rail.BackColor = sidebarBackground;
+                rail.Paint += delegate(object sender, PaintEventArgs e)
+                {
+                    using (var progress = new Pen(Color.FromArgb(218, 224, 239), 2f))
+                        e.Graphics.DrawLine(progress, 39, 118, 39, 572);
+                    using (var border = new Pen(line))
+                        e.Graphics.DrawLine(border, rail.Width - 1, 0, rail.Width - 1, rail.Height);
+                };
+                var setupLogo = new PictureBox();
+                setupLogo.Image = LoadBrandLogo();
+                setupLogo.SizeMode = PictureBoxSizeMode.Zoom;
+                setupLogo.BackColor = Color.Transparent;
+                setupLogo.Location = new Point(24, 22);
+                setupLogo.Size = new Size(42, 42);
+                var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
+                railBrand.Location = new Point(78, 21);
+                railBrand.AutoSize = true;
+                var railEnglish = NewLabel("VIBE FLOW REMOTE · V1.2", 7.3f, FontStyle.Bold, violet);
+                railEnglish.Location = new Point(80, 52);
+                railEnglish.AutoSize = true;
+                rail.Controls.Add(setupLogo);
+                rail.Controls.Add(railBrand);
+                rail.Controls.Add(railEnglish);
+                wizard.Disposed += delegate { if (setupLogo.Image != null) setupLogo.Image.Dispose(); };
+
+                string[] stepNames =
+                {
+                    "了解按住说话", "检查 Windows 蓝牙", "配对并连接遥控器", "验证实体按键",
+                    "检查遥控器麦克风", "安装 VB-CABLE", "选择语音工具", "完成真实转译",
+                    "配置四个方向键", "设置开机自动可用", "完成与检查结果"
+                };
+                var numberLabels = new Label[OnboardingStepCount];
+                var progressLabels = new Label[OnboardingStepCount];
+                for (int i = 0; i < OnboardingStepCount; i++)
+                {
+                    var number = NewLabel((i + 1).ToString(), 8.2f, FontStyle.Bold, muted);
+                    number.Location = new Point(27, 98 + i * 45);
+                    number.Size = new Size(25, 25);
+                    number.TextAlign = ContentAlignment.MiddleCenter;
+                    number.BackColor = darkTheme ? surfaceBackground : Color.FromArgb(237, 240, 248);
+                    ApplyRoundedRegion(number, 12);
+                    var stepLabel = NewLabel(stepNames[i], 8.8f, FontStyle.Regular, muted);
+                    stepLabel.Location = new Point(65, 100 + i * 45);
+                    stepLabel.Size = new Size(170, 25);
+                    numberLabels[i] = number;
+                    progressLabels[i] = stepLabel;
+                    rail.Controls.Add(number);
+                    rail.Controls.Add(stepLabel);
+                }
+                var privacyRail = NewLabel("全程本地传输 · 默认不保存录音\r\n不读取或记录你的转译文字", 8.2f, FontStyle.Regular, muted);
+                privacyRail.Location = new Point(26, 620);
+                privacyRail.Size = new Size(204, 48);
+                rail.Controls.Add(privacyRail);
+
+                var body = new Panel();
+                body.Dock = DockStyle.Fill;
+                body.BackColor = pageBackground;
+                var pageContent = new Panel();
+                pageContent.Location = new Point(34, 24);
+                pageContent.Size = new Size(720, 610);
+                pageContent.BackColor = Color.Transparent;
+                var back = SecondaryButton("上一步", new Point(34, 656), new Size(112, 42));
+                var next = PrimaryButton("下一步", new Point(588, 656), new Size(166, 42));
+                var stepCounter = NewLabel("第 1 步，共 11 步", 8.6f, FontStyle.Bold, violet);
+                stepCounter.Location = new Point(164, 666);
+                stepCounter.Size = new Size(128, 24);
+                var wizardFeedback = NewLabel("", 8.8f, FontStyle.Bold, muted);
+                wizardFeedback.Location = new Point(296, 662);
+                wizardFeedback.Size = new Size(278, 30);
+                wizardFeedback.TextAlign = ContentAlignment.MiddleCenter;
+                body.Controls.Add(pageContent);
+                body.Controls.Add(back);
+                body.Controls.Add(next);
+                body.Controls.Add(stepCounter);
+                body.Controls.Add(wizardFeedback);
+                wizard.Controls.Add(body);
+                wizard.Controls.Add(rail);
+
+                int currentStep = config.setupCompleted ? 0 : Math.Max(0, Math.Min(OnboardingStepCount - 1, config.onboardingStep));
+                string selectedProvider = NormalizeProviderKey(config.inputMethod);
+                string selectedHotkey = config.inputMethodHotkey;
+                string selectedTrigger = config.inputMethodTrigger;
+                bool startupChoice = config.launchAtStartup;
+                bool bridgeChoice = true;
+                bool trayChoice = true;
+                bool bluetoothConfirmed = false;
+                DateTime keyBaselineUtc = currentStep == 3 ? DateTime.UtcNow : DateTime.MinValue;
+                int dictationBaselineGeneration = currentStep == 7 ? GetLatestSessionHealth().Generation : 0;
+                bool firstDictationSucceeded = false;
+                Label liveStatus = null;
+                Label liveDetail = null;
+                TextBox testInput = null;
+                ComboBox hotkeyTrigger = null;
+                TextBox hotkeyBox = null;
+                Action<int> renderStep = null;
+
+                Action persistProgress = delegate
+                {
+                    config.voiceMode = "hold";
+                    config.inputMethod = NormalizeProviderKey(selectedProvider);
+                    config.inputMethodHotkey = selectedHotkey;
+                    config.inputMethodTrigger = selectedTrigger == "hold" ? "hold" : "toggle";
+                    config.onboardingVersion = CurrentOnboardingVersion;
+                    config.onboardingStep = currentStep;
+                    SaveConfig();
+                };
+                Action<string, bool> showFeedback = delegate(string message, bool success)
+                {
+                    wizardFeedback.Text = message;
+                    wizardFeedback.ForeColor = success ? green : coral;
+                };
+
+                renderStep = delegate(int requestedStep)
+                {
+                    int previousStep = currentStep;
+                    currentStep = Math.Max(0, Math.Min(OnboardingStepCount - 1, requestedStep));
+                    if (currentStep == 3 && previousStep != 3) keyBaselineUtc = DateTime.UtcNow;
+                    if (currentStep == 7 && previousStep != 7)
+                    {
+                        dictationBaselineGeneration = GetLatestSessionHealth().Generation;
+                        firstDictationSucceeded = false;
+                    }
+                    persistProgress();
+                    while (pageContent.Controls.Count > 0) pageContent.Controls[0].Dispose();
+                    liveStatus = null;
+                    liveDetail = null;
+                    testInput = null;
+                    hotkeyTrigger = null;
+                    hotkeyBox = null;
+                    wizardFeedback.Text = "";
+
+                    for (int i = 0; i < OnboardingStepCount; i++)
+                    {
+                        bool completed = i < currentStep;
+                        numberLabels[i].Text = completed ? "✓" : (i + 1).ToString();
+                        numberLabels[i].ForeColor = i <= currentStep ? Color.White : muted;
+                        numberLabels[i].BackColor = completed ? green : i == currentStep ? violet :
+                            (darkTheme ? surfaceBackground : Color.FromArgb(237, 240, 248));
+                        progressLabels[i].ForeColor = i == currentStep ? violet : completed ? green : muted;
+                        progressLabels[i].Font = new Font("Microsoft YaHei UI", 8.8f,
+                            i == currentStep ? FontStyle.Bold : FontStyle.Regular);
+                    }
+                    stepCounter.Text = "第 " + (currentStep + 1) + " 步，共 " + OnboardingStepCount + " 步";
+                    back.Enabled = currentStep > 0;
+                    next.Text = currentStep == OnboardingStepCount - 1 ? "完成设置" : "完成本步，继续";
+
+                    string headingText = stepNames[currentStep];
+                    string subtitleText = currentStep == 0 ? "只需一次设置。以后拿起遥控器，按住说话、松开结束，再按确认键发送。" :
+                        currentStep == 1 ? "确认电脑有可用蓝牙，并在 Windows 中保持蓝牙开启。" :
+                        currentStep == 2 ? "在 Windows 中完成 RC003 配对；言灵会自动等待、连接并在休眠后恢复。" :
+                        currentStep == 3 ? "按一次方向键。收到真实实体按键后，本步才会通过。" :
+                        currentStep == 4 ? "先确认 RC003 的 ATVV 麦克风服务可用；真实声音会在第 8 步验证。" :
+                        currentStep == 5 ? "VB-CABLE 是遥控器音频进入语音工具的本地通道，只需安装一次。" :
+                        currentStep == 6 ? "选择一个全局默认工具，并让这里的快捷键与工具设置完全一致。" :
+                        currentStep == 7 ? "把光标放在下方输入框，按住录音键说话，松开后等待文字出现。" :
+                        currentStep == 8 ? "上下左右是四个真实可用的自定义键；默认保持方向导航，每键只执行一个动作。" :
+                        currentStep == 9 ? "推荐后台自启动。Windows 登录后不弹主窗口，遥控器就绪后直接可用。" :
+                        "最后确认关键链路。以后遇到问题，可在“自检”页直接定位和修复。";
+                    var heading = NewLabel(headingText, 20f, FontStyle.Bold, ink);
+                    heading.Location = new Point(0, 4);
+                    heading.Size = new Size(700, 38);
+                    var subtitle = NewLabel(subtitleText, 9.6f, FontStyle.Regular, muted);
+                    subtitle.Location = new Point(2, 47);
+                    subtitle.Size = new Size(700, 48);
+                    pageContent.Controls.Add(heading);
+                    pageContent.Controls.Add(subtitle);
+
+                    if (currentStep == 0)
+                    {
+                        string[,] flow =
+                        {
+                            { "1", "按住录音键", "只创建一个听写会话" },
+                            { "2", "持续自然说话", "真实音频到达后才显示收音" },
+                            { "3", "松开录音键", "可靠结束并由工具转译" },
+                            { "4", "按中间确认键", "确认内容后再发送" }
+                        };
+                        for (int i = 0; i < 4; i++)
+                        {
+                            int y = 118 + i * 94;
+                            var number = NewLabel(flow[i, 0], 10f, FontStyle.Bold, Color.White);
+                            number.Location = new Point(8, y + 8);
+                            number.Size = new Size(34, 34);
+                            number.TextAlign = ContentAlignment.MiddleCenter;
+                            number.BackColor = i == 0 ? violet : i == 1 ? cyan : i == 2 ? green : amber;
+                            ApplyRoundedRegion(number, 17);
+                            var title = NewLabel(flow[i, 1], 11f, FontStyle.Bold, ink);
+                            title.Location = new Point(62, y);
+                            title.Size = new Size(220, 28);
+                            var detail = NewLabel(flow[i, 2], 9f, FontStyle.Regular, muted);
+                            detail.Location = new Point(62, y + 32);
+                            detail.Size = new Size(560, 28);
+                            pageContent.Controls.Add(number);
+                            pageContent.Controls.Add(title);
+                            pageContent.Controls.Add(detail);
+                        }
+                        var fixedRule = NewLabel("固定规则：录音键不支持切换模式；一次按下只开始一次，一次松开只结束一次。", 9.2f, FontStyle.Bold, violet);
+                        fixedRule.Location = new Point(8, 508);
+                        fixedRule.Size = new Size(680, 30);
+                        pageContent.Controls.Add(fixedRule);
+                    }
+                    else if (currentStep == 1)
+                    {
+                        BridgeHealthSnapshot snapshot = ReadKeyboardBridgeHealth();
+                        bool detected = bridgeReady || snapshot.RawInputDevicePresent ||
+                            ReadCurrentRuntimeSegment().IndexOf("BLE status=Connected", StringComparison.OrdinalIgnoreCase) >= 0;
+                        liveStatus = NewLabel(detected ? "●  已检测到可用蓝牙链路" : "●  请在 Windows 中确认蓝牙已开启", 13f, FontStyle.Bold,
+                            detected ? green : amber);
+                        liveStatus.Location = new Point(8, 124);
+                        liveStatus.Size = new Size(540, 36);
+                        liveDetail = NewLabel(detected ? "当前已能看到遥控器或蓝牙语音连接。" : "言灵不会修改蓝牙开关；请在系统设置中打开后返回。", 9.2f, FontStyle.Regular, muted);
+                        liveDetail.Location = new Point(8, 168);
+                        liveDetail.Size = new Size(650, 40);
+                        var openBluetooth = PrimaryButton("打开 Windows 蓝牙设置", new Point(8, 230), new Size(210, 42));
+                        openBluetooth.Click += delegate { OpenUri("ms-settings:bluetooth"); };
+                        var recheck = SecondaryButton("重新检测", new Point(232, 230), new Size(120, 42));
+                        recheck.Click += delegate { renderStep(1); };
+                        var confirmed = StyledCheck("我已确认 Windows 蓝牙处于开启状态", bluetoothConfirmed, new Point(8, 304));
+                        confirmed.CheckedChanged += delegate { bluetoothConfirmed = confirmed.Checked; };
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(liveDetail);
+                        pageContent.Controls.Add(openBluetooth);
+                        pageContent.Controls.Add(recheck);
+                        pageContent.Controls.Add(confirmed);
+                    }
+                    else if (currentStep == 2)
+                    {
+                        BridgeHealthSnapshot snapshot = ReadKeyboardBridgeHealth();
+                        bool detected = bridgeReady || snapshot.RawInputDevicePresent ||
+                            ReadCurrentRuntimeSegment().IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0;
+                        liveStatus = NewLabel(detected ? "●  RC003 已被言灵识别" : "●  尚未识别 RC003", 13f, FontStyle.Bold,
+                            detected ? green : amber);
+                        liveStatus.Location = new Point(8, 124);
+                        liveStatus.Size = new Size(560, 36);
+                        liveDetail = NewLabel(detected ? "配对信息已存在，后台会继续建立按键与麦克风链路。" :
+                            "点击“添加设备”，选择蓝牙并完成 RC003 配对；完成后按方向键唤醒。", 9.2f, FontStyle.Regular, muted);
+                        liveDetail.Location = new Point(8, 168);
+                        liveDetail.Size = new Size(650, 48);
+                        var pair = PrimaryButton("打开添加蓝牙设备", new Point(8, 238), new Size(190, 42));
+                        pair.Click += delegate { OpenUri("ms-settings:bluetooth"); };
+                        var connect = SecondaryButton(IsCapturing ? "重新检测" : "启动连接", new Point(212, 238), new Size(132, 42));
+                        connect.Click += delegate { if (!IsCapturing) StartCapture(); renderStep(2); };
+                        var note = NewLabel("遥控器休眠、电脑睡眠或蓝牙晚启动时无需重新配置，言灵会自动等待并恢复。", 9f, FontStyle.Regular, muted);
+                        note.Location = new Point(8, 316);
+                        note.Size = new Size(660, 44);
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(liveDetail);
+                        pageContent.Controls.Add(pair);
+                        pageContent.Controls.Add(connect);
+                        pageContent.Controls.Add(note);
+                    }
+                    else if (currentStep == 3)
+                    {
+                        BridgeHealthSnapshot snapshot = ReadKeyboardBridgeHealth();
+                        bool observed = snapshot.LastInputAtUtc > keyBaselineUtc;
+                        liveStatus = NewLabel(observed ? "●  已收到真实遥控器按键" : "●  等待方向键", 13f, FontStyle.Bold,
+                            observed ? green : cyan);
+                        liveStatus.Location = new Point(8, 124);
+                        liveStatus.Size = new Size(560, 36);
+                        liveDetail = NewLabel(observed ? "按键监听正常，最近事件：" + snapshot.LastInputKind :
+                            "现在按一下遥控器上的上、下、左或右键。普通方向键保持 Windows 原生行为。", 9.2f, FontStyle.Regular, muted);
+                        liveDetail.Location = new Point(8, 168);
+                        liveDetail.Size = new Size(650, 48);
+                        var recheck = PrimaryButton("检查刚才的按键", new Point(8, 240), new Size(170, 42));
+                        recheck.Click += delegate { renderStep(3); };
+                        var repair = SecondaryButton("重建按键监听", new Point(192, 240), new Size(160, 42));
+                        repair.Click += delegate { RestartKeyboardBridge("onboarding_key_check"); keyBaselineUtc = DateTime.UtcNow; renderStep(3); };
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(liveDetail);
+                        pageContent.Controls.Add(recheck);
+                        pageContent.Controls.Add(repair);
+                    }
+                    else if (currentStep == 4)
+                    {
+                        string runtime = ReadCurrentRuntimeSegment();
+                        bool serviceReady = bridgeReady || runtime.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0;
+                        SessionHealth latest = GetLatestSessionHealth();
+                        bool realAudio = latest.AudioMs >= MinimumUsefulAudioMs && latest.OutputRmsPercent > 0;
+                        liveStatus = NewLabel(realAudio ? "●  已检测到真实遥控器声音" : serviceReady ? "●  遥控器麦克风服务已就绪" : "●  麦克风服务尚未就绪",
+                            13f, FontStyle.Bold, realAudio || serviceReady ? green : amber);
+                        liveStatus.Location = new Point(8, 124);
+                        liveStatus.Size = new Size(580, 36);
+                        liveDetail = NewLabel(realAudio ? "最近音频 " + FormatMillisecondsAsSeconds(latest.AudioMs) + " · 输出电平 " + FormatPercent(latest.OutputRmsPercent) :
+                            serviceReady ? "已找到 RC003 ATVV 16 kHz 麦克风。第 8 步会验证真实音频与文字回填。" :
+                            "先唤醒遥控器并启动语音桥接；如果 VB-CABLE 尚未安装，可继续到下一步。", 9.2f, FontStyle.Regular, muted);
+                        liveDetail.Location = new Point(8, 168);
+                        liveDetail.Size = new Size(660, 50);
+                        var connect = PrimaryButton(IsCapturing ? "重新检测麦克风" : "启动语音桥接", new Point(8, 242), new Size(180, 42));
+                        connect.Click += delegate { if (!IsCapturing) StartCapture(); renderStep(4); };
+                        var permissions = SecondaryButton("麦克风权限", new Point(202, 242), new Size(130, 42));
+                        permissions.Click += delegate { OpenUri("ms-settings:privacy-microphone"); };
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(liveDetail);
+                        pageContent.Controls.Add(connect);
+                        pageContent.Controls.Add(permissions);
+                    }
+                    else if (currentStep == 5)
+                    {
+                        bool inputReady = HasCableInput();
+                        bool outputReady = HasCableOutput();
+                        liveStatus = NewLabel(inputReady && outputReady ? "●  VB-CABLE 已安装并可用" : "●  需要安装 VB-CABLE", 13f, FontStyle.Bold,
+                            inputReady && outputReady ? green : amber);
+                        liveStatus.Location = new Point(8, 118);
+                        liveStatus.Size = new Size(580, 36);
+                        var route = NewCard(new Point(8, 170), new Size(680, 190));
+                        var routeTitle = NewLabel("RC003  →  CABLE Input  →  CABLE Output  →  语音工具", 10f, FontStyle.Bold, ink);
+                        routeTitle.Location = new Point(22, 20);
+                        routeTitle.Size = new Size(620, 28);
+                        var inputState = NewLabel((inputReady ? "✓" : "!") + "  CABLE Input（播放端）" + (inputReady ? " 已检测" : " 未检测"), 9.4f, FontStyle.Bold, inputReady ? green : coral);
+                        inputState.Location = new Point(22, 66);
+                        inputState.Size = new Size(330, 28);
+                        var outputState = NewLabel((outputReady ? "✓" : "!") + "  CABLE Output（录音端）" + (outputReady ? " 已检测" : " 未检测"), 9.4f, FontStyle.Bold, outputReady ? green : coral);
+                        outputState.Location = new Point(22, 104);
+                        outputState.Size = new Size(330, 28);
+                        var routeNote = NewLabel("驱动安装后若提示重启，言灵会在下次登录时自动回到本步骤。", 8.8f, FontStyle.Regular, muted);
+                        routeNote.Location = new Point(22, 148);
+                        routeNote.Size = new Size(620, 28);
+                        route.Controls.Add(routeTitle);
+                        route.Controls.Add(inputState);
+                        route.Controls.Add(outputState);
+                        route.Controls.Add(routeNote);
+                        var install = PrimaryButton(inputReady && outputReady ? "打开声音设置" : "安装官方 VB-CABLE", new Point(8, 386), new Size(190, 42));
+                        install.Click += delegate
+                        {
+                            if (inputReady && outputReady) OpenUri("ms-settings:sound");
+                            else
+                            {
+                                config.onboardingStep = 5;
+                                config.resumeSetupAfterRestart = true;
+                                SaveConfig();
+                                SetLaunchAtStartup(true);
+                                LaunchVBCableInstaller();
+                                showFeedback("安装后如需重启，将自动继续", true);
+                            }
+                        };
+                        var recheck = SecondaryButton("重新检测", new Point(212, 386), new Size(124, 42));
+                        recheck.Click += delegate { renderStep(5); };
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(route);
+                        pageContent.Controls.Add(install);
+                        pageContent.Controls.Add(recheck);
+                    }
+                    else if (currentStep == 6)
+                    {
+                        var providerLabel = NewLabel("默认语音工具", 9.4f, FontStyle.Bold, ink);
+                        providerLabel.Location = new Point(8, 112);
+                        providerLabel.Size = new Size(150, 26);
+                        var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "豆包输入法", "Windows 语音输入", "其他自定义工具" });
+                        providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
+                        var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
+                            IsProviderRunning(selectedProvider) ? green : amber);
+                        providerState.Location = new Point(330, 148);
+                        providerState.Size = new Size(340, 28);
+                        var shortcutLabel = NewLabel("全局启动快捷键", 9.4f, FontStyle.Bold, ink);
+                        shortcutLabel.Location = new Point(8, 210);
+                        shortcutLabel.Size = new Size(150, 26);
+                        hotkeyBox = StyledTextBox(selectedHotkey, new Point(8, 242), new Size(260, 36));
+                        hotkeyTrigger = StyledCombo(new Point(286, 240), new Size(190, 40));
+                        PopulateTriggerModeOptions(hotkeyTrigger, selectedProvider);
+                        hotkeyTrigger.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
+                            selectedTrigger == "hold" ? 1 : 0;
+                        var help = NewLabel(ProviderSetupInstruction(selectedProvider), 9f, FontStyle.Regular, muted);
+                        help.Location = new Point(8, 312);
+                        help.Size = new Size(670, 68);
+                        var test = PrimaryButton("保存并测试快捷键", new Point(8, 406), new Size(180, 42));
+                        test.Click += delegate
+                        {
+                            selectedHotkey = hotkeyBox.Text.Trim();
+                            selectedTrigger = hotkeyTrigger.SelectedIndex == 1 ? "hold" : "toggle";
+                            if (!IsValidTranscriptionHotkey(selectedHotkey))
+                            {
+                                showFeedback("快捷键格式无效", false);
+                                return;
+                            }
+                            SaveWizardProviderConfig(selectedProvider, selectedHotkey, selectedTrigger, true);
+                            TestVoiceHotkey();
+                            showFeedback("已发送测试快捷键", true);
+                        };
+                        var installHelp = SecondaryButton("查看工具安装与设置", new Point(202, 406), new Size(180, 42));
+                        installHelp.Click += delegate { OpenProviderHelp(selectedProvider); };
+                        providerChoice.SelectedIndexChanged += delegate
+                        {
+                            string nextProvider = ProviderKeyFromIndex(providerChoice.SelectedIndex);
+                            if (nextProvider == selectedProvider) return;
+                            selectedProvider = nextProvider;
+                            selectedHotkey = DefaultHotkeyForProvider(selectedProvider);
+                            selectedTrigger = DefaultTriggerForProvider(selectedProvider);
+                            renderStep(6);
+                        };
+                        hotkeyBox.TextChanged += delegate { selectedHotkey = hotkeyBox.Text.Trim(); };
+                        hotkeyTrigger.SelectedIndexChanged += delegate { selectedTrigger = hotkeyTrigger.SelectedIndex == 1 ? "hold" : "toggle"; };
+                        pageContent.Controls.Add(providerLabel);
+                        pageContent.Controls.Add(providerChoice);
+                        pageContent.Controls.Add(providerState);
+                        pageContent.Controls.Add(shortcutLabel);
+                        pageContent.Controls.Add(hotkeyBox);
+                        pageContent.Controls.Add(hotkeyTrigger);
+                        pageContent.Controls.Add(help);
+                        pageContent.Controls.Add(test);
+                        pageContent.Controls.Add(installHelp);
+                    }
+                    else if (currentStep == 7)
+                    {
+                        SessionHealth health = GetLatestSessionHealth();
+                        firstDictationSucceeded = health.Generation > dictationBaselineGeneration && health.Success;
+                        liveStatus = NewLabel(firstDictationSucceeded ? "●  真实转译测试通过" : "●  等待一次完整听写", 13f, FontStyle.Bold,
+                            firstDictationSucceeded ? green : cyan);
+                        liveStatus.Location = new Point(8, 110);
+                        liveStatus.Size = new Size(580, 34);
+                        liveDetail = NewLabel(firstDictationSucceeded ?
+                            "音频 " + FormatMillisecondsAsSeconds(health.AudioMs) + " · 输出 " + FormatPercent(health.OutputRmsPercent) + " · 工具响应 " + FormatMilliseconds(health.TriggerToReadyMs) :
+                            "按住录音键说“测试麦克风一二三四五六”，松开后等待转译。言灵不会读取输入框中的文字。", 9f, FontStyle.Regular, muted);
+                        liveDetail.Location = new Point(8, 150);
+                        liveDetail.Size = new Size(680, 44);
+                        testInput = StyledTextBox("", new Point(8, 214), new Size(680, 120));
+                        testInput.Multiline = true;
+                        testInput.Font = new Font("Microsoft YaHei UI", 11f);
+                        var focus = PrimaryButton(IsCapturing ? "聚焦输入框并开始测试" : "启动桥接并开始测试", new Point(8, 360), new Size(218, 42));
+                        focus.Click += delegate
+                        {
+                            if (!IsCapturing) StartCapture();
+                            testInput.Focus();
+                            showFeedback("现在按住录音键说话", true);
+                        };
+                        var recheck = SecondaryButton("检查测试结果", new Point(240, 360), new Size(150, 42));
+                        recheck.Click += delegate { renderStep(7); };
+                        var route = SecondaryButton("检查声音设置", new Point(404, 360), new Size(150, 42));
+                        route.Click += delegate { OpenUri("ms-settings:sound"); };
+                        var privacy = NewLabel("文字由所选工具直接写入当前输入框；言灵只依据音频指标判断链路是否成功。", 8.8f, FontStyle.Regular, muted);
+                        privacy.Location = new Point(8, 430);
+                        privacy.Size = new Size(670, 36);
+                        pageContent.Controls.Add(liveStatus);
+                        pageContent.Controls.Add(liveDetail);
+                        pageContent.Controls.Add(testInput);
+                        pageContent.Controls.Add(focus);
+                        pageContent.Controls.Add(recheck);
+                        pageContent.Controls.Add(route);
+                        pageContent.Controls.Add(privacy);
+                    }
+                    else if (currentStep == 8)
+                    {
+                        string[] keys = { "上键", "下键", "左键", "右键" };
+                        string[] labels = { "上键", "下键", "左键", "右键" };
+                        string[] defaults = { "up", "down", "left", "right" };
+                        for (int i = 0; i < keys.Length; i++)
+                        {
+                            string mappingKey = keys[i];
+                            string displayLabel = labels[i];
+                            string defaultAction = defaults[i];
+                            int y = 112 + i * 88;
+                            var keyLabel = NewLabel(displayLabel, 10f, FontStyle.Bold, ink);
+                            keyLabel.Location = new Point(8, y + 8);
+                            keyLabel.Size = new Size(116, 28);
+                            var observed = NewLabel(HasObservedPhysicalButton(mappingKey) ? "● 已识别" : "● 待验证",
+                                8f, FontStyle.Bold, HasObservedPhysicalButton(mappingKey) ? green : amber);
+                            observed.Location = new Point(8, y + 38);
+                            observed.Size = new Size(116, 22);
+                            string currentAction = GetMapping(mappingKey, defaultAction);
+                            var actionChoice = StyledCombo(new Point(142, y), new Size(360, 40));
+                            List<ShortcutChoice> choices = ShortcutChoicesFor(mappingKey, currentAction);
+                            foreach (ShortcutChoice choice in choices) actionChoice.Items.Add(choice);
+                            actionChoice.SelectedIndex = FindShortcutChoice(choices, currentAction);
+                            var test = SecondaryButton("立即测试", new Point(520, y), new Size(112, 40));
+                            actionChoice.SelectedIndexChanged += delegate
+                            {
+                                ShortcutChoice selected = actionChoice.SelectedItem as ShortcutChoice;
+                                if (selected == null) return;
+                                SetMapping(mappingKey, selected.Shortcut);
+                                config.mappingPreset = "custom";
+                                SaveConfig();
+                                showFeedback(displayLabel + "配置已保存", true);
+                            };
+                            test.Click += delegate
+                            {
+                                TestMappingAction(displayLabel, GetMapping(mappingKey, defaultAction));
+                            };
+                            pageContent.Controls.Add(keyLabel);
+                            pageContent.Controls.Add(observed);
+                            pageContent.Controls.Add(actionChoice);
+                            pageContent.Controls.Add(test);
+                        }
+                        var restore = SecondaryButton("全部恢复方向导航", new Point(8, 480), new Size(178, 40));
+                        restore.Click += delegate
+                        {
+                            SetMapping("上键", "up");
+                            SetMapping("下键", "down");
+                            SetMapping("左键", "left");
+                            SetMapping("右键", "right");
+                            SaveConfig();
+                            renderStep(8);
+                            showFeedback("四个方向键已恢复默认", true);
+                        };
+                        var note = NewLabel("建议先保持默认方向。只有明确需要时再改动；每个方向键只执行一个动作。",
+                            8.8f, FontStyle.Regular, muted);
+                        note.Location = new Point(204, 482);
+                        note.Size = new Size(464, 40);
+                        pageContent.Controls.Add(restore);
+                        pageContent.Controls.Add(note);
+                    }
+                    else if (currentStep == 9)
+                    {
+                        var startup = StyledCheck("登录 Windows 后自动启动言灵（推荐）", startupChoice, new Point(8, 124));
+                        startup.Size = new Size(520, 38);
+                        var bridge = StyledCheck("启动后自动连接遥控器与语音桥接", bridgeChoice, new Point(8, 182));
+                        bridge.Size = new Size(520, 38);
+                        var tray = StyledCheck("关闭主窗口后继续在系统托盘运行", trayChoice, new Point(8, 240));
+                        tray.Size = new Size(520, 38);
+                        var behavior = NewCard(new Point(8, 318), new Size(680, 138));
+                        var behaviorTitle = NewLabel("下次登录时", 10f, FontStyle.Bold, ink);
+                        behaviorTitle.Location = new Point(22, 18);
+                        behaviorTitle.Size = new Size(180, 28);
+                        var behaviorText = NewLabel("不弹出主窗口打扰你；自动等待蓝牙，恢复按键监听和音频配置。\r\n遥控器休眠、电脑睡眠或蓝牙重启后也会自动恢复。", 9.2f, FontStyle.Regular, muted);
+                        behaviorText.Location = new Point(22, 54);
+                        behaviorText.Size = new Size(620, 58);
+                        behavior.Controls.Add(behaviorTitle);
+                        behavior.Controls.Add(behaviorText);
+                        startup.CheckedChanged += delegate { startupChoice = startup.Checked; };
+                        bridge.CheckedChanged += delegate { bridgeChoice = bridge.Checked; };
+                        tray.CheckedChanged += delegate { trayChoice = tray.Checked; };
+                        pageContent.Controls.Add(startup);
+                        pageContent.Controls.Add(bridge);
+                        pageContent.Controls.Add(tray);
+                        pageContent.Controls.Add(behavior);
+                    }
+                    else
+                    {
+                        SelfCheckReport report = BuildSelfCheckReport();
+                        string state = report.FailedCount == 0 ? report.WarningCount == 0 ? "●  已准备好" : "●  核心链路已准备好" : "●  仍有项目需要处理";
+                        Color stateColor = report.FailedCount == 0 ? green : coral;
+                        var summary = NewLabel(state, 16f, FontStyle.Bold, stateColor);
+                        summary.Location = new Point(8, 112);
+                        summary.Size = new Size(600, 38);
+                        string[] names = { "录音方式", "默认语音工具", "VB-CABLE", "开机启动", "后台桥接", "隐私" };
+                        string[] values =
+                        {
+                            "按住说话，松开结束", ProviderDisplayName(selectedProvider),
+                            HasCableInput() && HasCableOutput() ? "已检测" : "需要处理",
+                            startupChoice ? "自动启动" : "手动启动", bridgeChoice ? "自动连接" : "手动连接",
+                            "不保存录音和转译文字"
+                        };
+                        for (int i = 0; i < names.Length; i++)
+                        {
+                            int y = 176 + i * 48;
+                            var name = NewLabel(names[i], 9.2f, FontStyle.Bold, ink);
+                            name.Location = new Point(12, y);
+                            name.Size = new Size(170, 26);
+                            var value = NewLabel(values[i], 9.2f, FontStyle.Regular,
+                                values[i] == "需要处理" ? coral : muted);
+                            value.Location = new Point(194, y);
+                            value.Size = new Size(430, 26);
+                            pageContent.Controls.Add(name);
+                            pageContent.Controls.Add(value);
+                        }
+                        var selfCheck = SecondaryButton("打开完整自检", new Point(8, 492), new Size(150, 40));
+                        selfCheck.Click += delegate
+                        {
+                            persistProgress();
+                            wizard.Close();
+                            BeginInvoke(new Action(delegate { ShowPage(PageSelfCheck); }));
+                        };
+                        pageContent.Controls.Add(summary);
+                        pageContent.Controls.Add(selfCheck);
+                    }
+                };
+
+                back.Click += delegate { renderStep(currentStep - 1); };
+                next.Click += delegate
+                {
+                    BridgeHealthSnapshot snapshot = ReadKeyboardBridgeHealth();
+                    string runtime = ReadCurrentRuntimeSegment();
+                    if (!uiSmokeMode && currentStep == 1 && !bluetoothConfirmed && !bridgeReady && !snapshot.RawInputDevicePresent &&
+                        runtime.IndexOf("BLE status=Connected", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        showFeedback("请先确认 Windows 蓝牙已开启", false);
+                        return;
+                    }
+                    if (!uiSmokeMode && currentStep == 2 && !bridgeReady && !snapshot.RawInputDevicePresent &&
+                        runtime.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        showFeedback("尚未识别 RC003，请先配对并唤醒", false);
+                        return;
+                    }
+                    if (!uiSmokeMode && currentStep == 3 && snapshot.LastInputAtUtc <= keyBaselineUtc)
+                    {
+                        showFeedback("还没有收到刚才的方向键", false);
+                        return;
+                    }
+                    if (!uiSmokeMode && currentStep == 5 && (!HasCableInput() || !HasCableOutput()))
+                    {
+                        showFeedback("请先安装并检测到 VB-CABLE", false);
+                        return;
+                    }
+                    if (currentStep == 6)
+                    {
+                        if (hotkeyBox != null) selectedHotkey = hotkeyBox.Text.Trim();
+                        if (hotkeyTrigger != null) selectedTrigger = hotkeyTrigger.SelectedIndex == 1 ? "hold" : "toggle";
+                        if (!IsValidTranscriptionHotkey(selectedHotkey))
+                        {
+                            showFeedback("请填写有效的全局快捷键", false);
+                            return;
+                        }
+                        if (uiSmokeMode)
+                        {
+                            config.inputMethod = NormalizeProviderKey(selectedProvider);
+                            config.inputMethodHotkey = selectedHotkey;
+                            config.inputMethodTrigger = selectedTrigger;
+                            SaveConfig();
+                        }
+                        else SaveWizardProviderConfig(selectedProvider, selectedHotkey, selectedTrigger, true);
+                    }
+                    if (currentStep == 7)
+                    {
+                        SessionHealth health = GetLatestSessionHealth();
+                        firstDictationSucceeded = health.Generation > dictationBaselineGeneration && health.Success;
+                        if (!uiSmokeMode && !firstDictationSucceeded)
+                        {
+                            showFeedback("需要先完成一次真实听写测试", false);
+                            return;
+                        }
+                    }
+                    if (currentStep == 9)
+                    {
+                        config.launchAtStartup = startupChoice;
+                        config.startBridgeOnLaunch = bridgeChoice;
+                        config.minimizeToTray = trayChoice;
+                        if (!uiSmokeMode) SetLaunchAtStartup(startupChoice);
+                        SaveConfig();
+                    }
+                    if (currentStep < OnboardingStepCount - 1)
+                    {
+                        renderStep(currentStep + 1);
+                        return;
+                    }
+
+                    config.voiceMode = "hold";
+                    config.setupCompleted = true;
+                    config.onboardingVersion = CurrentOnboardingVersion;
+                    config.onboardingStep = OnboardingStepCount - 1;
+                    config.resumeSetupAfterRestart = false;
+                    config.launchAtStartup = startupChoice;
+                    config.startBridgeOnLaunch = bridgeChoice;
+                    config.minimizeToTray = trayChoice;
+                    ApplyStableVoiceProfile(config);
+                    if (!uiSmokeMode) SetLaunchAtStartup(startupChoice);
+                    SaveConfig();
+                    if (!uiSmokeMode && config.startBridgeOnLaunch && !IsCapturing) StartCapture();
+                    wizard.DialogResult = DialogResult.OK;
+                    wizard.Close();
+                    ShowToast("首次设置已完成，言灵已经可以使用", "success");
+                    ShowPage(PageHome);
+                };
+
+                wizard.FormClosing += delegate
+                {
+                    if (!config.setupCompleted) persistProgress();
+                };
+                renderStep(currentStep);
+                wizard.ShowDialog(this);
+            }
+        }
+        finally { setupWizardOpen = false; }
+    }
+
+    private void ShowSetupWizardLegacy()
+    {
+        if (setupWizardOpen) return;
+        setupWizardOpen = true;
+        try
+        {
+            using (var wizard = new Form())
+            {
                 wizard.Text = "欢迎使用 " + DisplayProductName + " · V" + ProductRelease;
                 wizard.ClientSize = new Size(920, 660);
                 wizard.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -2309,8 +4019,8 @@ internal sealed class VibeMicForm : Form
                 rail.BackColor = Color.FromArgb(248, 250, 255);
                 rail.Paint += delegate(object sender, PaintEventArgs e)
                 {
-                    using (var progress = new Pen(Color.FromArgb(218, 224, 239), 2f))
-                        e.Graphics.DrawLine(progress, 43, 146, 43, 364);
+                        using (var progress = new Pen(Color.FromArgb(218, 224, 239), 2f))
+                        e.Graphics.DrawLine(progress, 43, 146, 43, 426);
                     using (var pen = new Pen(line)) e.Graphics.DrawLine(pen, rail.Width - 1, 0, rail.Width - 1, rail.Height);
                 };
                 var setupLogo = new PictureBox();
@@ -2330,7 +4040,7 @@ internal sealed class VibeMicForm : Form
                 rail.Controls.Add(railEnglish);
                 wizard.Disposed += delegate { if (setupLogo.Image != null) setupLogo.Image.Dispose(); };
 
-                string[] stepNames = { "选择转写工具", "安装音频通道", "连接遥控器", "匹配快捷键", "完成首次听写" };
+                string[] stepNames = { "选择转写工具", "安装音频通道", "连接遥控器", "匹配快捷键", "配置常用按键", "完成首次听写" };
                 var progressLabels = new Label[stepNames.Length];
                 for (int i = 0; i < stepNames.Length; i++)
                 {
@@ -2360,7 +4070,7 @@ internal sealed class VibeMicForm : Form
                 pageContent.BackColor = Color.Transparent;
                 var back = SecondaryButton("上一步", new Point(34, 584), new Size(112, 42));
                 var next = PrimaryButton("下一步", new Point(508, 584), new Size(150, 42));
-                var stepCounter = NewLabel("第 1 步，共 5 步", 8.5f, FontStyle.Bold, violet);
+                var stepCounter = NewLabel("第 1 步，共 6 步", 8.5f, FontStyle.Bold, violet);
                 stepCounter.Location = new Point(164, 594);
                 stepCounter.Size = new Size(100, 24);
                 var wizardFeedback = NewLabel("", 8.8f, FontStyle.Bold, muted);
@@ -2375,7 +4085,7 @@ internal sealed class VibeMicForm : Form
                 wizard.Controls.Add(body);
                 wizard.Controls.Add(rail);
 
-                int currentStep = 0;
+                int currentStep = config.setupCompleted ? 0 : Math.Max(0, Math.Min(5, config.onboardingStep));
                 string selectedProvider = NormalizeProviderKey(config.inputMethod);
                 string selectedHotkey = config.inputMethodHotkey;
                 string selectedTrigger = config.inputMethodTrigger;
@@ -2385,8 +4095,11 @@ internal sealed class VibeMicForm : Form
                 ComboBox triggerBox = null;
                 Label liveConnectionStatus = null;
                 Label firstDictationStatus = null;
+                Label remoteKeyStatus = null;
                 int firstDictationBaselineGeneration = 0;
                 bool firstDictationSucceeded = false;
+                bool remoteKeyObserved = false;
+                DateTime remoteKeyBaselineAt = DateTime.MinValue;
                 Action<int> renderStep = null;
                 Action<string, bool> showWizardFeedback = delegate(string message, bool success)
                 {
@@ -2398,14 +4111,31 @@ internal sealed class VibeMicForm : Form
                     wizardFeedback.Text = message;
                     wizardFeedback.ForeColor = cyan;
                 };
+                Action persistProgress = delegate
+                {
+                    config.inputMethod = NormalizeProviderKey(selectedProvider);
+                    config.inputMethodHotkey = selectedHotkey;
+                    config.inputMethodTrigger = selectedTrigger == "hold" ? "hold" : "toggle";
+                    config.launchAtStartup = startupChoiceValue;
+                    config.autoRouteVirtualMicrophone = autoRouteChoiceValue;
+                    config.onboardingStep = currentStep;
+                    SaveConfig();
+                };
 
                 renderStep = delegate(int step)
                 {
-                    currentStep = Math.Max(0, Math.Min(4, step));
+                    currentStep = Math.Max(0, Math.Min(5, step));
+                    if (currentStep == 2)
+                    {
+                        remoteKeyBaselineAt = DateTime.UtcNow;
+                        remoteKeyObserved = false;
+                    }
+                    persistProgress();
                     while (pageContent.Controls.Count > 0) pageContent.Controls[0].Dispose();
                     shortcutBox = null;
                     triggerBox = null;
                     liveConnectionStatus = null;
+                    remoteKeyStatus = null;
                     firstDictationStatus = null;
                     for (int i = 0; i < progressLabels.Length; i++)
                     {
@@ -2416,20 +4146,21 @@ internal sealed class VibeMicForm : Form
                         number.ForeColor = i <= currentStep ? Color.White : muted;
                         number.BackColor = i < currentStep ? green : i == currentStep ? violet : Color.FromArgb(237, 240, 248);
                     }
-                    stepCounter.Text = "第 " + (currentStep + 1) + " 步，共 5 步";
+                    stepCounter.Text = "第 " + (currentStep + 1) + " 步，共 6 步";
                     wizardFeedback.Text = "";
                     back.Enabled = currentStep > 0;
                     next.Text = currentStep == 0 ? "确认选择" : currentStep == 1 ? "确认音频通道" :
-                        currentStep == 2 ? "确认连接" : currentStep == 3 ? "保存并测试" : "完成设置";
+                        currentStep == 2 ? "确认连接" : currentStep == 3 ? "保存并测试" :
+                        currentStep == 4 ? "保存按键配置" : "完成设置";
 
                     string headingText = currentStep == 0 ? "先选择你每天使用的转写工具" :
                         currentStep == 1 ? "安装一次本地音频通道" :
-                        currentStep == 2 ? "连接并唤醒遥控器" :
-                        currentStep == 3 ? "让快捷键与工具保持一致" : "完成第一次遥控器听写";
+                         currentStep == 2 ? "连接并唤醒遥控器" :
+                         currentStep == 3 ? "让快捷键与工具保持一致" : currentStep == 4 ? "配置三个真实遥控器按键" : "完成第一次遥控器听写";
                     string subtitleText = currentStep == 0 ? "言灵负责传输遥控器声音，所选工具负责识别和整理文字。" :
                         currentStep == 1 ? "VB-CABLE 是当前语音链路唯一需要额外安装的本地驱动；检测通过后无需重复安装。" :
-                        currentStep == 2 ? "先在 Windows 中完成蓝牙配对，再由言灵建立语音链路。" :
-                        currentStep == 3 ? "这里的快捷键必须与转写工具内部设置完全相同。" : UsesLongDictation(config.voiceMode)
+                         currentStep == 2 ? "先在 Windows 中完成蓝牙配对，再由言灵建立语音链路。" :
+                         currentStep == 3 ? "这里的快捷键必须与转写工具内部设置完全相同。" : currentStep == 4 ? "按一下遥控器按键即可识别；识别后选择常用动作。" : UsesLongDictation(config.voiceMode)
                         ? "点击输入框，单击录音键开始；说完后再按一次结束。"
                         : "点击输入框，按住录音键说完一句话后松开。";
                     var heading = NewLabel(headingText, 20f, FontStyle.Bold, ink);
@@ -2506,8 +4237,8 @@ internal sealed class VibeMicForm : Form
                         var outputState = NewLabel((outputReady ? "●  已检测到" : "●  未检测到") + "  CABLE Output（录音端）", 9.5f, FontStyle.Bold, outputReady ? green : Color.FromArgb(202, 76, 76));
                         outputState.Location = new Point(22, 108);
                         outputState.Size = new Size(360, 28);
-                        var install = SecondaryButton(inputReady && outputReady ? "打开声音设置" : "前往官方安装", new Point(400, 67), new Size(164, 38));
-                        install.Click += delegate { OpenUri(inputReady && outputReady ? "ms-settings:sound" : "https://vb-audio.com/Cable/"); };
+                        var install = SecondaryButton(inputReady && outputReady ? "打开声音设置" : "安装 VB-CABLE", new Point(400, 67), new Size(164, 38));
+                        install.Click += delegate { if (inputReady && outputReady) OpenUri("ms-settings:sound"); else LaunchVBCableInstaller(); };
                         var recheck = SecondaryButton("重新检测", new Point(400, 113), new Size(164, 38));
                         recheck.Click += delegate { renderStep(1); };
                         var routeNote = NewLabel("安装后若仍未检测到，请按驱动提示重启 Windows。听写结束后会自动恢复原麦克风。", 8.8f, FontStyle.Regular, muted);
@@ -2532,19 +4263,26 @@ internal sealed class VibeMicForm : Form
                     else if (currentStep == 2)
                     {
                         var connection = NewCard(new Point(4, 108), new Size(602, 230));
-                        liveConnectionStatus = NewLabel(IsCapturing && bridgeReady ? "●  已连接，可以使用" : IsCapturing ? "●  正在建立语音链路" : "●  等待开始检测", 13f, FontStyle.Bold,
-                            IsCapturing && bridgeReady ? green : IsCapturing ? amber : muted);
+                        BridgeHealthSnapshot initialBridgeHealth = ReadKeyboardBridgeHealth();
+                        remoteKeyObserved = initialBridgeHealth.LastInputAtUtc > remoteKeyBaselineAt;
+                        liveConnectionStatus = NewLabel(IsCapturing && bridgeReady && remoteKeyObserved ? "●  已连接，可以使用" :
+                            IsCapturing && bridgeReady ? "●  语音已连接，等待按键验证" : IsCapturing ? "●  正在建立语音链路" : "●  等待开始检测", 13f, FontStyle.Bold,
+                            IsCapturing && bridgeReady && remoteKeyObserved ? green : IsCapturing ? amber : muted);
                         liveConnectionStatus.Location = new Point(24, 28);
                         liveConnectionStatus.Size = new Size(500, 34);
                         var model = NewLabel("小米蓝牙语音遥控器 2 Pro · RC003", 10f, FontStyle.Regular, ink);
                         model.Location = new Point(25, 76);
                         model.Size = new Size(480, 28);
                         var connectionHelp = NewLabel("若一直连接中，请按任意方向键唤醒遥控器，或在 Windows 中重新连接。", 9.2f, FontStyle.Regular, muted);
-                        connectionHelp.Location = new Point(25, 112);
+                        connectionHelp.Location = new Point(25, 102);
                         connectionHelp.Size = new Size(535, 46);
-                        var bluetooth = SecondaryButton("打开蓝牙设置", new Point(24, 168), new Size(150, 40));
+                        remoteKeyStatus = NewLabel(remoteKeyObserved ? "●  已收到遥控器按键事件" : "●  请按一次遥控器方向键，验证按键桥接", 9.2f, FontStyle.Bold,
+                            remoteKeyObserved ? green : violet);
+                        remoteKeyStatus.Location = new Point(25, 142);
+                        remoteKeyStatus.Size = new Size(535, 24);
+                        var bluetooth = SecondaryButton("打开蓝牙设置", new Point(24, 176), new Size(150, 40));
                         bluetooth.Click += delegate { OpenUri("ms-settings:bluetooth"); };
-                        var detect = PrimaryButton(IsCapturing ? "重新检测" : "开始检测", new Point(188, 168), new Size(140, 40));
+                        var detect = PrimaryButton(IsCapturing ? "重新检测" : "开始检测", new Point(188, 176), new Size(140, 40));
                         detect.Click += delegate
                         {
                             StartKeyboardBridge();
@@ -2557,6 +4295,7 @@ internal sealed class VibeMicForm : Form
                         connection.Controls.Add(liveConnectionStatus);
                         connection.Controls.Add(model);
                         connection.Controls.Add(connectionHelp);
+                        connection.Controls.Add(remoteKeyStatus);
                         connection.Controls.Add(bluetooth);
                         connection.Controls.Add(detect);
                         var readyHint = NewLabel("看到“已连接，可以使用”后再继续。首次建立蓝牙语音服务可能需要数秒。", 9.1f, FontStyle.Regular, muted);
@@ -2583,13 +4322,15 @@ internal sealed class VibeMicForm : Form
                         triggerLabel.Size = new Size(110, 28);
                         triggerBox = StyledCombo(new Point(140, 158), new Size(200, 38));
                         PopulateTriggerModeOptions(triggerBox, selectedProvider);
-                        triggerBox.SelectedIndex = selectedTrigger == "hold" ? 1 : 0;
+                        triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
+                            selectedTrigger == "hold" ? 1 : 0;
                         triggerBox.SelectedIndexChanged += delegate
                         {
                             selectedTrigger = triggerBox.SelectedIndex == 1 ? "hold" : "toggle";
                             if (NormalizeProviderKey(selectedProvider) == "wechat")
                             {
-                                selectedHotkey = selectedTrigger == "hold" ? WeChatCompatibilityHotkey : WeChatAiHotkey;
+                                selectedTrigger = "toggle";
+                                selectedHotkey = WeChatStableHotkey;
                                 shortcutBox.Text = selectedHotkey;
                             }
                         };
@@ -2599,7 +4340,8 @@ internal sealed class VibeMicForm : Form
                             selectedHotkey = DefaultHotkeyForProvider(selectedProvider);
                             selectedTrigger = DefaultTriggerForProvider(selectedProvider);
                             shortcutBox.Text = selectedHotkey;
-                            triggerBox.SelectedIndex = selectedTrigger == "hold" ? 1 : 0;
+                            triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
+                                selectedTrigger == "hold" ? 1 : 0;
                         };
                         var test = PrimaryButton("测试启动与结束", new Point(24, 216), new Size(166, 40));
                         test.Click += delegate
@@ -2631,6 +4373,65 @@ internal sealed class VibeMicForm : Form
                         testNote.Size = new Size(590, 42);
                         pageContent.Controls.Add(profileCard);
                         pageContent.Controls.Add(testNote);
+                    }
+                    else if (currentStep == 4)
+                    {
+                        var customIntro = NewLabel("先配置 3 个常用实体按键。它们与按键页中的遥控器一一对应，之后可随时修改。", 9.2f, FontStyle.Regular, muted);
+                        customIntro.Location = new Point(4, 102);
+                        customIntro.Size = new Size(594, 38);
+                        pageContent.Controls.Add(customIntro);
+                        string[,] starterButtons = {
+                            { "Home", "win+d", "显示桌面" },
+                            { "TV", "task-switcher", "切换程序" },
+                            { "功能键", "launch-client:chatgpt", "打开应用" }
+                        };
+                        for (int i = 0; i < starterButtons.GetLength(0); i++)
+                        {
+                            int slot = i;
+                            string mappingKey = starterButtons[slot, 0];
+                            string currentAction = GetMapping(mappingKey, starterButtons[slot, 1]);
+                            var row = new Panel();
+                            row.Location = new Point(4, 148 + slot * 84);
+                            row.Size = new Size(600, 72);
+                            row.BackColor = Color.White;
+                            row.Paint += delegate(object sender, PaintEventArgs e)
+                            {
+                                using (var pen = new Pen(Color.FromArgb(232, 236, 245))) e.Graphics.DrawRectangle(pen, 0, 0, row.Width - 1, row.Height - 1);
+                            };
+                            var label = NewLabel(mappingKey, 9.2f, FontStyle.Bold, ink);
+                            label.Location = new Point(14, 10);
+                            label.Size = new Size(116, 24);
+                            var source = NewLabel("实体遥控器 · " + starterButtons[slot, 2], 8f, FontStyle.Regular, muted);
+                            source.Location = new Point(14, 38);
+                            source.Size = new Size(270, 22);
+                            source.AutoEllipsis = true;
+                            var actionBox = StyledCombo(new Point(294, 9), new Size(184, 34));
+                            List<ShortcutChoice> choices = ShortcutChoicesFor(mappingKey, currentAction);
+                            foreach (ShortcutChoice choice in choices) actionBox.Items.Add(choice);
+                            actionBox.SelectedIndex = FindShortcutChoice(choices, currentAction);
+                            var test = SecondaryButton("测试", new Point(492, 9), new Size(92, 34));
+                            test.Click += delegate { TestMappingAction(mappingKey, GetMapping(mappingKey, starterButtons[slot, 1])); };
+                            actionBox.SelectedIndexChanged += delegate
+                            {
+                                ShortcutChoice selected = actionBox.SelectedItem as ShortcutChoice;
+                                if (selected == null) return;
+                                string resolvedAction = ResolveCustomActionSelection(selected.Shortcut, wizard);
+                                if (string.IsNullOrWhiteSpace(resolvedAction)) return;
+                                SetMapping(mappingKey, resolvedAction);
+                                config.mappingPreset = "custom";
+                                SaveConfig();
+                                if (!string.Equals(resolvedAction, selected.Shortcut, StringComparison.OrdinalIgnoreCase)) renderStep(4);
+                            };
+                            row.Controls.Add(label);
+                            row.Controls.Add(source);
+                            row.Controls.Add(actionBox);
+                            row.Controls.Add(test);
+                            pageContent.Controls.Add(row);
+                        }
+                        var customNote = NewLabel("至少 3 个真实按键已可用。需要打开其他程序或网址时，可直接从下拉列表选择。", 8.8f, FontStyle.Regular, muted);
+                        customNote.Location = new Point(4, 410);
+                        customNote.Size = new Size(594, 30);
+                        pageContent.Controls.Add(customNote);
                     }
                     else
                     {
@@ -2683,6 +4484,7 @@ internal sealed class VibeMicForm : Form
                     ApplyStableVoiceProfile(config);
                     config.setupCompleted = true;
                     config.onboardingVersion = CurrentOnboardingVersion;
+                    config.onboardingStep = 6;
                     config.launchAtStartup = startupChoiceValue;
                     config.startBridgeOnLaunch = true;
                     config.minimizeToTray = true;
@@ -2718,6 +4520,11 @@ internal sealed class VibeMicForm : Form
                             showWizardFeedback("语音链路还未就绪", false);
                             return;
                         }
+                        if (!remoteKeyObserved)
+                        {
+                            showWizardFeedback("请按一次遥控器方向键完成按键验证", false);
+                            return;
+                        }
                         renderStep(3);
                     }
                     else if (currentStep == 3)
@@ -2733,6 +4540,17 @@ internal sealed class VibeMicForm : Form
                         SessionHealth current = GetLatestSessionHealth();
                         firstDictationBaselineGeneration = current.Generation;
                         renderStep(4);
+                    }
+                    else if (currentStep == 4)
+                    {
+                        int customCount = CountConfiguredPhysicalButtons();
+                        if (customCount < 3)
+                        {
+                            showWizardFeedback("请为至少 3 个真实遥控器按键选择功能（" + customCount + "/3）", false);
+                            return;
+                        }
+                        SaveConfig();
+                        renderStep(5);
                     }
                     else
                     {
@@ -2751,12 +4569,21 @@ internal sealed class VibeMicForm : Form
                 {
                     if (currentStep == 2 && liveConnectionStatus != null && !liveConnectionStatus.IsDisposed)
                     {
-                        liveConnectionStatus.Text = IsCapturing && bridgeReady ? "●  已连接，可以使用" : IsCapturing ? "●  正在建立语音链路" : "●  等待开始检测";
-                        liveConnectionStatus.ForeColor = IsCapturing && bridgeReady ? green : IsCapturing ? amber : muted;
-                        if (IsCapturing && bridgeReady) showWizardFeedback("连接成功", true);
+                        BridgeHealthSnapshot currentBridgeHealth = ReadKeyboardBridgeHealth();
+                        if (!remoteKeyObserved && currentBridgeHealth.LastInputAtUtc > remoteKeyBaselineAt)
+                            remoteKeyObserved = true;
+                        liveConnectionStatus.Text = IsCapturing && bridgeReady && remoteKeyObserved ? "●  已连接，可以使用" :
+                            IsCapturing && bridgeReady ? "●  语音已连接，等待按键验证" : IsCapturing ? "●  正在建立语音链路" : "●  等待开始检测";
+                        liveConnectionStatus.ForeColor = IsCapturing && bridgeReady && remoteKeyObserved ? green : IsCapturing ? amber : muted;
+                        if (remoteKeyStatus != null && !remoteKeyStatus.IsDisposed)
+                        {
+                            remoteKeyStatus.Text = remoteKeyObserved ? "●  已收到遥控器按键事件" : "●  请按一次遥控器方向键，验证按键桥接";
+                            remoteKeyStatus.ForeColor = remoteKeyObserved ? green : violet;
+                        }
+                        if (IsCapturing && bridgeReady && remoteKeyObserved) showWizardFeedback("连接和按键验证成功", true);
                         else if (IsCapturing) showWizardInfo("正在检测，请稍候");
                     }
-                    if (currentStep == 4 && firstDictationStatus != null && !firstDictationStatus.IsDisposed)
+                    if (currentStep == 5 && firstDictationStatus != null && !firstDictationStatus.IsDisposed)
                     {
                         SessionHealth health = GetLatestSessionHealth();
                         if (health.Generation <= firstDictationBaselineGeneration) return;
@@ -2781,7 +4608,9 @@ internal sealed class VibeMicForm : Form
                     }
                 };
                 wizardTimer.Start();
-                renderStep(0);
+                // Resume the last incomplete step. A completed setup still opens
+                // at the first step when the user explicitly reopens the guide.
+                renderStep(config.setupCompleted ? 0 : currentStep);
                 DialogResult result = wizard.ShowDialog(this);
                 wizardTimer.Stop();
                 wizardTimer.Dispose();
@@ -2840,9 +4669,7 @@ internal sealed class VibeMicForm : Form
         if (heroSubtitle != null && !heroSubtitle.IsDisposed)
             heroSubtitle.Text = !IsCapturing ? "启动后，" + VoiceStartInstruction(config.voiceMode) : bridgeReady ? VoiceStartInstruction(config.voiceMode) : "正在建立遥控器语音通道，请稍候";
         if (heroStateLabel != null && !heroStateLabel.IsDisposed)
-            heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady
-                ? UsesLongDictation(config.voiceMode) ? "CONTINUOUS READY" : "READY"
-                : "CONNECTING";
+            heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady ? "PUSH TO TALK READY" : "CONNECTING";
         connectionBadge.Text = !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接";
         connectionBadge.ForeColor = !IsCapturing ? muted : bridgeReady ? green : amber;
         UpdateOverviewStatus();
@@ -2857,49 +4684,49 @@ internal sealed class VibeMicForm : Form
         if (state == "recording")
         {
             accent = violet;
-            surface = Color.FromArgb(244, 242, 255);
+            surface = StatusSurface("recording");
             voiceText = "●  正在听写 · 遥控器音频正在到达";
         }
         else if (state == "recovering")
         {
             accent = cyan;
-            surface = Color.FromArgb(239, 249, 252);
-            voiceText = "●  持续听写保持中 · 正在恢复遥控器音频";
+            surface = StatusSurface("recovering");
+            voiceText = "●  当前按住会话保持中 · 正在恢复遥控器音频";
         }
         else if (state == "completed")
         {
             accent = green;
-            surface = Color.FromArgb(236, 250, 244);
+            surface = StatusSurface("completed");
             voiceText = "●  听写已完成 · 文字已交给转写工具";
         }
         else if (state == "processing")
         {
             accent = cyan;
-            surface = Color.FromArgb(239, 249, 252);
+            surface = StatusSurface("processing");
             voiceText = "●  录音已结束 · 正在整理并回填文字";
         }
         else if (state == "error")
         {
             accent = Color.FromArgb(202, 76, 76);
-            surface = Color.FromArgb(255, 242, 242);
+            surface = StatusSurface("error");
             voiceText = "●  本次听写未完成 · 请打开诊断查看原因";
         }
         else if (state == "ready")
         {
             accent = green;
-            surface = Color.FromArgb(238, 250, 244);
+            surface = StatusSurface("ready");
             voiceText = "●  已就绪 · " + VoiceReadyInstruction(config.voiceMode);
         }
         else if (state == "connecting")
         {
             accent = amber;
-            surface = Color.FromArgb(255, 248, 234);
+            surface = StatusSurface("connecting");
             voiceText = "●  正在连接遥控器麦克风";
         }
         else
         {
             accent = muted;
-            surface = Color.FromArgb(248, 249, 252);
+            surface = StatusSurface("stopped");
             voiceText = "●  语音桥接已暂停";
         }
         currentVisualAccent = accent;
@@ -2940,8 +4767,11 @@ internal sealed class VibeMicForm : Form
     {
         try
         {
+            ApplyCustomButtonCaptureResult();
             PollRuntimeFeedback();
             PollInputFeedback();
+            PollKeyboardBridgeHealth();
+            PollCaptureHealth();
             if (File.Exists(eventsPath))
             {
                 long len = new FileInfo(eventsPath).Length;
@@ -2972,13 +4802,80 @@ internal sealed class VibeMicForm : Form
         UpdateCaptureUi();
     }
 
+    private void PollCaptureHealth()
+    {
+        if (applicationExiting || !config.setupCompleted || !config.startBridgeOnLaunch) return;
+        if (!IsCapturing || captureStartedAt == DateTime.MinValue)
+        {
+            captureNotReadySince = DateTime.MinValue;
+            captureHeartbeatUnhealthySince = DateTime.MinValue;
+            return;
+        }
+
+        Dictionary<string, object> captureHealth;
+        string captureHealthError;
+        if (!TryReadCaptureHeartbeat(captureProcess, out captureHealth, out captureHealthError))
+        {
+            DateTime healthNow = DateTime.UtcNow;
+            if (captureHeartbeatUnhealthySince == DateTime.MinValue)
+            {
+                captureHeartbeatUnhealthySince = healthNow;
+                HostLog("CAPTURE health_degraded=true reason=" + (captureHealthError ?? "heartbeat_invalid"));
+                return;
+            }
+            if ((healthNow - captureHeartbeatUnhealthySince).TotalSeconds < CaptureRecoveryCooldownSeconds) return;
+            captureHeartbeatUnhealthySince = DateTime.MinValue;
+            HostLog("CAPTURE health_invalid=true reason=" + (captureHealthError ?? "heartbeat_invalid") +
+                " action=restart_capture_and_bridge");
+            StopCapture();
+            StartCapture();
+            return;
+        }
+        captureHeartbeatUnhealthySince = DateTime.MinValue;
+        if (bridgeReady)
+        {
+            captureNotReadySince = DateTime.MinValue;
+            return;
+        }
+
+        // GATT reconnects can legitimately report a healthy heartbeat while
+        // the capture worker is backing off from a transient AccessDenied.
+        // Restarting it here tears down the very session that needs time to
+        // release its Bluetooth handle and causes an endless startup loop.
+        object captureStateValue;
+        string captureState = captureHealth != null &&
+            captureHealth.TryGetValue("state", out captureStateValue)
+            ? Convert.ToString(captureStateValue) : "";
+        if (captureState.Equals("recovering", StringComparison.OrdinalIgnoreCase))
+        {
+            captureNotReadySince = DateTime.MinValue;
+            return;
+        }
+
+        DateTime now = DateTime.UtcNow;
+        if (captureNotReadySince == DateTime.MinValue)
+        {
+            captureNotReadySince = now;
+            HostLog("CAPTURE health_degraded=true reason=atvv_not_ready");
+            return;
+        }
+        if ((now - captureNotReadySince).TotalSeconds < CaptureReadyRecoverySeconds ||
+            (now - lastCaptureRecoveryAt).TotalSeconds < CaptureRecoveryCooldownSeconds) return;
+
+        lastCaptureRecoveryAt = now;
+        captureNotReadySince = DateTime.MinValue;
+        HostLog("CAPTURE health_invalid=true reason=atvv_ready_timeout duration_s=" +
+            (now - captureStartedAt.ToUniversalTime()).TotalSeconds.ToString("0") +
+            " action=restart_capture_and_bridge");
+        StopCapture();
+        StartCapture();
+    }
+
     private SessionHealth GetLatestSessionHealth()
     {
         var health = new SessionHealth();
         health.Provider = NormalizeProviderKey(config.inputMethod);
-        health.NextAction = UsesLongDictation(config.voiceMode)
-            ? "单击录音键开始测试，说完后再按一次"
-            : "按住遥控器录音键完成一次测试";
+        health.NextAction = "按住遥控器录音键完成一次测试，松开后等待转译";
         string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         if (!File.Exists(path)) return health;
 
@@ -3148,13 +5045,9 @@ internal sealed class VibeMicForm : Form
         else if (health.Failed) health.NextAction = "打开诊断记录并复制问题摘要";
         else if (health.DeliveryFailed) health.NextAction = "文字已转写，但工具未直接写入；请保持原输入框聚焦后重新测试";
         else if (!health.Ready) health.NextAction = "转写工具没有进入听写状态，请先测试工具快捷键";
-        else if (!health.StreamStopped) health.NextAction = UsesLongDictation(config.voiceMode)
-            ? "仍在长听写；完成后再按一次录音键"
-            : "仍在听写；说完后松开录音键并等待完成";
+        else if (!health.StreamStopped) health.NextAction = "仍在听写；说完后松开录音键并等待完成";
         else if (health.AudioMs > 0 && health.AudioMs < MinimumUsefulAudioMs)
-            health.NextAction = UsesLongDictation(config.voiceMode)
-                ? "听写时间太短，请说完一句话后再按一次录音键结束"
-                : "按住时间太短，请完整说完一句话后再松开";
+            health.NextAction = "按住时间太短，请完整说完一句话后再松开";
         else if (health.QueueDrops > 0 || health.SinkQueueDrops > 0) health.NextAction = "音频队列出现丢包，请重新连接蓝牙后再试";
         else if (health.OutputRmsPercent > 0 && health.OutputRmsPercent < 0.8) health.NextAction = "声音偏小，请靠近遥控器麦克风并自然说话";
         else if (health.MaxGapMs > 250) health.NextAction = "蓝牙音频间隔偏大，请减少距离或重新连接遥控器";
@@ -3212,12 +5105,13 @@ internal sealed class VibeMicForm : Form
         result.AppendLine("版本：" + ProductRelease + "  ·  时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         result.AppendLine("系统：" + Environment.OSVersion.VersionString);
         result.AppendLine("转写工具：" + ProviderDisplayName(config.inputMethod) + "  ·  快捷键：" + config.inputMethodHotkey + "  ·  " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换"));
-        result.AppendLine("遥控器录音：" + (UsesLongDictation(config.voiceMode) ? "连续听写 · 单击开始 / 再次单击结束 · 30 分钟保护" : "按住说话 · 松开结束 · 约 60 秒硬件边界"));
+        result.AppendLine("遥控器录音：按住说话 · 松开结束 · 单逻辑会话内自动续接物理音频分段");
         result.AppendLine("语音桥接：" + (IsCapturing ? "运行中" : "已暂停") + "  ·  遥控器语音：" + (bridgeReady ? "已就绪" : "未就绪"));
         result.AppendLine("VB-CABLE：Input " + (HasCableInput() ? "已检测" : "未检测") + " / Output " + (HasCableOutput() ? "已检测" : "未检测"));
         result.AppendLine("稳定语音档案：" + (HasStableVoiceProfile(config) ? "v" + StableVoiceProfileVersion + " 已应用" : "参数已自定义"));
         SelfCheckReport selfCheck = BuildSelfCheckReport();
-        result.AppendLine("自检：通过 " + selfCheck.PassedCount + " / " + selfCheck.Items.Count + "  ·  建议 " + selfCheck.WarningCount + "  ·  待修复 " + selfCheck.FailedCount);
+        result.AppendLine("自检：通过 " + selfCheck.PassedCount + " / " + selfCheck.Items.Count + "  ·  检测中 " + selfCheck.CheckingCount +
+            "  ·  建议 " + selfCheck.WarningCount + "  ·  待修复 " + selfCheck.FailedCount);
         result.AppendLine();
         result.Append(BuildSessionHealthSummary());
         result.AppendLine("隐私：此摘要不包含录音、识别文字、蓝牙地址或完整设备路径。 ");
@@ -3239,7 +5133,286 @@ internal sealed class VibeMicForm : Form
         return value > 0 ? value.ToString("0.0") + "%" : "--";
     }
 
+    private WindowsHardwareProbe GetWindowsHardwareProbe()
+    {
+        WindowsHardwareProbe cached = windowsHardwareProbe;
+        bool probeRunning = Interlocked.CompareExchange(ref windowsHardwareProbeRunning, 0, 0) != 0;
+        if (cached != null && (probeRunning ||
+            (DateTime.UtcNow - windowsHardwareProbeAt).TotalSeconds < 20)) return cached;
+
+        if (Interlocked.CompareExchange(ref windowsHardwareProbeRunning, 1, 0) != 0)
+            return cached ?? new WindowsHardwareProbe();
+
+        var pending = new WindowsHardwareProbe();
+        pending.Error = "正在读取 Windows 蓝牙设备状态";
+        windowsHardwareProbe = pending;
+        windowsHardwareProbeAt = DateTime.UtcNow;
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            WindowsHardwareProbe result = ProbeWindowsHardware();
+            windowsHardwareProbe = result;
+            windowsHardwareProbeAt = DateTime.UtcNow;
+            Interlocked.Exchange(ref windowsHardwareProbeRunning, 0);
+            try
+            {
+                if (!IsDisposed && IsHandleCreated)
+                {
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        if (!IsDisposed && currentPageIndex == PageSelfCheck) ShowPage(PageSelfCheck);
+                    });
+                }
+            }
+            catch { }
+        });
+        return pending;
+    }
+
+    private WindowsHardwareProbe ProbeWindowsHardware()
+    {
+        var result = new WindowsHardwareProbe();
+        try
+        {
+            string script =
+                "$bt=@(Get-PnpDevice -Class Bluetooth -PresentOnly -ErrorAction SilentlyContinue);" +
+                "$remote=@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue|Where-Object{$_.FriendlyName -match 'RC003|小米.*遥控|Xiaomi.*Remote'});" +
+                "'bluetooth_present=' + [int]($bt.Count -gt 0);" +
+                "'bluetooth_ok=' + [int](@($bt|Where-Object{$_.Status -eq 'OK'}).Count -gt 0);" +
+                "'remote_present=' + [int]($remote.Count -gt 0);" +
+                "'remote_ok=' + [int](@($remote|Where-Object{$_.Status -eq 'OK'}).Count -gt 0)";
+            string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+            var start = new ProcessStartInfo("powershell.exe");
+            start.Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand " + encoded;
+            start.UseShellExecute = false;
+            start.CreateNoWindow = true;
+            start.RedirectStandardOutput = true;
+            start.RedirectStandardError = true;
+            using (Process process = Process.Start(start))
+            {
+                if (process == null) throw new InvalidOperationException("PowerShell probe did not start");
+                if (!process.WaitForExit(10000))
+                {
+                    try { process.Kill(); } catch { }
+                    throw new TimeoutException("Windows hardware probe timed out");
+                }
+                string output = process.StandardOutput.ReadToEnd();
+                string[] lines = output.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string lineText in lines)
+                {
+                    string lineValue = lineText.Trim();
+                    if (lineValue == "bluetooth_present=1") result.BluetoothPresent = true;
+                    else if (lineValue == "bluetooth_ok=1") result.BluetoothOk = true;
+                    else if (lineValue == "remote_present=1") result.RemotePresent = true;
+                    else if (lineValue == "remote_ok=1") result.RemoteOk = true;
+                }
+                result.Completed = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Completed = true;
+            result.Failed = true;
+            result.Error = ex.Message;
+            HostLog("WINDOWS HARDWARE PROBE failed=true error=" + SafeLogValue(ex.Message));
+        }
+        return result;
+    }
+
+    private static string MicrophonePermissionState()
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone", false))
+            {
+                string value = key == null ? "" : Convert.ToString(key.GetValue("Value"));
+                if (value.Equals("Deny", StringComparison.OrdinalIgnoreCase)) return "deny";
+                if (value.Equals("Allow", StringComparison.OrdinalIgnoreCase)) return "allow";
+            }
+        }
+        catch { }
+        return "unknown";
+    }
+
     private SelfCheckReport BuildSelfCheckReport()
+    {
+        var report = new SelfCheckReport();
+        string runtime = ReadCurrentRuntimeSegment();
+        WindowsHardwareProbe hardware = GetWindowsHardwareProbe();
+        BridgeHealthSnapshot bridge = ReadKeyboardBridgeHealth();
+        SessionHealth session = GetLatestSessionHealth();
+
+        string componentError;
+        bool versionsReady = AreCoreComponentsCurrent(out componentError);
+        bool runtimeReady = !IsCapturing || string.IsNullOrWhiteSpace(runtime) ||
+            (runtime.IndexOf("voice_state_machine=v11", StringComparison.OrdinalIgnoreCase) >= 0 &&
+             runtime.IndexOf("long_dictation_state_machine=v3", StringComparison.OrdinalIgnoreCase) >= 0);
+        bool filesReady = File.Exists(Path.Combine(root, "VibeMicAtvvCapture.exe")) &&
+            File.Exists(Path.Combine(root, "VoxDeckInputBridge.exe")) &&
+            File.Exists(Path.Combine(root, "NAudio.Core.dll")) && File.Exists(Path.Combine(root, "NAudio.Wasapi.dll"));
+        bool componentsReady = filesReady && versionsReady && runtimeReady;
+        report.Items.Add(new SelfCheckItem("components", "本地核心组件与单实例状态",
+            componentsReady ? "pass" : "fail",
+            "主程序、语音捕获、按键桥接和 WASAPI 运行库版本一致，且只运行一个捕获会话",
+            componentsReady ? "组件完整，P0 按住说话状态机 v11/v3 已就绪" :
+                !filesReady ? "安装目录缺少必要组件" : !versionsReady ? componentError : "运行中的捕获组件不是当前状态机",
+            componentsReady ? "未发现组件缺失或版本争用" : "文件缺失、版本混用或旧进程仍在运行",
+            componentsReady ? "无需操作" : "重新安装完整发布包，然后重新自检",
+            componentsReady ? "" : "重新下载", componentsReady ? "" : "download-release"));
+
+        string bluetoothState = !hardware.Completed ? "checking" : hardware.Failed ? "fail" : !hardware.BluetoothPresent ? "unsupported" :
+            hardware.BluetoothOk ? "pass" : "fail";
+        report.Items.Add(new SelfCheckItem("bluetooth", "Windows 蓝牙",
+            bluetoothState,
+            "电脑存在可用蓝牙适配器，Windows 蓝牙设备栈状态正常",
+            !hardware.Completed ? "正在读取 Windows 蓝牙设备状态" : hardware.Failed ? "Windows 硬件检测失败：" + hardware.Error :
+                !hardware.BluetoothPresent ? "未检测到蓝牙适配器" : hardware.BluetoothOk ? "蓝牙适配器与设备栈可用" : "检测到蓝牙硬件，但当前状态异常",
+            !hardware.Completed ? "硬件探测正在后台运行，页面不会被阻塞" : hardware.Failed ? "Windows 设备查询超时或被系统策略阻止" : !hardware.BluetoothPresent ? "当前电脑可能没有蓝牙，或驱动尚未安装" :
+                hardware.BluetoothOk ? "未发现异常" : "蓝牙被禁用、驱动异常或设备管理器尚未完成初始化",
+            bluetoothState == "pass" ? "无需操作" : bluetoothState == "checking" ? "等待检测完成，结果会自动刷新" : "打开 Windows 蓝牙设置，确认开关与驱动状态后返回",
+            bluetoothState == "pass" || bluetoothState == "checking" ? "" : "蓝牙设置",
+            bluetoothState == "pass" || bluetoothState == "checking" ? "" : "bluetooth"));
+
+        bool runtimeConnected = bridgeReady || runtime.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            runtime.IndexOf("status=Connected", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool remotePaired = hardware.RemotePresent || bridge.RawInputDevicePresent || runtimeConnected;
+        string remoteState = runtimeConnected ? "pass" : remotePaired && IsCapturing ? "checking" : remotePaired ? "warning" : "fail";
+        report.Items.Add(new SelfCheckItem("remote", "RC003 配对与连接",
+            remoteState,
+            "小米蓝牙语音遥控器已配对、已唤醒，并建立 ATVV 麦克风服务",
+            runtimeConnected ? "RC003 已连接，ATVV 麦克风服务已就绪" : remotePaired ?
+                "Windows 已识别遥控器，但言灵尚未确认实时语音连接" : "Windows 中未找到已配对的小米语音遥控器",
+            runtimeConnected ? "未发现异常" : remotePaired ? "遥控器可能休眠，或蓝牙/GATT 正在恢复" : "遥控器尚未配对或配对记录已丢失",
+            runtimeConnected ? "无需操作" : remotePaired ? "按方向键唤醒并等待自动连接" : "打开添加设备页面完成配对",
+            runtimeConnected ? "" : remotePaired ? "重新连接" : "添加设备",
+            runtimeConnected ? "" : remotePaired ? "start-bridge" : "pair-device"));
+
+        bool keyboardRunning = IsCurrentProcessRunningFromRoot("VoxDeckInputBridge");
+        bool recentInput = bridge.LastInputAgeSeconds <= 120;
+        string keyState = !keyboardRunning || !bridge.Healthy ? "fail" : recentInput ? "pass" : "checking";
+        report.Items.Add(new SelfCheckItem("keys", "遥控器按键监听",
+            keyState,
+            "按键桥接进程健康，并能收到最近一次真实遥控器按键事件",
+            !keyboardRunning ? "按键桥接进程未运行" : !bridge.Healthy ? "Hook 或 Raw Input 尚未就绪" :
+                recentInput ? "监听正常，最近收到 " + bridge.LastInputKind + " 事件" : "桥接健康，正在等待一次实体按键",
+            !keyboardRunning ? "后台桥接没有启动" : !bridge.Healthy ? "蓝牙重连后监听尚未恢复" :
+                recentInput ? "未发现异常" : "尚无可用于验证的近期按键",
+            keyState == "pass" ? "无需操作" : keyState == "checking" ? "按一次方向键，然后返回自动复检" : "重建按键监听后再按方向键",
+            keyState == "pass" ? "" : keyState == "checking" ? "验证按键" : "重建监听",
+            keyState == "pass" ? "" : "test-remote"));
+
+        string permission = MicrophonePermissionState();
+        bool realAudio = session.AudioMs >= MinimumUsefulAudioMs && session.OutputRmsPercent > 0;
+        string microphoneState = permission == "deny" ? "fail" : realAudio ? "pass" : runtimeConnected ? "warning" : "checking";
+        report.Items.Add(new SelfCheckItem("microphone", "遥控器麦克风真实音频",
+            microphoneState,
+            "Windows 允许麦克风访问，UI 仅在真实音频到达时显示“正在收音”，并记录有效电平",
+            permission == "deny" ? "Windows 当前拒绝麦克风访问" : realAudio ?
+                "最近收到 " + FormatMillisecondsAsSeconds(session.AudioMs) + " 真实音频，输出电平 " + FormatPercent(session.OutputRmsPercent) :
+                runtimeConnected ? "麦克风服务已连接，但还没有可验证的真实声音" : "正在等待 RC003 麦克风连接",
+            permission == "deny" ? "Windows 隐私设置阻止麦克风" : realAudio ? "未发现无声或假波形" :
+                runtimeConnected ? "尚未完成一次按住说话测试" : "上游蓝牙/ATVV 链路尚未就绪",
+            permission == "deny" ? "打开麦克风权限并允许桌面应用访问" : realAudio ? "无需操作" : "完成一次按住说话、松开结束的真实测试",
+            microphoneState == "pass" ? "" : permission == "deny" ? "麦克风权限" : "开始测试",
+            microphoneState == "pass" ? "" : permission == "deny" ? "microphone-permission" : "test-dictation"));
+
+        bool cableInput = HasCableInput();
+        bool cableOutput = HasCableOutput();
+        bool cableReady = cableInput && cableOutput;
+        report.Items.Add(new SelfCheckItem("cable", "VB-CABLE 本地音频通道",
+            cableReady ? "pass" : "fail",
+            "同时检测到 CABLE Input（播放端）与 CABLE Output（录音端）",
+            cableReady ? "CABLE Input 与 CABLE Output 均已启用" :
+                "缺少 " + (!cableInput && !cableOutput ? "CABLE Input 和 CABLE Output" : !cableInput ? "CABLE Input" : "CABLE Output"),
+            cableReady ? "未发现异常" : "VB-CABLE 未安装、安装后未重启，或音频设备被禁用",
+            cableReady ? "无需操作" : "安装官方驱动；如提示重启，登录后会自动继续教程",
+            cableReady ? "" : "安装 VB-CABLE", cableReady ? "" : "install-cable"));
+
+        bool stableProfile = HasStableVoiceProfile(config);
+        report.Items.Add(new SelfCheckItem("profile", "已验证稳定语音参数",
+            stableProfile ? "pass" : "warning",
+            "1.0×、清晰增强、180 ms 排空、CABLE Input、自动路由和按住模式保持发布基线",
+            stableProfile ? "稳定语音档案 v" + StableVoiceProfileVersion + " 已应用" : "当前音频参数已偏离稳定基线",
+            stableProfile ? "未发现异常" : "高级参数被修改，可能影响灵敏度、延迟或路由恢复",
+            stableProfile ? "无需操作" : "一键恢复已反复验证的稳定参数",
+            stableProfile ? "" : "恢复稳定参数", stableProfile ? "" : "restore-profile"));
+
+        string provider = NormalizeProviderKey(config.inputMethod);
+        bool validHotkey = IsValidTranscriptionHotkey(config.inputMethodHotkey);
+        bool providerRunning = IsProviderRunning(provider);
+        bool providerKnown = provider != "custom";
+        string providerState = !validHotkey ? "fail" : providerKnown && providerRunning ? "pass" : "warning";
+        report.Items.Add(new SelfCheckItem("provider", "默认语音工具与快捷键",
+            providerState,
+            "所选工具已安装或运行，言灵快捷键与工具中的全局快捷键完全一致",
+            !validHotkey ? "快捷键格式无效" : providerRunning ? ProviderDisplayName(provider) + " 已就绪 · " +
+                config.inputMethodHotkey.Replace("+", " + ") + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") :
+                "未检测到运行中的 " + ProviderDisplayName(provider),
+            !validHotkey ? "无法可靠启动和结束语音工具" : providerRunning ?
+                providerKnown ? "未发现异常" : "自定义工具无法自动确认其内部快捷键" : "工具未启动、未安装或进程名无法识别",
+            providerState == "pass" ? "无需操作" : "打开语音页核对工具、快捷键和触发方式",
+            providerState == "pass" ? "" : "检查语音工具", providerState == "pass" ? "" : "provider"));
+
+        bool startupReady = IsLaunchAtStartupRegistered();
+        string startupState = startupReady ? "pass" : config.launchAtStartup ? "fail" : "warning";
+        report.Items.Add(new SelfCheckItem("startup", "Windows 登录后自动可用",
+            startupState,
+            "登录后后台启动，不弹主窗口，并自动恢复遥控器、按键监听和音频配置",
+            startupReady ? "启动项路径有效，后台启动参数正确" : config.launchAtStartup ?
+                "已选择自动启动，但注册表启动项缺失或路径失效" : "当前设置为手动启动",
+            startupReady ? "未发现异常" : config.launchAtStartup ? "安装目录移动或启动项写入失败" : "用户尚未开启自动启动",
+            startupReady ? "无需操作" : "一键写入当前安装路径的后台启动项",
+            startupReady ? "" : "修复自启动", startupReady ? "" : "startup"));
+
+        string sessionState;
+        if (!session.Started) sessionState = "warning";
+        else if (session.Failed || session.TransportFailed || session.DeliveryFailed) sessionState = "fail";
+        else if (session.Success) sessionState = "pass";
+        else sessionState = "checking";
+        string sessionActual = !session.Started ? "尚无真实端到端听写记录" : session.Success ?
+            "最近会话成功 · 音频 " + FormatMillisecondsAsSeconds(session.AudioMs) + " · 工具响应 " + FormatMilliseconds(session.TriggerToReadyMs) :
+            session.Completed ? "最近会话已结束，但链路指标未全部通过" : "最近会话仍在进行或等待转译完成";
+        report.Items.Add(new SelfCheckItem("session", "完整音频与转译链路",
+            sessionState,
+            "按下一次只创建一个会话；真实音频送达；松开只结束一次；文字由工具写入当前输入框且不自动发送",
+            sessionActual,
+            sessionState == "pass" ? "未发现双会话、音频丢失、路由恢复或文字回填异常" :
+                !session.Started ? "尚未进行发布版真实测试" : session.NextAction,
+            sessionState == "pass" ? "无需操作" : "聚焦输入框，按住录音键说一句完整的话，松开后等待转译",
+            sessionState == "pass" ? "" : "真实链路测试", sessionState == "pass" ? "" : "test-dictation"));
+
+        foreach (SelfCheckItem item in report.Items)
+        {
+            if (item.State == "pass") report.PassedCount++;
+            else if (item.State == "fail") report.FailedCount++;
+            else if (item.State == "checking") report.CheckingCount++;
+            else if (item.State == "unsupported") report.UnsupportedCount++;
+            else report.WarningCount++;
+        }
+        if (report.FailedCount > 0)
+        {
+            report.Headline = "发现 " + report.FailedCount + " 项错误";
+            report.Detail = "从第一项错误开始修复；返回言灵后会自动复检，不读取你的转译文字。";
+        }
+        else if (report.CheckingCount > 0)
+        {
+            report.Headline = "正在等待 " + report.CheckingCount + " 项真实验证";
+            report.Detail = "按对应卡片的下一步操作一次，即可确认连接、按键或音频状态。";
+        }
+        else if (report.WarningCount > 0 || report.UnsupportedCount > 0)
+        {
+            report.Headline = "核心链路可用，还有配置需要确认";
+            report.Detail = "橙色项目不会隐藏问题；完成建议配置后可获得开机即用体验。";
+        }
+        else
+        {
+            report.Headline = "全部通过，可以稳定使用";
+            report.Detail = "蓝牙、遥控器、真实音频、VB-CABLE、语音工具与启动恢复均正常。";
+        }
+        return report;
+    }
+
+    private SelfCheckReport BuildSelfCheckReportLegacy()
     {
         var report = new SelfCheckReport();
         string currentRuntime = ReadCurrentRuntimeSegment();
@@ -3247,16 +5420,20 @@ internal sealed class VibeMicForm : Form
             currentRuntime.IndexOf("voice_state_machine=v11", StringComparison.OrdinalIgnoreCase) >= 0;
         bool continuousRuntimeReady = !UsesLongDictation(config.voiceMode) || !IsCapturing ||
             string.IsNullOrWhiteSpace(currentRuntime) ||
-            currentRuntime.IndexOf("long_dictation_state_machine=v2", StringComparison.OrdinalIgnoreCase) >= 0;
+            currentRuntime.IndexOf("long_dictation_state_machine=v2", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            currentRuntime.IndexOf("long_dictation_state_machine=v3", StringComparison.OrdinalIgnoreCase) >= 0;
+        string componentVersionError;
+        bool componentVersionsReady = AreCoreComponentsCurrent(out componentVersionError);
         bool componentsReady = File.Exists(Path.Combine(root, "VibeMicAtvvCapture.exe")) &&
             File.Exists(Path.Combine(root, "VoxDeckInputBridge.exe")) &&
             File.Exists(Path.Combine(root, "NAudio.Core.dll")) &&
-            File.Exists(Path.Combine(root, "NAudio.Wasapi.dll")) && stableRuntime && continuousRuntimeReady;
+            File.Exists(Path.Combine(root, "NAudio.Wasapi.dll")) && stableRuntime && continuousRuntimeReady && componentVersionsReady;
         report.Items.Add(new SelfCheckItem("components", "本地核心组件",
             componentsReady ? "pass" : "fail",
             componentsReady ? "语音捕获、按键桥接与 WASAPI 运行库完整，语音状态机已就绪" :
+                !componentVersionsReady ? componentVersionError :
                 !stableRuntime ? "当前捕获组件不是已验证的 v11，请重新安装完整发布包" :
-                !continuousRuntimeReady ? "持续听写组件不是音频实况状态机 v2，请重新安装完整发布包" :
+                !continuousRuntimeReady ? "持续听写组件不是当前音频实况状态机，请重新安装完整发布包" :
                 "安装目录缺少必要组件，请重新解压完整发布包",
             componentsReady ? "" : "重新下载", componentsReady ? "" : "download-release"));
 
@@ -3277,13 +5454,30 @@ internal sealed class VibeMicForm : Form
                 !configuredEndpointReady ? "播放端点不是 CABLE Input，遥控器音频无法进入对应的 CABLE Output" : "当前参数已偏离真机验证基线，可能影响灵敏度、延迟或端点恢复",
             stableProfile ? "" : "恢复稳定参数", stableProfile ? "" : "restore-profile"));
 
-        bool keyboardRunning = IsProcessRunning("VoxDeckInputBridge");
-        bool servicesReady = IsCapturing && keyboardRunning;
+        bool startupReady = IsLaunchAtStartupRegistered();
+        report.Items.Add(new SelfCheckItem("startup", "Windows 登录后自动启动",
+            startupReady ? "pass" : config.launchAtStartup ? "fail" : "warning",
+            startupReady ? "已注册后台启动，登录后会自动等待蓝牙、音频和按键服务" :
+                config.launchAtStartup ? "已选择开机启动，但 Windows 启动项未找到或路径已失效" :
+                "尚未开启开机启动；每次登录后需要手动打开言灵",
+            startupReady ? "" : "开启自启动", startupReady ? "" : "startup"));
+
+        bool keyboardRunning = IsCurrentProcessRunningFromRoot("VoxDeckInputBridge");
+        BridgeHealthSnapshot bridgeHealth = ReadKeyboardBridgeHealth();
+        bool servicesReady = IsCapturing && keyboardRunning && bridgeHealth.Healthy;
+        bool recentRemoteInput = bridgeHealth.LastInputAgeSeconds <= 120;
+        string serviceState = !servicesReady ? "fail" : recentRemoteInput ? "pass" : "warning";
+        string bridgeDetail = !keyboardRunning ? "按键桥接进程未运行" :
+            !bridgeHealth.Healthy ? "按键桥接正在恢复（健康文件、Hook 或 Raw Input 尚未就绪）" :
+            recentRemoteInput ?
+                "语音桥接与遥控器按键桥接均在运行，最近收到 " + bridgeHealth.LastInputKind + " 事件" :
+                "桥接进程健康，但尚未收到最近遥控器事件；请按一次任意遥控器键验证";
         report.Items.Add(new SelfCheckItem("services", "后台桥接服务",
-            servicesReady ? "pass" : "fail",
-            servicesReady ? "语音桥接与遥控器按键桥接均在运行" :
-                (!IsCapturing && !keyboardRunning ? "语音与按键桥接均未运行" : !IsCapturing ? "语音桥接未运行" : "按键桥接未运行"),
-            servicesReady ? "" : "启动桥接", servicesReady ? "" : "start-bridge"));
+            serviceState,
+            servicesReady ? bridgeDetail :
+            (!IsCapturing ? "语音桥接未运行" : bridgeDetail),
+            serviceState == "fail" ? "启动桥接" : serviceState == "warning" ? "验证按键" : "",
+            serviceState == "fail" ? "start-bridge" : serviceState == "warning" ? "test-remote" : ""));
 
         bool bleConnected = currentRuntime.IndexOf("status=Connected", StringComparison.OrdinalIgnoreCase) >= 0;
         bool atvvReady = bridgeReady || currentRuntime.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -3376,6 +5570,42 @@ internal sealed class VibeMicForm : Form
         return report;
     }
 
+    private bool AreCoreComponentsCurrent(out string error)
+    {
+        error = "";
+        string[] paths =
+        {
+            Application.ExecutablePath,
+            Path.Combine(root, "VibeMicAtvvCapture.exe"),
+            Path.Combine(root, "VoxDeckInputBridge.exe")
+        };
+        foreach (string path in paths)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                {
+                    error = "核心组件缺失：" + Path.GetFileName(path) + "，请重新安装完整发布包";
+                    return false;
+                }
+                FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+                string version = string.IsNullOrWhiteSpace(info.ProductVersion) ? info.FileVersion : info.ProductVersion;
+                if (string.IsNullOrWhiteSpace(version) ||
+                    !version.StartsWith(ProductRelease, StringComparison.OrdinalIgnoreCase))
+                {
+                    error = "核心组件版本不一致：" + Path.GetFileName(path) + "（" + (version ?? "未知") + "），请重新安装完整发布包";
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = "无法校验核心组件：" + Path.GetFileName(path) + "（" + ex.Message + "）";
+                return false;
+            }
+        }
+        return true;
+    }
+
     private string ReadCurrentRuntimeSegment()
     {
         string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
@@ -3394,6 +5624,72 @@ internal sealed class VibeMicForm : Form
     }
 
     private void AddSelfCheckRow(Control parent, SelfCheckItem item, int y)
+    {
+        var row = new Panel();
+        row.Location = new Point(18, y);
+        row.Size = new Size(924, 104);
+        row.BackColor = item.State == "fail" ? StatusSurface("error") :
+            item.State == "warning" ? StatusSurface("connecting") :
+            item.State == "checking" ? StatusSurface("recovering") :
+            item.State == "unsupported" ? surfaceBackground : Color.Transparent;
+        row.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            using (var pen = new Pen(line))
+                e.Graphics.DrawLine(pen, 0, row.Height - 1, row.Width, row.Height - 1);
+        };
+        Color statusColor = item.State == "pass" ? green : item.State == "fail" ? coral :
+            item.State == "checking" ? cyan : item.State == "unsupported" ? Color.FromArgb(142, 151, 170) : amber;
+        string statusGlyph = item.State == "pass" ? "✓" : item.State == "fail" ? "!" :
+            item.State == "checking" ? "…" : item.State == "unsupported" ? "–" : "·";
+        string statusText = item.State == "pass" ? "正常" : item.State == "fail" ? "错误" :
+            item.State == "checking" ? "正在检测" : item.State == "unsupported" ? "不支持" : "需要配置";
+        var mark = NewLabel(statusGlyph, 10f, FontStyle.Bold, Color.White);
+        mark.Location = new Point(6, 12);
+        mark.Size = new Size(30, 30);
+        mark.TextAlign = ContentAlignment.MiddleCenter;
+        mark.BackColor = statusColor;
+        ApplyRoundedRegion(mark, 15);
+        var title = NewLabel(item.Title, 9.6f, FontStyle.Bold, ink);
+        title.Location = new Point(50, 5);
+        title.Size = new Size(500, 24);
+        var state = NewLabel("●  " + statusText, 8.2f, FontStyle.Bold, statusColor);
+        state.Location = new Point(564, 5);
+        state.Size = new Size(126, 24);
+        state.TextAlign = ContentAlignment.MiddleRight;
+        var expected = NewLabel("正确状态：" + item.Expected, 7.9f, FontStyle.Regular, muted);
+        expected.Location = new Point(50, 29);
+        expected.Size = new Size(690, 19);
+        expected.AutoEllipsis = true;
+        var actual = NewLabel("当前状态：" + item.Actual, 7.9f, FontStyle.Bold, item.State == "fail" ? coral : ink);
+        actual.Location = new Point(50, 48);
+        actual.Size = new Size(690, 19);
+        actual.AutoEllipsis = true;
+        var cause = NewLabel("原因：" + item.Cause, 7.9f, FontStyle.Regular, muted);
+        cause.Location = new Point(50, 67);
+        cause.Size = new Size(690, 19);
+        cause.AutoEllipsis = true;
+        var nextStep = NewLabel("下一步：" + item.NextStep, 7.9f, FontStyle.Bold, statusColor);
+        nextStep.Location = new Point(50, 85);
+        nextStep.Size = new Size(690, 19);
+        nextStep.AutoEllipsis = true;
+        row.Controls.Add(mark);
+        row.Controls.Add(title);
+        row.Controls.Add(state);
+        row.Controls.Add(expected);
+        row.Controls.Add(actual);
+        row.Controls.Add(cause);
+        row.Controls.Add(nextStep);
+        if (!string.IsNullOrEmpty(item.Action))
+        {
+            var action = SecondaryButton(item.ActionText, new Point(762, 31), new Size(144, 40));
+            action.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Bold);
+            action.Click += delegate { HandleSelfCheckAction(item.Action); };
+            row.Controls.Add(action);
+        }
+        parent.Controls.Add(row);
+    }
+
+    private void AddSelfCheckRowLegacy(Control parent, SelfCheckItem item, int y)
     {
         var row = new Panel();
         row.Location = new Point(18, y);
@@ -3433,14 +5729,29 @@ internal sealed class VibeMicForm : Form
     private void HandleSelfCheckAction(string action)
     {
         if (action == "setup") ShowSetupWizard();
+        else if (action == "startup")
+        {
+            config.launchAtStartup = true;
+            SetLaunchAtStartup(true);
+            SaveConfig();
+            ShowToast(IsLaunchAtStartupRegistered() ? "已开启 Windows 登录后自动启动" : "启动项写入失败，请检查 Windows 权限", IsLaunchAtStartupRegistered() ? "success" : "error");
+            ShowPage(PageSettings);
+        }
         else if (action == "download-release") OpenUri("https://github.com/richlearntodo-debug/vibe-flow/releases/latest");
-        else if (action == "install-cable") OpenUri("https://vb-audio.com/Cable/");
+        else if (action == "install-cable")
+        {
+            config.onboardingStep = 5;
+            config.resumeSetupAfterRestart = !config.setupCompleted;
+            SaveConfig();
+            if (!config.setupCompleted) SetLaunchAtStartup(true);
+            LaunchVBCableInstaller();
+        }
         else if (action == "restore-profile")
         {
             ApplyStableVoiceProfile(config);
             SaveConfig();
             RestartCaptureForAudioSettings();
-            ShowPage(3);
+            ShowPage(PageSelfCheck);
             ShowToast("已恢复真机验证的稳定语音参数 v" + StableVoiceProfileVersion, "success");
         }
         else if (action == "start-bridge")
@@ -3449,22 +5760,42 @@ internal sealed class VibeMicForm : Form
             if (!IsCapturing) StartCapture();
             ShowToast("正在启动后台桥接，请稍候后重新自检", "info");
         }
-        else if (action == "bluetooth") OpenUri("ms-settings:bluetooth");
-        else if (action == "provider") ShowPage(1);
+        else if (action == "bluetooth" || action == "pair-device")
+        {
+            refreshSelfCheckOnActivate = true;
+            OpenUri("ms-settings:bluetooth");
+        }
+        else if (action == "microphone-permission")
+        {
+            refreshSelfCheckOnActivate = true;
+            OpenUri("ms-settings:privacy-microphone");
+        }
+        else if (action == "sound-settings")
+        {
+            refreshSelfCheckOnActivate = true;
+            OpenUri("ms-settings:sound");
+        }
+        else if (action == "provider") ShowPage(PageVoice);
+        else if (action == "test-remote")
+        {
+            RestartKeyboardBridge("self_check_remote");
+            if (!IsCapturing) StartCapture();
+            ShowPage(PageSelfCheck);
+            ShowToast("按键桥接已重建，请按一次遥控器方向键完成验证", "info");
+        }
         else if (action == "test-dictation")
         {
-            ShowPage(0);
-            ShowToast(UsesLongDictation(config.voiceMode)
-                ? "聚焦任意输入框，单击录音键开始，说完后再按一次"
-                : "聚焦任意输入框，按住遥控器录音键说完一句话后松开", "info");
+            ShowPage(PageHome);
+            ShowToast("聚焦任意输入框，按住遥控器录音键说话，松开后等待转译", "info");
         }
     }
 
     private void RunSelfCheckAndRefresh()
     {
+        windowsHardwareProbeAt = DateTime.MinValue;
         SelfCheckReport report = BuildSelfCheckReport();
-        ShowPage(3);
-        if (report.FailedCount == 0 && report.WarningCount == 0)
+        ShowPage(PageSelfCheck);
+        if (report.FailedCount == 0 && report.WarningCount == 0 && report.CheckingCount == 0 && report.UnsupportedCount == 0)
         {
             ShowToast("自检全部通过，语音链路状态良好", "success");
             if (config.soundFeedbackEnabled) PlayFeedbackSound(true);
@@ -3482,6 +5813,61 @@ internal sealed class VibeMicForm : Form
         bool running = processes.Length > 0;
         foreach (Process process in processes) process.Dispose();
         return running;
+    }
+
+    private bool IsCurrentProcessRunningFromRoot(string processName)
+    {
+        string expected = Path.GetFullPath(Path.Combine(root, processName + ".exe"));
+        foreach (Process process in Process.GetProcessesByName(processName))
+        {
+            try
+            {
+                if (!process.HasExited && Path.GetFullPath(process.MainModule.FileName)
+                    .Equals(expected, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            catch { }
+            finally { process.Dispose(); }
+        }
+        return false;
+    }
+
+    private BridgeHealthSnapshot ReadKeyboardBridgeHealth()
+    {
+        var snapshot = new BridgeHealthSnapshot();
+        string path = Path.Combine(root, "input-bridge-health.json");
+        try
+        {
+            if (!File.Exists(path)) return snapshot;
+            snapshot.FileAgeSeconds = Math.Max(0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds);
+            Dictionary<string, object> data;
+            string readError;
+            TryReadBridgeHealth(path, out data, out readError);
+            if (data == null) return snapshot;
+            object value;
+            if (data.TryGetValue("state", out value)) snapshot.State = Convert.ToString(value);
+            if (data.TryGetValue("hook_installed", out value)) snapshot.HookInstalled = Convert.ToBoolean(value);
+            if (data.TryGetValue("raw_input_registered", out value)) snapshot.RawInputRegistered = Convert.ToBoolean(value);
+            if (data.TryGetValue("raw_input_device_present", out value)) snapshot.RawInputDevicePresent = Convert.ToBoolean(value);
+            if (data.TryGetValue("last_input_kind", out value)) snapshot.LastInputKind = Convert.ToString(value);
+            if (data.TryGetValue("last_input_at", out value))
+            {
+                DateTime parsed;
+                if (DateTime.TryParse(Convert.ToString(value), CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out parsed))
+                {
+                    snapshot.LastInputAtUtc = parsed.ToUniversalTime();
+                    snapshot.LastInputAgeSeconds = Math.Max(0, (DateTime.UtcNow - snapshot.LastInputAtUtc).TotalSeconds);
+                }
+            }
+            snapshot.Healthy = snapshot.FileAgeSeconds <= 7 &&
+                string.Equals(snapshot.State, "running", StringComparison.OrdinalIgnoreCase) &&
+                snapshot.HookInstalled && snapshot.RawInputRegistered && snapshot.RawInputDevicePresent;
+        }
+        catch (Exception ex)
+        {
+            Log("Bridge health read failed: " + ex.Message);
+        }
+        return snapshot;
     }
 
     private static string[] ReadLogTailLines(string path, int maximumBytes)
@@ -3516,7 +5902,13 @@ internal sealed class VibeMicForm : Form
         int audioLiveIndex = -1;
         int transportHealthIndex = -1;
         bool transportHealthLive = false;
-        for (int i = Math.Max(0, lines.Length - 500); i < lines.Length; i++)
+        int captureBoundaryIndex = 0;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].IndexOf(" START endpoint=", StringComparison.OrdinalIgnoreCase) >= 0)
+                captureBoundaryIndex = i;
+        }
+        for (int i = Math.Max(captureBoundaryIndex, Math.Max(0, lines.Length - 500)); i < lines.Length; i++)
         {
             if (lines[i].IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) >= 0) startIndex = i;
             if (lines[i].IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) stopIndex = i;
@@ -3545,9 +5937,8 @@ internal sealed class VibeMicForm : Form
             activityLabel.Text = "●  正在听写  " + Math.Max(0, (int)elapsed.TotalMinutes).ToString("00") + ":" + Math.Max(0, elapsed.Seconds).ToString("00") + "  ·  遥控器音频正在到达";
             activityLabel.ForeColor = violet;
             if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "正在听写";
-            if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = UsesLongDictation(config.voiceMode)
-                ? "请自然说话，完成后再按一次录音键，由 " + ProviderDisplayName(config.inputMethod) + " 整理文字"
-                : "请自然说话，松开录音键后由 " + ProviderDisplayName(config.inputMethod) + " 整理文字";
+            if (heroSubtitle != null && !heroSubtitle.IsDisposed)
+                heroSubtitle.Text = "请自然说话，松开录音键后由 " + ProviderDisplayName(config.inputMethod) + " 整理文字";
             if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "LISTENING";
             ApplyVisualState("recording");
             return;
@@ -3558,7 +5949,7 @@ internal sealed class VibeMicForm : Form
             DateTime parsed;
             if (TryParseRuntimeTimestamp(lines[longStartIndex], out parsed)) activeStreamStarted = parsed;
             TimeSpan elapsed = activeStreamStarted == DateTime.MinValue ? TimeSpan.Zero : DateTime.Now - activeStreamStarted;
-            activityLabel.Text = "●  持续听写  " + Math.Max(0, (int)elapsed.TotalMinutes).ToString("00") + ":" +
+            activityLabel.Text = "●  按住说话  " + Math.Max(0, (int)elapsed.TotalMinutes).ToString("00") + ":" +
                 Math.Max(0, elapsed.Seconds).ToString("00") + "  ·  音频恢复中，请稍候";
             activityLabel.ForeColor = cyan;
             if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "正在恢复遥控器音频";
@@ -3588,7 +5979,7 @@ internal sealed class VibeMicForm : Form
             SessionHealth latest = UsesLongDictation(config.voiceMode) ? GetLatestSessionHealth() : null;
             if (latest != null && latest.AudioMs > 0)
             {
-                activityLabel.Text = "上一段连续听写 " + FormatMillisecondsAsSeconds(latest.AudioMs) +
+                activityLabel.Text = "上一段听写 " + FormatMillisecondsAsSeconds(latest.AudioMs) +
                     (latest.SegmentCount > 1 ? "  ·  " + latest.SegmentCount + " 个音频分段" : "") +
                     "  ·  输出电平 " + FormatPercent(latest.OutputRmsPercent);
                 activityLabel.ForeColor = muted;
@@ -3634,8 +6025,21 @@ internal sealed class VibeMicForm : Form
         string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
         string lineText = timestamp.Substring(11, 8) + " " + message;
         if (logBox != null && !logBox.IsDisposed) logBox.AppendText(lineText + Environment.NewLine);
-        try { File.AppendAllText(hostLogPath, timestamp + " " + message + Environment.NewLine, new UTF8Encoding(false)); }
+        try
+        {
+            RotateLogIfNeeded(hostLogPath, MaxHostLogBytes);
+            File.AppendAllText(hostLogPath, timestamp + " " + message + Environment.NewLine, new UTF8Encoding(false));
+        }
         catch { }
+    }
+
+    private static void RotateLogIfNeeded(string path, long maximumBytes)
+    {
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+        if (new FileInfo(path).Length <= maximumBytes) return;
+        string previous = path + ".1";
+        if (File.Exists(previous)) File.Delete(previous);
+        File.Move(path, previous);
     }
 
     private string LoadRecentDiagnostics()
@@ -3699,7 +6103,8 @@ internal sealed class VibeMicForm : Form
         toastIcon.Text = kind == "error" ? "\uEA39" : kind == "success" ? "\uE73E" : kind == "warning" ? "\uE7BA" : "\uE946";
         toastIcon.ForeColor = accent;
         toastPanel.BorderColor = Color.FromArgb(accent.R, accent.G, accent.B);
-        toastPanel.BackColor = kind == "error" ? Color.FromArgb(255, 247, 247) : kind == "success" ? Color.FromArgb(244, 252, 248) : kind == "warning" ? Color.FromArgb(255, 250, 239) : Color.White;
+        toastPanel.BackColor = kind == "error" ? StatusSurface("error") : kind == "success" ?
+            StatusSurface("ready") : kind == "warning" ? StatusSurface("connecting") : cardBackground;
         toastLabel.Text = text;
         toastPanel.Visible = true;
         toastPanel.BringToFront();
@@ -3866,9 +6271,19 @@ internal sealed class VibeMicForm : Form
     {
         int generation;
         int.TryParse(ExtractMetric(lineText, "generation"), out generation);
+        if (lineText.IndexOf("BLE status=Disconnected", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            lineText.IndexOf("ATVV SESSION RETRY scheduled", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            lineText.IndexOf("ATVV SESSION RETRY exhausted", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            if (bridgeReady)
+                HostLog("CAPTURE READY invalidated=true reason=transport_recovery");
+            bridgeReady = false;
+            UpdateCaptureUi();
+        }
         if (lineText.IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             bridgeReady = true;
+            captureNotReadySince = DateTime.MinValue;
             reconnectAttempt = 0;
             startupRecoveryCount = 0;
             HostLog("CAPTURE READY startup_ms=" +
@@ -3879,8 +6294,20 @@ internal sealed class VibeMicForm : Form
         if (lineText.IndexOf("AUDIO TRANSPORT FAILED", StringComparison.OrdinalIgnoreCase) >= 0)
         {
             if (generation > 0) lastFeedbackGeneration = Math.Max(lastFeedbackGeneration, generation);
-            SetSessionFeedback("error", "遥控器音频链路恢复失败，已停止持续听写；请打开连接与自检");
+            SetSessionFeedback("error", "遥控器音频链路恢复失败，当前按住会话已安全结束；请打开自检");
             transientFeedbackUntil = DateTime.Now.AddSeconds(12);
+            return;
+        }
+        if (lineText.IndexOf("VOICE KEY audio timeout", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            if (generation > 0) lastFeedbackGeneration = Math.Max(lastFeedbackGeneration, generation);
+            transientFeedbackState = "error";
+            transientFeedbackText = "本次没有收到遥控器音频 · 可直接再次按录音键重试";
+            transientFeedbackUntil = DateTime.Now.AddSeconds(10);
+            if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "没有收到音频";
+            if (heroSubtitle != null && !heroSubtitle.IsDisposed) heroSubtitle.Text = transientFeedbackText;
+            if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "AUDIO RETRY READY";
+            ApplyVisualState("error");
             return;
         }
         if (lineText.IndexOf("AUDIO LIVE START session=", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -3902,7 +6329,7 @@ internal sealed class VibeMicForm : Form
         {
             transientFeedbackUntil = DateTime.MinValue;
             transientFeedbackState = "recovering";
-            transientFeedbackText = "持续听写保持中 · 正在恢复遥控器音频";
+            transientFeedbackText = "当前按住会话保持中 · 正在恢复遥控器音频";
             if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "正在恢复遥控器音频";
             if (heroSubtitle != null && !heroSubtitle.IsDisposed)
                 heroSubtitle.Text = "转写工具保持开启；检测到真实音频后会自动继续输入";
@@ -3996,6 +6423,46 @@ internal sealed class VibeMicForm : Form
             else if (!success && dictationErrorPlayer != null) dictationErrorPlayer.Play();
         }
         catch { }
+    }
+
+    private void LaunchVBCableInstaller()
+    {
+        string script = Path.Combine(root, "scripts", "Install-VBCable.ps1");
+        if (!File.Exists(script))
+        {
+            ShowToast("安装引导组件缺失，请重新下载完整安装包", "error");
+            HostLog("VB-CABLE INSTALL unavailable reason=script_missing");
+            return;
+        }
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe");
+            start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + SafeCaptureArgument(script) + " -Install";
+            start.UseShellExecute = true;
+            start.Verb = "runas";
+            start.WorkingDirectory = root;
+            Process.Start(start);
+            HostLog("VB-CABLE INSTALL launched source=vb-audio-official sha256=b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb");
+            ShowToast("已启动官方 VB-CABLE 安装，请确认管理员权限", "info");
+        }
+        catch (Win32Exception ex)
+        {
+            if (ex.NativeErrorCode == 1223)
+            {
+                HostLog("VB-CABLE INSTALL cancelled=true reason=uac_cancelled");
+                ShowToast("已取消安装，稍后仍可重新安装", "info");
+            }
+            else
+            {
+                HostLog("VB-CABLE INSTALL failed=true error=" + ex.Message);
+                ShowToast("VB-CABLE 安装启动失败，请查看诊断记录", "error");
+            }
+        }
+        catch (Exception ex)
+        {
+            HostLog("VB-CABLE INSTALL failed=true error=" + ex.Message);
+            ShowToast("VB-CABLE 安装启动失败，请查看诊断记录", "error");
+        }
     }
 
     private void ScheduleAutomaticUpdateCheck()
@@ -4216,42 +6683,35 @@ internal sealed class VibeMicForm : Form
         string provider = (value ?? "").Trim().ToLowerInvariant();
         if (provider == "wetype" || provider == "wechat") return "wechat";
         if (provider == "typeless") return "typeless";
+        if (provider == "doubao" || provider == "豆包" || provider == "doubao-ime") return "doubao";
         if (provider == "windows" || provider == "win+h") return "windows";
-        if (provider == "voquill" || provider == "vokie") return "voquill";
+        if (provider == "voquill" || provider == "vokie") return "custom";
         return provider == "custom" ? "custom" : "wechat";
     }
 
     private static string NormalizeVoiceMode(string value)
     {
-        return string.Equals((value ?? "").Trim(), "continuous", StringComparison.OrdinalIgnoreCase)
-            ? "continuous"
-            : "hold";
+        return "hold";
     }
 
     private static bool UsesLongDictation(string value)
     {
-        return NormalizeVoiceMode(value) == "continuous";
+        return false;
     }
 
     private static string VoiceReadyInstruction(string value)
     {
-        return UsesLongDictation(value)
-            ? "单击录音键开始，完成后再单击一次结束"
-            : "聚焦输入框后按住说话，松开提交";
+        return "聚焦输入框后按住录音键说话，松开后完成转译";
     }
 
     private static string VoiceModeHelp(string value)
     {
-        return UsesLongDictation(value)
-            ? "推荐模式；已真机验证 15 分钟，单次 30 分钟安全保护。"
-            : "兼容模式；按住说话，松开结束，单次约 60 秒。";
+        return "固定为首版稳定模式；松开立即结束，单次最长约 60 秒。";
     }
 
     private static string VoiceStartInstruction(string value)
     {
-        return UsesLongDictation(value)
-            ? "聚焦输入框，单击录音键开始；完成后再单击一次"
-            : "聚焦输入框，按住录音键说话，松开结束";
+        return "聚焦输入框，按住录音键说话，松开结束";
     }
 
     private static string ProviderDisplayName(string provider)
@@ -4259,8 +6719,8 @@ internal sealed class VibeMicForm : Form
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "Typeless";
+            case "doubao": return "豆包输入法";
             case "windows": return "Windows 语音输入";
-            case "voquill": return "Voquill（开源）";
             case "custom": return "其他语音工具";
             default: return "微信输入法";
         }
@@ -4271,8 +6731,8 @@ internal sealed class VibeMicForm : Form
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "适合跨应用长文本听写，可继续使用 Typeless 自己的润色、格式整理和词典能力。";
+            case "doubao": return "适合中文语音输入；请先在豆包输入法中确认全局语音快捷键。";
             case "windows": return "Windows 自带，无需安装额外客户端，适合快速开始和基础听写。";
-            case "voquill": return "开源桌面听写工具，适合希望自行托管或进一步定制工作流的用户。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
             default: return "适合中文输入与结构化整理。推荐使用微信 AI 整理模式，直接回填清理后的文字。";
         }
@@ -4283,10 +6743,10 @@ internal sealed class VibeMicForm : Form
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "在 Typeless 设置中确认录音快捷键。常见默认值是 Right Alt，按一下开始、再按一下结束。";
+            case "doubao": return "在豆包输入法中设置全局语音快捷键，再把完全相同的快捷键填写到言灵并执行真实测试。";
             case "windows": return "Windows 语音输入使用 Win + H。首次使用时请先在任意输入框中手动按一次完成系统初始化。";
-            case "voquill": return "在 Voquill 中确认 Push-to-talk 快捷键。当前开源 Windows 默认是 Ctrl + Win 按住触发。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
-            default: return "在微信输入法中开启“语音智能整理”。推荐 Ctrl + Win + Shift 单击切换；Ctrl + Win 按住说话作为兼容模式。";
+            default: return "在微信输入法中启用语音输入，并把全局快捷键设为 Ctrl + Win。录音前先把光标放进目标输入框。";
         }
     }
 
@@ -4300,7 +6760,7 @@ internal sealed class VibeMicForm : Form
     {
         target.Items.Clear();
         if (NormalizeProviderKey(provider) == "wechat")
-            target.Items.AddRange(new object[] { "AI 整理（推荐）", "按住说话（兼容）" });
+            target.Items.Add("单击切换（稳定）");
         else
             target.Items.AddRange(new object[] { "单击切换", "按住触发" });
     }
@@ -4308,7 +6768,7 @@ internal sealed class VibeMicForm : Form
     private static string ProviderHotkeyHelp(string provider, string trigger)
     {
         if (NormalizeProviderKey(provider) != "wechat") return "须与所选工具中的快捷键一致";
-        return trigger == "hold" ? "兼容模式，不启用 AI 整理" : "去口头词并自动分段";
+        return "首个正式版稳定参数：Ctrl + Win · 单击切换";
     }
 
     private static string DefaultHotkeyForProvider(string provider)
@@ -4316,16 +6776,16 @@ internal sealed class VibeMicForm : Form
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "rightalt";
+            case "doubao": return "ctrl+win";
             case "windows": return "win+h";
-            case "voquill": return "ctrl+win";
             case "custom": return "ctrl+win";
-            default: return WeChatAiHotkey;
+            default: return WeChatStableHotkey;
         }
     }
 
     private static string DefaultTriggerForProvider(string provider)
     {
-        return NormalizeProviderKey(provider) == "voquill" ? "hold" : "toggle";
+        return "toggle";
     }
 
     private static int DefaultStartupDelayForProvider(string provider)
@@ -4334,9 +6794,9 @@ internal sealed class VibeMicForm : Form
         {
             case "windows": return 300;
             case "typeless": return 120;
-            case "voquill": return 120;
+            case "doubao": return 180;
             case "custom": return 150;
-            default: return 180;
+            default: return 80;
         }
     }
 
@@ -4345,8 +6805,8 @@ internal sealed class VibeMicForm : Form
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return 1;
-            case "windows": return 2;
-            case "voquill": return 3;
+            case "doubao": return 2;
+            case "windows": return 3;
             case "custom": return 4;
             default: return 0;
         }
@@ -4354,7 +6814,7 @@ internal sealed class VibeMicForm : Form
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "typeless" : index == 2 ? "windows" : index == 3 ? "voquill" : index == 4 ? "custom" : "wechat";
+        return index == 1 ? "typeless" : index == 2 ? "doubao" : index == 3 ? "windows" : index == 4 ? "custom" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)
@@ -4395,7 +6855,8 @@ internal sealed class VibeMicForm : Form
             case "wechat": return IsProcessRunning("WeType") || IsProcessRunning("WeTypeService") ||
                 IsProcessRunning("wetype_server") || IsProcessRunning("wetype_service");
             case "typeless": return IsProcessRunning("Typeless");
-            case "voquill": return IsProcessRunning("Voquill") || IsProcessRunning("voquill");
+            case "doubao": return IsProcessRunning("Doubao") || IsProcessRunning("DoubaoInput") ||
+                IsProcessRunning("DoubaoIME");
             case "windows": return true;
             default: return true;
         }
@@ -4421,7 +6882,7 @@ internal sealed class VibeMicForm : Form
         {
             case "wechat": OpenUri("https://z.weixin.qq.com/"); break;
             case "typeless": OpenUri("https://www.typeless.com/zh-cn/help/quickstart/first-dictation"); break;
-            case "voquill": OpenUri("https://github.com/voquill/voquill"); break;
+            case "doubao": OpenUri("https://www.doubao.com/"); break;
             default: OpenUri("ms-settings:sound"); break;
         }
     }
@@ -4443,10 +6904,36 @@ internal sealed class VibeMicForm : Form
         try
         {
             VibeMicConfig loaded = new JavaScriptSerializer().Deserialize<VibeMicConfig>(File.ReadAllText(configPath, Encoding.UTF8)) ?? VibeMicConfig.Default();
-            if (MigrateConfig(loaded)) File.WriteAllText(configPath, new JavaScriptSerializer().Serialize(loaded), Encoding.UTF8);
+            if (MigrateConfig(loaded)) WriteConfigAtomically(loaded);
             return loaded;
         }
-        catch { return VibeMicConfig.Default(); }
+        catch (Exception primaryError)
+        {
+            string backupPath = configPath + ".bak";
+            try
+            {
+                if (File.Exists(backupPath))
+                {
+                    VibeMicConfig recovered = new JavaScriptSerializer().Deserialize<VibeMicConfig>(
+                        File.ReadAllText(backupPath, Encoding.UTF8));
+                    if (recovered != null)
+                    {
+                        MigrateConfig(recovered);
+                        WriteConfigAtomically(recovered);
+                        HostLog("CONFIG RECOVERED source=backup error=" + SafeLogValue(primaryError.Message));
+                        return recovered;
+                    }
+                }
+            }
+            catch (Exception backupError)
+            {
+                HostLog("CONFIG RECOVERY failed=true primary=" + SafeLogValue(primaryError.Message) +
+                    " backup=" + SafeLogValue(backupError.Message));
+            }
+            VibeMicConfig defaults = VibeMicConfig.Default();
+            try { WriteConfigAtomically(defaults); } catch { }
+            return defaults;
+        }
     }
 
     private static bool HasStableVoiceProfile(VibeMicConfig value)
@@ -4509,11 +6996,16 @@ internal sealed class VibeMicForm : Form
             value.inputMethodTrigger = DefaultTriggerForProvider(value.inputMethod);
             changed = true;
         }
-        if (previousSchema < 18 && normalizedProvider == "wechat" &&
-            string.Equals(value.inputMethodHotkey, WeChatCompatibilityHotkey, StringComparison.OrdinalIgnoreCase) &&
+        if (normalizedProvider == "wechat" && value.inputMethodTrigger != "toggle")
+        {
+            value.inputMethodTrigger = "toggle";
+            changed = true;
+        }
+        if (previousSchema < 25 && normalizedProvider == "wechat" &&
+            string.Equals(value.inputMethodHotkey, WeChatV12Hotkey, StringComparison.OrdinalIgnoreCase) &&
             value.inputMethodTrigger == "toggle")
         {
-            value.inputMethodHotkey = WeChatAiHotkey;
+            value.inputMethodHotkey = WeChatStableHotkey;
             value.providerStartupDelayMs = DefaultStartupDelayForProvider("wechat");
             changed = true;
         }
@@ -4548,10 +7040,69 @@ internal sealed class VibeMicForm : Form
         if (value.drainMs <= 0) { value.drainMs = 180; changed = true; }
         if (string.IsNullOrWhiteSpace(value.mappingPreset)) { value.mappingPreset = "coding"; changed = true; }
         if (value.mappings == null) { value.mappings = new Dictionary<string, string>(); changed = true; }
+        if (previousSchema < 23)
+        {
+            string legacyPower = value.mappings.ContainsKey("电源键") ? value.mappings["电源键"] : "";
+            bool preservePowerTarget = IsApplicationOrWebAction(legacyPower);
+            value.mappings["功能键:short"] = "ctrl+c";
+            value.mappings["功能键:long"] = "ctrl+v";
+            value.mappings["返回键:short"] = "backspace";
+            value.mappings["返回键:long"] = "browserback";
+            value.mappings["TV:short"] = "alt+tab";
+            value.mappings["TV:long"] = "mediaplaypause";
+            value.mappings["电源键:short"] = preservePowerTarget ? legacyPower : "launch-client:chatgpt";
+            value.mappings["电源键:long"] = "none";
+            value.mappings["Home"] = "win+d";
+            value.mappings["确认键"] = "enter";
+            value.mappings["上 / 下 / 左 / 右"] = "passthrough";
+            value.mappings["音量 +"] = "volumeup";
+            value.mappings["音量 -"] = "volumedown";
+            changed = true;
+        }
+        if (value.customButtons != null)
+        {
+            foreach (CustomButtonConfig legacyButton in value.customButtons)
+            {
+                string physicalKey = ResolveLegacyCustomButtonKey(legacyButton);
+                if (string.IsNullOrWhiteSpace(physicalKey) || legacyButton == null || !legacyButton.enabled ||
+                    string.IsNullOrWhiteSpace(legacyButton.action) ||
+                    legacyButton.action.Equals("none", StringComparison.OrdinalIgnoreCase)) continue;
+                value.mappings[physicalKey] = legacyButton.action;
+            }
+            value.customButtons = null;
+            changed = true;
+        }
+        if (previousSchema < 25)
+        {
+            value.voiceMode = "hold";
+            value.mappings["TV"] = "task-switcher";
+            value.mappings["上键"] = "up";
+            value.mappings["下键"] = "down";
+            value.mappings["左键"] = "left";
+            value.mappings["右键"] = "right";
+            string[] retiredKeys = {
+                "上 / 下 / 左 / 右", "TV:short", "TV:long",
+                "返回键", "返回键:short", "返回键:long",
+                "音量 +", "音量 -", "电源键", "电源键:short", "电源键:long"
+            };
+            foreach (string key in retiredKeys) value.mappings.Remove(key);
+            if (value.theme == "system") value.theme = "light";
+            changed = true;
+        }
         Dictionary<string, string> defaults = VibeMicConfig.Default().mappings;
         foreach (KeyValuePair<string, string> pair in defaults)
         {
             if (!value.mappings.ContainsKey(pair.Key)) { value.mappings[pair.Key] = pair.Value; changed = true; }
+        }
+        value.mappings["TV"] = "task-switcher";
+        string[] directionKeys = { "上键", "下键", "左键", "右键" };
+        foreach (string key in directionKeys)
+        {
+            if (!IsSupportedDirectionAction(value.mappings[key]))
+            {
+                value.mappings[key] = DefaultDirectionAction(key);
+                changed = true;
+            }
         }
         if (previousSchema < 9 && value.mappings.ContainsKey("功能键") &&
             value.mappings["功能键"].Equals("ctrl+shift+p", StringComparison.OrdinalIgnoreCase))
@@ -4565,7 +7116,7 @@ internal sealed class VibeMicForm : Form
             value.mappings["功能键"] = "launch-client:" + value.mappings["功能键"].Substring("launch-ai:".Length);
             changed = true;
         }
-        string[] unsupportedMappings = { "返回键", "音量 + / -", "返回操作", "换行 / 删除" };
+        string[] unsupportedMappings = { "音量 + / -", "返回操作", "换行 / 删除" };
         foreach (string key in unsupportedMappings)
             if (value.mappings.Remove(key)) changed = true;
         int profileVersion = HasStableVoiceProfile(value) ? StableVoiceProfileVersion : 0;
@@ -4579,12 +7130,67 @@ internal sealed class VibeMicForm : Form
             value.onboardingVersion = CurrentOnboardingVersion;
             changed = true;
         }
+        if (value.onboardingStep < 0 || value.onboardingStep >= OnboardingStepCount)
+        {
+            value.onboardingStep = value.setupCompleted ? OnboardingStepCount - 1 : 0;
+            changed = true;
+        }
+        else if (value.setupCompleted && value.onboardingStep < OnboardingStepCount - 1)
+        {
+            value.onboardingStep = OnboardingStepCount - 1;
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(value.theme))
+        {
+            value.theme = "light";
+            changed = true;
+        }
+        else if (value.theme != "system" && value.theme != "light" && value.theme != "dark")
+        {
+            value.theme = "light";
+            changed = true;
+        }
+        if (value.setupCompleted && value.resumeSetupAfterRestart)
+        {
+            value.resumeSetupAfterRestart = false;
+            changed = true;
+        }
         return changed;
+    }
+
+    private static bool IsApplicationOrWebAction(string action)
+    {
+        string value = (action ?? "").Trim();
+        return value.StartsWith("launch-client:", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("open-exe:", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("open-url:", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("open-app:", StringComparison.OrdinalIgnoreCase) ||
+            value.StartsWith("start-app:", StringComparison.OrdinalIgnoreCase);
     }
 
     private void EnsureConfig()
     {
-        if (!File.Exists(configPath)) File.WriteAllText(configPath, new JavaScriptSerializer().Serialize(VibeMicConfig.Default()), Encoding.UTF8);
+        if (File.Exists(configPath)) return;
+        string backupPath = configPath + ".bak";
+        if (File.Exists(backupPath))
+        {
+            File.Copy(backupPath, configPath, false);
+            return;
+        }
+        WriteConfigAtomically(VibeMicConfig.Default());
+    }
+
+    private void WriteConfigAtomically(VibeMicConfig value)
+    {
+        WriteTextAtomically(configPath, new JavaScriptSerializer().Serialize(value), configPath + ".bak");
+    }
+
+    private static void WriteTextAtomically(string path, string content, string backupPath)
+    {
+        string tempPath = path + ".tmp";
+        File.WriteAllText(tempPath, content, Encoding.UTF8);
+        if (File.Exists(path)) File.Replace(tempPath, path, backupPath);
+        else File.Move(tempPath, path);
     }
 
     private void SaveConfig()
@@ -4594,8 +7200,8 @@ internal sealed class VibeMicForm : Form
             config.schemaVersion = ConfigSchemaVersion;
             config.autoLevel = config.audioProcessingMode == "speech";
             config.stableVoiceProfileVersion = HasStableVoiceProfile(config) ? StableVoiceProfileVersion : 0;
-            File.WriteAllText(configPath, new JavaScriptSerializer().Serialize(config), Encoding.UTF8);
-            SyncKeyboardBridgeConfig();
+            WriteConfigAtomically(config);
+            if (!uiSmokeMode) SyncKeyboardBridgeConfig();
         }
         catch (Exception ex) { Log("Config save failed: " + ex.Message); }
     }
@@ -4604,16 +7210,38 @@ internal sealed class VibeMicForm : Form
     {
         try
         {
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", true))
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run"))
             {
                 if (key == null) return;
                 key.DeleteValue("Vibe Mic", false);
                 key.DeleteValue("声启 MIC", false);
                 if (enabled) key.SetValue("Vibe Flow", "\"" + Application.ExecutablePath + "\" --background");
                 else key.DeleteValue("Vibe Flow", false);
+                string actual = key.GetValue("Vibe Flow") as string;
+                if (enabled && string.IsNullOrWhiteSpace(actual)) Log("Startup setting verification failed");
             }
         }
         catch (Exception ex) { Log("Startup setting failed: " + ex.Message); }
+    }
+
+    private bool IsLaunchAtStartupRegistered()
+    {
+        if (!config.launchAtStartup) return false;
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", false))
+            {
+                string value = key == null ? "" : key.GetValue("Vibe Flow") as string;
+                return !string.IsNullOrWhiteSpace(value) &&
+                    value.IndexOf(Application.ExecutablePath, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    value.IndexOf("--background", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("Startup setting read failed: " + ex.Message);
+            return false;
+        }
     }
 
     private void SyncKeyboardBridgeConfig()
@@ -4623,22 +7251,21 @@ internal sealed class VibeMicForm : Form
         {
             var mappings = new List<Dictionary<string, object>>();
             mappings.Add(BridgeMapping("voice", "录音键", "F5", "0x3F", true, true, "suppress", ""));
-            mappings.Add(BridgeMapping("back", "返回键（Windows 未上报）", "BrowserBack", "", false, false, "passthrough", "browserback"));
             mappings.Add(ConfiguredMapping("home", "Home 键", "Home", "0x47", GetMapping("Home", "win+d"), "home"));
-            mappings.Add(ConfiguredMapping("tv", "TV 键", "Oemtilde", "0x29", GetMapping("TV", "task-switcher"), "oemtilde"));
-            mappings.Add(ConfiguredMapping("menu", "功能键", "Apps", "0x5D", GetMapping("功能键", "launch-client:chatgpt"), "apps"));
+            mappings.Add(BridgeMapping("tv", "TV 键", "Oemtilde", "0x29", true, true, "tap", "task-switcher"));
+            mappings.Add(GestureMapping("menu", "功能键", "Apps", "0x5D",
+                GetMapping("功能键:short", "ctrl+c"), GetMapping("功能键:long", "ctrl+v")));
             mappings.Add(ConfiguredMapping("ok", "确认键", "Enter", "0x1C", GetMapping("确认键", "enter"), "enter"));
-            mappings.Add(BridgeMapping("up", "上键", "Up", "0x48", false, false, "passthrough", "up"));
-            mappings.Add(BridgeMapping("down", "下键", "Down", "0x50", false, false, "passthrough", "down"));
-            mappings.Add(BridgeMapping("left", "左键", "Left", "0x4B", false, false, "passthrough", "left"));
-            mappings.Add(BridgeMapping("right", "右键", "Right", "0x4D", false, false, "passthrough", "right"));
-            mappings.Add(BridgeMapping("volume_up", "独立音量 +（Windows 未上报）", "VolumeUp", "", false, false, "passthrough", "volumeup"));
-            mappings.Add(BridgeMapping("volume_down", "独立音量 -（Windows 未上报）", "VolumeDown", "", false, false, "passthrough", "volumedown"));
+            mappings.Add(ConfiguredMapping("up", "上键", "Up", "0x48", GetMapping("上键", "up"), "up"));
+            mappings.Add(ConfiguredMapping("down", "下键", "Down", "0x50", GetMapping("下键", "down"), "down"));
+            mappings.Add(ConfiguredMapping("left", "左键", "Left", "0x4B", GetMapping("左键", "left"), "left"));
+            mappings.Add(ConfiguredMapping("right", "右键", "Right", "0x4D", GetMapping("右键", "right"), "right"));
             var document = new Dictionary<string, object>();
-            document["version"] = 2;
-            document["notes"] = "Generated by Vibe Flow. Only distinctive RC003 keys are remapped; ordinary navigation remains native by default.";
+            document["version"] = 4;
+            document["notes"] = "Generated by Vibe Flow. Only physically verified RC003 keyboard reports are mapped.";
             document["mappings"] = mappings.ToArray();
-            File.WriteAllText(Path.Combine(root, "voxdeck-shortcuts.json"), new JavaScriptSerializer().Serialize(document), Encoding.UTF8);
+            string bridgeConfigPath = Path.Combine(root, "voxdeck-shortcuts.json");
+            WriteTextAtomically(bridgeConfigPath, new JavaScriptSerializer().Serialize(document), bridgeConfigPath + ".bak");
         }
         catch (Exception ex) { Log("Keyboard config sync failed: " + ex.Message); }
     }
@@ -4650,7 +7277,63 @@ internal sealed class VibeMicForm : Form
         return BridgeMapping(name, label, vk, scan, !passthrough, !passthrough, passthrough ? "passthrough" : "tap", passthrough ? nativeAction : action);
     }
 
+    private static Dictionary<string, object> HidConfiguredMapping(string name, string label, string action, string sourceType, int usagePage, int usage)
+    {
+        string normalized = (action ?? "").Trim().ToLowerInvariant();
+        bool enabled = normalized.Length > 0 && normalized != "none" && normalized != "passthrough";
+        return BridgeMapping(name, label, "", "", enabled, enabled, "tap", action, sourceType, usagePage, usage);
+    }
+
+    private static Dictionary<string, object> ConsumerConfiguredMapping(string name, string label, string action, int usage)
+    {
+        return HidConfiguredMapping(name, label, action, "consumer", 0x0C, usage);
+    }
+
+    private static Dictionary<string, object> GestureMapping(string name, string label, string vk, string scan,
+        string shortAction, string longAction)
+    {
+        return GestureMapping(name, label, vk, scan, shortAction, longAction, "keyboard", 0, 0);
+    }
+
+    private static Dictionary<string, object> HidGestureMapping(string name, string label,
+        string shortAction, string longAction, string sourceType, int usagePage, int usage)
+    {
+        return GestureMapping(name, label, "", "", shortAction, longAction, sourceType, usagePage, usage);
+    }
+
+    private static Dictionary<string, object> GestureMapping(string name, string label, string vk, string scan,
+        string shortAction, string longAction, string sourceType, int usagePage, int usage)
+    {
+        bool enabled = !IsDisabledAction(shortAction) || !IsDisabledAction(longAction);
+        Dictionary<string, object> value = BridgeMapping(name, label, vk, scan, enabled, enabled,
+            "shortlong", "", sourceType, usagePage, usage);
+        value["shortShortcut"] = shortAction ?? "none";
+        value["longShortcut"] = longAction ?? "none";
+        value["longPressMs"] = 650;
+        return value;
+    }
+
+    private static Dictionary<string, object> HidHoldMapping(string name, string label, string action,
+        string sourceType, int usagePage, int usage)
+    {
+        bool enabled = !IsDisabledAction(action);
+        return BridgeMapping(name, label, "", "", enabled, enabled, "hold", action,
+            sourceType, usagePage, usage);
+    }
+
+    private static bool IsDisabledAction(string action)
+    {
+        string value = (action ?? "").Trim();
+        return value.Length == 0 || value.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("passthrough", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Dictionary<string, object> BridgeMapping(string name, string label, string vk, string scan, bool enabled, bool suppress, string mode, string shortcut)
+    {
+        return BridgeMapping(name, label, vk, scan, enabled, suppress, mode, shortcut, "keyboard", 0, 0);
+    }
+
+    private static Dictionary<string, object> BridgeMapping(string name, string label, string vk, string scan, bool enabled, bool suppress, string mode, string shortcut, string sourceType, int usagePage, int usage)
     {
         var value = new Dictionary<string, object>();
         value["name"] = name;
@@ -4661,13 +7344,84 @@ internal sealed class VibeMicForm : Form
         value["suppress"] = suppress;
         value["mode"] = mode;
         value["shortcut"] = shortcut;
+        value["sourceType"] = sourceType;
+        value["usagePage"] = usagePage;
+        value["usage"] = usage;
         return value;
+    }
+
+    private static Dictionary<string, object> CustomBridgeMapping(CustomButtonConfig custom)
+    {
+        if (custom == null || !custom.enabled || string.IsNullOrWhiteSpace(custom.action) ||
+            custom.action.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        bool consumer = string.Equals(custom.sourceType, "consumer", StringComparison.OrdinalIgnoreCase) && custom.usage > 0;
+        bool hid = string.Equals(custom.sourceType, "hid", StringComparison.OrdinalIgnoreCase) && custom.usagePage > 0 && custom.usage > 0;
+        bool keyboard = !consumer && !hid && (!string.IsNullOrWhiteSpace(custom.vk) || !string.IsNullOrWhiteSpace(custom.scan));
+        if (!consumer && !hid && !keyboard) return null;
+        return BridgeMapping(custom.slot, custom.label, consumer || hid ? "" : custom.vk, consumer || hid ? "" : custom.scan,
+            true, true, "tap", custom.action, consumer ? "consumer" : hid ? "hid" : "keyboard", custom.usagePage, custom.usage);
     }
 
     private string GetMapping(string key, string fallback)
     {
         if (config.mappings != null && config.mappings.ContainsKey(key)) return config.mappings[key];
         return fallback;
+    }
+
+    private long InputBridgeLogLength()
+    {
+        try
+        {
+            string path = Path.Combine(root, "input-bridge-log.txt");
+            return File.Exists(path) ? new FileInfo(path).Length : 0;
+        }
+        catch { return 0; }
+    }
+
+    private bool HasObservedPhysicalButton(string key)
+    {
+        return HasObservedPhysicalButtonSince(key, 0);
+    }
+
+    private bool HasObservedPhysicalButtonSince(string key, long startPosition)
+    {
+        string path = Path.Combine(root, "input-bridge-log.txt");
+        if (!File.Exists(path)) return false;
+        try
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            {
+                stream.Position = Math.Max(0, Math.Min(startPosition, stream.Length));
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, false))
+                {
+                    string text = reader.ReadToEnd();
+                    if (key == "上键")
+                        return text.IndexOf("RC003 RAW KEY DOWN vk=0x26", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("Key 上键 DOWN", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "下键")
+                        return text.IndexOf("RC003 RAW KEY DOWN vk=0x28", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("Key 下键 DOWN", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "左键")
+                        return text.IndexOf("RC003 RAW KEY DOWN vk=0x25", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("Key 左键 DOWN", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "右键")
+                        return text.IndexOf("RC003 RAW KEY DOWN vk=0x27", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("Key 右键 DOWN", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "电源键")
+                        return text.IndexOf("Key 开机键", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("usage=0x66", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "返回键")
+                        return text.IndexOf("Key 返回键", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("usage=0xF1", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (key == "TV")
+                        return text.IndexOf("Key TV 键", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                            text.IndexOf("vk=Oemtilde", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+            }
+        }
+        catch { }
+        return false;
     }
 
     private static string RemoteControlForMappingKey(string key)
@@ -4677,58 +7431,75 @@ internal sealed class VibeMicForm : Form
         if (key == "Home") return "home";
         if (key == "TV") return "tv";
         if (key == "功能键") return "menu";
+        if (key == "返回键") return "back";
+        if (key == "音量 +") return "volumeup";
+        if (key == "音量 -") return "volumedown";
+        if (key == "电源键") return "power";
+        if (key == "上键") return "up";
+        if (key == "下键") return "down";
+        if (key == "左键") return "left";
+        if (key == "右键") return "right";
         return "directions";
+    }
+
+    private static string DefaultDirectionAction(string key)
+    {
+        if (key == "上键") return "up";
+        if (key == "下键") return "down";
+        if (key == "左键") return "left";
+        if (key == "右键") return "right";
+        return "passthrough";
+    }
+
+    private static bool IsSupportedDirectionAction(string action)
+    {
+        string value = (action ?? "").Trim().ToLowerInvariant();
+        string[] supported = {
+            "none", "up", "down", "left", "right",
+            "ctrl+c", "ctrl+x", "ctrl+v", "ctrl+z", "ctrl+shift+z",
+            "ctrl+s", "ctrl+a", "ctrl+f", "enter", "escape", "tab",
+            "shift+tab", "pageup", "pagedown", "win+d", "win+shift+s"
+        };
+        return Array.IndexOf(supported, value) >= 0;
     }
 
     private static List<ShortcutChoice> ShortcutChoicesFor(string key, string current)
     {
-        var choices = new List<ShortcutChoice>();
-        if (key == "录音键") choices.Add(new ShortcutChoice("由言灵管理", "managed"));
-        else if (key == "上 / 下 / 左 / 右") choices.Add(new ShortcutChoice("短按方向 · 长按上下调音量", "direction-volume-fallback"));
-        else
+        string native = DefaultDirectionAction(key);
+        var choices = new List<ShortcutChoice>
         {
-            if (key == "功能键")
-            {
-                choices.Add(new ShortcutChoice("客户端 · ChatGPT（默认）", "launch-client:chatgpt"));
-                choices.Add(new ShortcutChoice("客户端 · DeepSeek", "launch-client:deepseek"));
-                choices.Add(new ShortcutChoice("客户端 · Claude", "launch-client:claude"));
-                choices.Add(new ShortcutChoice("开发工具 · Cursor", "launch-client:cursor"));
-                choices.Add(new ShortcutChoice("开发工具 · Visual Studio Code", "launch-client:vscode"));
-                choices.Add(new ShortcutChoice("开发工具 · Windsurf", "launch-client:windsurf"));
-                choices.Add(new ShortcutChoice("系统工具 · Windows Terminal", "launch-client:terminal"));
-            }
-            choices.Add(new ShortcutChoice("通用 · 确认 / 换行", "enter"));
-            choices.Add(new ShortcutChoice("编辑 · 复制", "ctrl+c"));
-            choices.Add(new ShortcutChoice("编辑 · 剪切", "ctrl+x"));
-            choices.Add(new ShortcutChoice("编辑 · 粘贴", "ctrl+v"));
-            choices.Add(new ShortcutChoice("编辑 · 撤销", "ctrl+z"));
-            choices.Add(new ShortcutChoice("编辑 · 重做", "ctrl+shift+z"));
-            choices.Add(new ShortcutChoice("编辑 · 保存", "ctrl+s"));
-            choices.Add(new ShortcutChoice("编辑 · 全选", "ctrl+a"));
-            choices.Add(new ShortcutChoice("代码 · 命令面板", "ctrl+shift+p"));
-            choices.Add(new ShortcutChoice("代码 · 快速打开文件", "ctrl+p"));
-            choices.Add(new ShortcutChoice("代码 · 新建终端", "ctrl+oemtilde"));
-            choices.Add(new ShortcutChoice("代码 · 删除当前行", "ctrl+shift+k"));
-            choices.Add(new ShortcutChoice("代码 · 运行 / 调试", "f5"));
-            choices.Add(new ShortcutChoice("导航 · 查找", "ctrl+f"));
-            choices.Add(new ShortcutChoice("导航 · 关闭标签页", "ctrl+w"));
-            if (key == "TV") choices.Add(new ShortcutChoice("任务切换器（左右选择）", "task-switcher"));
-            choices.Add(new ShortcutChoice("导航 · 快速切换应用", "alt+tab"));
-            choices.Add(new ShortcutChoice("导航 · 切换标签页", "ctrl+tab"));
-            choices.Add(new ShortcutChoice("系统 · 显示桌面", "win+d"));
-            choices.Add(new ShortcutChoice("导航 · 返回上一页", "alt+left"));
-            choices.Add(new ShortcutChoice("通用 · Esc / 取消", "escape"));
-        }
-        bool found = false;
-        foreach (ShortcutChoice choice in choices) if (choice.Shortcut.Equals(current ?? "", StringComparison.OrdinalIgnoreCase)) found = true;
-        if (!found && !string.IsNullOrWhiteSpace(current)) choices.Add(new ShortcutChoice("自定义 · " + current, current));
+            new ShortcutChoice(native == "up" ? "保持上方向（推荐）" :
+                native == "down" ? "保持下方向（推荐）" :
+                native == "left" ? "保持左方向（推荐）" :
+                native == "right" ? "保持右方向（推荐）" : "保持原按键", native),
+            new ShortcutChoice("不执行动作", "none"),
+            new ShortcutChoice("编辑 · 复制", "ctrl+c"),
+            new ShortcutChoice("编辑 · 剪切", "ctrl+x"),
+            new ShortcutChoice("编辑 · 粘贴", "ctrl+v"),
+            new ShortcutChoice("编辑 · 撤销", "ctrl+z"),
+            new ShortcutChoice("编辑 · 重做", "ctrl+shift+z"),
+            new ShortcutChoice("编辑 · 保存", "ctrl+s"),
+            new ShortcutChoice("编辑 · 全选", "ctrl+a"),
+            new ShortcutChoice("导航 · 查找", "ctrl+f"),
+            new ShortcutChoice("通用 · 确认 / 换行", "enter"),
+            new ShortcutChoice("通用 · Esc / 取消", "escape"),
+            new ShortcutChoice("导航 · 下一个焦点", "tab"),
+            new ShortcutChoice("导航 · 上一个焦点", "shift+tab"),
+            new ShortcutChoice("导航 · 上一页", "pageup"),
+            new ShortcutChoice("导航 · 下一页", "pagedown"),
+            new ShortcutChoice("系统 · 区域截图", "win+shift+s"),
+            new ShortcutChoice("系统 · 显示桌面", "win+d")
+        };
+        if (IsSupportedDirectionAction(current) && FindShortcutChoice(choices, current) == 0 &&
+            !string.Equals(current, native, StringComparison.OrdinalIgnoreCase))
+            choices.Add(new ShortcutChoice(CustomActionText(current), current));
         return choices;
     }
 
     private string FindMappingConflict(string key, string shortcut)
     {
         if (config.mappings == null || string.IsNullOrWhiteSpace(shortcut)) return "";
-        string[] configurable = { "确认键", "Home", "TV", "功能键" };
+        string[] configurable = { "上键", "下键", "左键", "右键" };
         foreach (string candidate in configurable)
         {
             if (candidate == key || !config.mappings.ContainsKey(candidate)) continue;
@@ -4749,32 +7520,571 @@ internal sealed class VibeMicForm : Form
         if (config.mappings == null) config.mappings = new Dictionary<string, string>();
         config.mappingPreset = preset;
         config.mappings["确认键"] = "enter";
-        config.mappings["上 / 下 / 左 / 右"] = "direction-volume-fallback";
-
-        if (preset == "editing")
-        {
-            config.mappings["Home"] = "ctrl+z";
-            config.mappings["TV"] = "task-switcher";
-            config.mappings["功能键"] = "launch-client:chatgpt";
-        }
-        else if (preset == "review")
-        {
-            config.mappings["Home"] = "ctrl+f";
-            config.mappings["TV"] = "task-switcher";
-            config.mappings["功能键"] = "launch-client:chatgpt";
-        }
-        else
-        {
-            config.mappings["Home"] = "win+d";
-            config.mappings["TV"] = "task-switcher";
-            config.mappings["功能键"] = "launch-client:chatgpt";
-        }
+        config.mappings["Home"] = "win+d";
+        config.mappings["TV"] = "task-switcher";
+        config.mappings["功能键"] = "ctrl+c";
+        config.mappings["上键"] = "up";
+        config.mappings["下键"] = "down";
+        config.mappings["左键"] = "left";
+        config.mappings["右键"] = "right";
     }
 
     private void SetMapping(string key, string value)
     {
         if (config.mappings == null) config.mappings = new Dictionary<string, string>();
         config.mappings[key] = value;
+    }
+
+    private static CustomButtonConfig DefaultCustomButton(int index)
+    {
+        return new CustomButtonConfig
+        {
+            slot = "custom" + (index + 1),
+            label = "自定义按键 " + (index + 1),
+            sourceType = "",
+            vk = "",
+            scan = "",
+            usagePage = 0,
+            usage = 0,
+            action = "none",
+            enabled = false
+        };
+    }
+
+    private static CustomButtonConfig[] DefaultCustomButtons()
+    {
+        return new CustomButtonConfig[] { DefaultCustomButton(0), DefaultCustomButton(1), DefaultCustomButton(2) };
+    }
+
+    private CustomButtonConfig GetCustomButton(int index)
+    {
+        if (config.customButtons == null || index < 0 || index >= config.customButtons.Length) return null;
+        return config.customButtons[index];
+    }
+
+    private int CountConfiguredPhysicalButtons()
+    {
+        int count = 0;
+        string[] keys = { "确认键", "Home", "TV", "功能键", "返回键", "音量 +", "音量 -", "电源键" };
+        foreach (string key in keys)
+        {
+            string action = GetMapping(key, "none");
+            if (string.IsNullOrWhiteSpace(action) || action.Equals("none", StringComparison.OrdinalIgnoreCase)) continue;
+            count++;
+        }
+        return count;
+    }
+
+    private static string ResolveLegacyCustomButtonKey(CustomButtonConfig button)
+    {
+        if (button == null) return "";
+        string source = (button.sourceType ?? "keyboard").Trim().ToLowerInvariant();
+        int vk = ParseConfigNumber(button.vk);
+        int scan = ParseConfigNumber(button.scan);
+        if (source == "consumer")
+        {
+            if (button.usage == 0xE9) return "音量 +";
+            if (button.usage == 0xEA) return "音量 -";
+        }
+        if (source == "hid" && button.usagePage == 0x07)
+        {
+            if (button.usage == 0x80) return "音量 +";
+            if (button.usage == 0x81) return "音量 -";
+            if (button.usage == 0x66) return "电源键";
+            if (button.usage == 0xF1) return "返回键";
+        }
+        if (vk == 0x24 || scan == 0x47) return "Home";
+        if (vk == 0xC0 || scan == 0x29) return "TV";
+        if (vk == 0x5D || scan == 0x5D) return "功能键";
+        if (vk == 0x0D || scan == 0x1C) return "确认键";
+        if (vk == 0xA6 || vk == 0x08 || scan == 0x0E) return "返回键";
+        if (vk == 0xAF) return "音量 +";
+        if (vk == 0xAE) return "音量 -";
+        return "";
+    }
+
+    private static int ParseConfigNumber(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return -1;
+        try
+        {
+            string normalized = value.Trim();
+            return normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
+                ? Convert.ToInt32(normalized.Substring(2), 16)
+                : Convert.ToInt32(normalized);
+        }
+        catch { return -1; }
+    }
+
+    private static string CustomButtonSourceText(CustomButtonConfig button)
+    {
+        if (button == null || string.IsNullOrWhiteSpace(button.sourceType)) return "尚未识别按键";
+        if (button.sourceType.Equals("consumer", StringComparison.OrdinalIgnoreCase))
+            return "Consumer Control · 0x" + button.usage.ToString("X2");
+        if (button.sourceType.Equals("hid", StringComparison.OrdinalIgnoreCase))
+            return "HID Usage Page 0x" + button.usagePage.ToString("X2") + " · 0x" + button.usage.ToString("X2");
+        return "键盘 · " + (button.vk ?? "") + " · Scan " + (button.scan ?? "");
+    }
+
+    private static string CustomActionText(string action)
+    {
+        string value = (action ?? "none").Trim().ToLowerInvariant();
+        if (value == "none") return "不执行动作";
+        if (value == "launch-client:chatgpt") return "打开 / 切换 ChatGPT";
+        if (value == "launch-client:claude") return "打开 / 切换 Claude";
+        if (value == "launch-client:deepseek") return "打开 / 切换 DeepSeek";
+        if (value == "launch-client:cursor") return "打开 / 切换 Cursor";
+        if (value == "launch-client:vscode") return "打开 / 切换 VS Code";
+        if (value == "launch-client:codex") return "打开 / 切换 Codex";
+        if (value == "ctrl+c") return "复制";
+        if (value == "ctrl+x") return "剪切";
+        if (value == "ctrl+v") return "粘贴";
+        if (value == "enter") return "确认 / 换行";
+        if (value == "browserback" || value == "alt+left") return "返回上一页";
+        if (value == "win+d") return "显示桌面";
+        if (value == "win+shift+s") return "区域截图";
+        if (value == "volumeup") return "音量增加";
+        if (value == "volumedown") return "音量减少";
+        if (value == "volumemute") return "静音切换";
+        if (value.StartsWith("open-exe:", StringComparison.OrdinalIgnoreCase)) return "打开本地应用";
+        if (value.StartsWith("open-url:", StringComparison.OrdinalIgnoreCase)) return "打开网页";
+        if (value.StartsWith("open-app:", StringComparison.OrdinalIgnoreCase))
+        {
+            string[] parts = action.Substring("open-app:".Length).Split('|');
+            string label = parts.Length > 2 ? DecodeActionPart(parts[2]) : "";
+            return string.IsNullOrWhiteSpace(label) ? "打开 / 切换本机应用" : "打开 / 切换 " + label;
+        }
+        if (value.StartsWith("start-app:", StringComparison.OrdinalIgnoreCase))
+        {
+            string[] parts = action.Substring("start-app:".Length).Split('|');
+            string label = parts.Length > 1 ? DecodeActionPart(parts[1]) : "";
+            return string.IsNullOrWhiteSpace(label) ? "打开已安装应用" : "打开 " + label;
+        }
+        if (value.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase)) return "发送自定义快捷键";
+        return action;
+    }
+
+    private static List<ShortcutChoice> CustomActionChoices(string current)
+    {
+        var choices = new List<ShortcutChoice>
+        {
+            new ShortcutChoice("不执行动作", "none"),
+            new ShortcutChoice("客户端 · ChatGPT", "launch-client:chatgpt"),
+            new ShortcutChoice("客户端 · Claude", "launch-client:claude"),
+            new ShortcutChoice("客户端 · DeepSeek", "launch-client:deepseek"),
+            new ShortcutChoice("开发工具 · Cursor", "launch-client:cursor"),
+            new ShortcutChoice("开发工具 · VS Code", "launch-client:vscode"),
+            new ShortcutChoice("开发工具 · Codex", "launch-client:codex"),
+            new ShortcutChoice("编辑 · 复制", "ctrl+c"),
+            new ShortcutChoice("编辑 · 剪切", "ctrl+x"),
+            new ShortcutChoice("编辑 · 粘贴", "ctrl+v"),
+            new ShortcutChoice("确认 · 换行", "enter"),
+            new ShortcutChoice("导航 · 返回上一页", "alt+left"),
+            new ShortcutChoice("系统 · 显示桌面", "win+d"),
+            new ShortcutChoice("系统 · 音量增加", "volumeup"),
+            new ShortcutChoice("系统 · 音量减少", "volumedown"),
+            new ShortcutChoice("系统 · 静音切换", "volumemute"),
+            new ShortcutChoice("打开本地应用…", "open-exe:prompt"),
+            new ShortcutChoice("打开网页…", "open-url:prompt"),
+            new ShortcutChoice("发送自定义快捷键…", "shortcut:prompt")
+        };
+        if (!string.IsNullOrWhiteSpace(current) && !choices.Exists(delegate(ShortcutChoice choice)
+            { return choice.Shortcut.Equals(current, StringComparison.OrdinalIgnoreCase); }))
+            choices.Add(new ShortcutChoice(CustomActionText(current), current));
+        return choices;
+    }
+
+    private string ResolveCustomActionSelection(string action)
+    {
+        return ResolveCustomActionSelection(action, this);
+    }
+
+    private string ResolveCustomActionSelection(string action, IWin32Window owner)
+    {
+        if (string.IsNullOrWhiteSpace(action)) return "";
+        if (action.Equals("select-app:prompt", StringComparison.OrdinalIgnoreCase))
+            return SelectApplicationAction(owner);
+        if (action.Equals("open-exe:prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "选择要打开的应用程序";
+                dialog.Filter = "应用程序 (*.exe)|*.exe|所有文件 (*.*)|*.*";
+                dialog.CheckFileExists = true;
+                if (dialog.ShowDialog(owner ?? this) != DialogResult.OK) return "";
+                return "open-exe:" + dialog.FileName;
+            }
+        }
+        if (action.Equals("open-url:prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            string value = PromptForText("打开网页", "输入 http 或 https 网页地址", "https://", owner);
+            Uri uri;
+            if (string.IsNullOrWhiteSpace(value) || !Uri.TryCreate(value.Trim(), UriKind.Absolute, out uri) ||
+                (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            {
+                if (!string.IsNullOrWhiteSpace(value)) ShowToast("请输入有效的 http 或 https 地址", "warning");
+                return "";
+            }
+            return "open-url:" + uri.AbsoluteUri;
+        }
+        if (action.Equals("shortcut:prompt", StringComparison.OrdinalIgnoreCase))
+        {
+            string value = PromptForText("自定义快捷键", "例如 ctrl+shift+p、alt+left 或 f6", "", owner);
+            value = (value ?? "").Trim().ToLowerInvariant();
+            if (!IsValidTranscriptionHotkey(value))
+            {
+                if (!string.IsNullOrWhiteSpace(value)) ShowToast("快捷键格式不正确", "warning");
+                return "";
+            }
+            return "shortcut:" + value;
+        }
+        return action;
+    }
+
+    private string SelectApplicationAction(IWin32Window owner)
+    {
+        using (var dialog = new Form())
+        using (var tabs = new TabControl())
+        using (var runningPage = new TabPage("正在运行"))
+        using (var installedPage = new TabPage("已安装"))
+        using (var runningList = new ListBox())
+        using (var installedList = new ListBox())
+        using (var choose = new Button())
+        using (var browse = new Button())
+        using (var cancel = new Button())
+        {
+            dialog.Text = "选择要打开或切换的应用";
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MinimizeBox = false;
+            dialog.MaximizeBox = false;
+            dialog.ShowInTaskbar = false;
+            dialog.ClientSize = new Size(680, 500);
+            dialog.BackColor = Color.FromArgb(246, 248, 252);
+            dialog.Font = Font;
+
+            var title = NewLabel("选择本机应用", 14f, FontStyle.Bold, ink);
+            title.Location = new Point(24, 20);
+            title.Size = new Size(620, 32);
+            var help = NewLabel("可切换到正在运行的窗口，也可从开始菜单或任意 EXE 启动应用。", 8.8f, FontStyle.Regular, muted);
+            help.Location = new Point(24, 54);
+            help.Size = new Size(620, 26);
+
+            tabs.Location = new Point(24, 88);
+            tabs.Size = new Size(632, 338);
+            tabs.TabPages.Add(runningPage);
+            tabs.TabPages.Add(installedPage);
+            runningList.Dock = DockStyle.Fill;
+            installedList.Dock = DockStyle.Fill;
+            runningList.BorderStyle = BorderStyle.None;
+            installedList.BorderStyle = BorderStyle.None;
+            runningList.IntegralHeight = false;
+            installedList.IntegralHeight = false;
+            runningList.Font = new Font("Microsoft YaHei UI", 10f);
+            installedList.Font = new Font("Microsoft YaHei UI", 10f);
+            foreach (ApplicationActionChoice item in GetRunningApplicationChoices()) runningList.Items.Add(item);
+            foreach (ApplicationActionChoice item in GetInstalledApplicationChoices()) installedList.Items.Add(item);
+            if (runningList.Items.Count > 0) runningList.SelectedIndex = 0;
+            if (installedList.Items.Count > 0) installedList.SelectedIndex = 0;
+            runningPage.Controls.Add(runningList);
+            installedPage.Controls.Add(installedList);
+
+            string selectedAction = "";
+            Action acceptSelection = delegate
+            {
+                ListBox active = tabs.SelectedIndex == 0 ? runningList : installedList;
+                ApplicationActionChoice selected = active.SelectedItem as ApplicationActionChoice;
+                if (selected == null)
+                {
+                    ShowToast(tabs.SelectedIndex == 0 ? "当前没有可切换的应用窗口" : "请选择一个已安装应用", "info");
+                    return;
+                }
+                selectedAction = selected.Action;
+                dialog.DialogResult = DialogResult.OK;
+                dialog.Close();
+            };
+            runningList.DoubleClick += delegate { acceptSelection(); };
+            installedList.DoubleClick += delegate { acceptSelection(); };
+
+            browse.Text = "浏览 EXE";
+            browse.Location = new Point(24, 444);
+            browse.Size = new Size(112, 36);
+            browse.FlatStyle = FlatStyle.Flat;
+            browse.FlatAppearance.BorderColor = Color.FromArgb(215, 221, 234);
+            browse.Click += delegate
+            {
+                using (var picker = new OpenFileDialog())
+                {
+                    picker.Title = "选择应用程序";
+                    picker.Filter = "应用程序 (*.exe)|*.exe|所有文件 (*.*)|*.*";
+                    picker.CheckFileExists = true;
+                    if (picker.ShowDialog(dialog) != DialogResult.OK) return;
+                    selectedAction = "open-exe:" + picker.FileName;
+                    dialog.DialogResult = DialogResult.OK;
+                    dialog.Close();
+                }
+            };
+            choose.Text = "选择并保存";
+            choose.Location = new Point(420, 444);
+            choose.Size = new Size(124, 36);
+            choose.BackColor = violet;
+            choose.ForeColor = Color.White;
+            choose.FlatStyle = FlatStyle.Flat;
+            choose.FlatAppearance.BorderSize = 0;
+            choose.Click += delegate { acceptSelection(); };
+            cancel.Text = "取消";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.Location = new Point(556, 444);
+            cancel.Size = new Size(100, 36);
+            cancel.FlatStyle = FlatStyle.Flat;
+            cancel.FlatAppearance.BorderColor = Color.FromArgb(215, 221, 234);
+            dialog.CancelButton = cancel;
+            dialog.Controls.Add(title);
+            dialog.Controls.Add(help);
+            dialog.Controls.Add(tabs);
+            dialog.Controls.Add(browse);
+            dialog.Controls.Add(choose);
+            dialog.Controls.Add(cancel);
+            return dialog.ShowDialog(owner ?? this) == DialogResult.OK ? selectedAction : "";
+        }
+    }
+
+    private static List<ApplicationActionChoice> GetRunningApplicationChoices()
+    {
+        var choices = new List<ApplicationActionChoice>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Process process in Process.GetProcesses())
+        {
+            try
+            {
+                process.Refresh();
+                if (process.MainWindowHandle == IntPtr.Zero || string.IsNullOrWhiteSpace(process.MainWindowTitle) ||
+                    !seen.Add(process.ProcessName)) continue;
+                string executable = "";
+                try { executable = process.MainModule == null ? "" : process.MainModule.FileName; } catch { }
+                string label = process.MainWindowTitle.Trim();
+                if (label.Length > 72) label = label.Substring(0, 69) + "...";
+                string action = "open-app:" + EncodeActionPart(process.ProcessName) + "|" +
+                    EncodeActionPart(executable) + "|" + EncodeActionPart(label);
+                choices.Add(new ApplicationActionChoice(label, process.ProcessName, action));
+            }
+            catch { }
+            finally { process.Dispose(); }
+        }
+        choices.Sort(delegate(ApplicationActionChoice left, ApplicationActionChoice right)
+        {
+            return string.Compare(left.Label, right.Label, StringComparison.CurrentCultureIgnoreCase);
+        });
+        return choices;
+    }
+
+    private static List<ApplicationActionChoice> GetInstalledApplicationChoices()
+    {
+        var choices = new List<ApplicationActionChoice>();
+        try
+        {
+            var start = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = "-NoProfile -NonInteractive -WindowStyle Hidden -Command \"Get-StartApps | Sort-Object Name | Select-Object Name,AppID | ConvertTo-Json -Compress\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8
+            };
+            using (Process process = Process.Start(start))
+            {
+                if (process == null) return choices;
+                string json = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(8000);
+                if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(json)) return choices;
+                StartApplicationRecord[] records;
+                try { records = new JavaScriptSerializer().Deserialize<StartApplicationRecord[]>(json); }
+                catch
+                {
+                    StartApplicationRecord single = new JavaScriptSerializer().Deserialize<StartApplicationRecord>(json);
+                    records = single == null ? new StartApplicationRecord[0] : new StartApplicationRecord[] { single };
+                }
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (StartApplicationRecord record in records ?? new StartApplicationRecord[0])
+                {
+                    if (record == null || string.IsNullOrWhiteSpace(record.Name) || string.IsNullOrWhiteSpace(record.AppID) ||
+                        !seen.Add(record.AppID)) continue;
+                    choices.Add(new ApplicationActionChoice(record.Name.Trim(), "开始菜单",
+                        "start-app:" + EncodeActionPart(record.AppID.Trim()) + "|" + EncodeActionPart(record.Name.Trim())));
+                }
+            }
+        }
+        catch { }
+        return choices;
+    }
+
+    private static string EncodeActionPart(string value)
+    {
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes(value ?? ""));
+    }
+
+    private static string DecodeActionPart(string value)
+    {
+        try { return Encoding.UTF8.GetString(Convert.FromBase64String(value ?? "")); }
+        catch { return ""; }
+    }
+
+    private string PromptForText(string title, string prompt, string initial)
+    {
+        return PromptForText(title, prompt, initial, this);
+    }
+
+    private string PromptForText(string title, string prompt, string initial, IWin32Window owner)
+    {
+        using (var dialog = new Form())
+        using (var label = new Label())
+        using (var input = new TextBox())
+        using (var ok = new Button())
+        using (var cancel = new Button())
+        {
+            dialog.Text = title;
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MinimizeBox = false;
+            dialog.MaximizeBox = false;
+            dialog.ShowInTaskbar = false;
+            dialog.ClientSize = new Size(520, 148);
+            dialog.Font = Font;
+            label.Text = prompt;
+            label.Location = new Point(18, 16);
+            label.Size = new Size(480, 28);
+            input.Text = initial ?? "";
+            input.Location = new Point(18, 50);
+            input.Size = new Size(480, 30);
+            ok.Text = "确定";
+            ok.DialogResult = DialogResult.OK;
+            ok.Location = new Point(320, 100);
+            ok.Size = new Size(84, 30);
+            cancel.Text = "取消";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.Location = new Point(414, 100);
+            cancel.Size = new Size(84, 30);
+            dialog.AcceptButton = ok;
+            dialog.CancelButton = cancel;
+            dialog.Controls.Add(label);
+            dialog.Controls.Add(input);
+            dialog.Controls.Add(ok);
+            dialog.Controls.Add(cancel);
+            return dialog.ShowDialog(owner ?? this) == DialogResult.OK ? input.Text : "";
+        }
+    }
+
+    private void BeginCustomButtonCapture(int slot, Label status)
+    {
+        if (slot < 0 || slot >= 3) return;
+        string token = Guid.NewGuid().ToString("N");
+        pendingCustomCaptureToken = token;
+        try
+        {
+            var request = new Dictionary<string, object>();
+            request["active"] = true;
+            request["token"] = token;
+            request["slot"] = slot;
+            request["created_at"] = DateTime.UtcNow.ToString("o");
+            File.WriteAllText(Path.Combine(root, "custom-button-capture-request.json"),
+                new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
+            File.Delete(Path.Combine(root, "custom-button-capture-result.json"));
+            StartKeyboardBridge();
+            if (status != null) status.Text = "请在 10 秒内按一下遥控器按键…";
+            ShowToast("正在等待第 " + (slot + 1) + " 个自定义按键", "info");
+        }
+        catch (Exception ex)
+        {
+            pendingCustomCaptureToken = "";
+            if (status != null) status.Text = "识别请求失败，请重试";
+            Log("Custom button capture request failed: " + ex.Message);
+        }
+    }
+
+    private void ClearPendingCustomButtonCapture(string reason)
+    {
+        try
+        {
+            string requestPath = Path.Combine(root, "custom-button-capture-request.json");
+            string resultPath = Path.Combine(root, "custom-button-capture-result.json");
+            bool cleared = false;
+            if (File.Exists(requestPath)) { File.Delete(requestPath); cleared = true; }
+            if (File.Exists(resultPath)) { File.Delete(resultPath); cleared = true; }
+            pendingCustomCaptureToken = "";
+            if (cleared) Log("Custom button capture cancelled reason=" + (reason ?? "unknown"));
+        }
+        catch (Exception ex) { Log("Custom button capture cleanup failed: " + ex.Message); }
+    }
+
+    private void TestCustomButtonAction(int slot)
+    {
+        try
+        {
+            var request = new Dictionary<string, object>();
+            request["slot"] = slot;
+            request["token"] = Guid.NewGuid().ToString("N");
+            request["created_at"] = DateTime.UtcNow.ToString("o");
+            File.WriteAllText(Path.Combine(root, "custom-button-test.json"),
+                new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
+            StartKeyboardBridge();
+            ShowToast("已发送测试请求，请稍候观察目标动作", "info");
+        }
+        catch (Exception ex) { Log("Custom button test request failed: " + ex.Message); }
+    }
+
+    private void TestMappingAction(string key, string action)
+    {
+        if (string.IsNullOrWhiteSpace(action) || action.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            action.Equals("managed", StringComparison.OrdinalIgnoreCase) ||
+            action.Equals("direction-volume-fallback", StringComparison.OrdinalIgnoreCase))
+        {
+            ShowToast("这个按键使用系统托管功能，请直接按遥控器测试", "info");
+            return;
+        }
+        try
+        {
+            var request = new Dictionary<string, object>();
+            request["name"] = "ui_mapping_test";
+            request["label"] = key;
+            request["action"] = action;
+            request["token"] = Guid.NewGuid().ToString("N");
+            request["created_at"] = DateTime.UtcNow.ToString("o");
+            File.WriteAllText(Path.Combine(root, "custom-button-test.json"),
+                new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
+            StartKeyboardBridge();
+            ShowToast("正在测试“" + key + "”的当前功能", "info");
+        }
+        catch (Exception ex) { Log("Mapping action test request failed: " + ex.Message); }
+    }
+
+    private void ApplyCustomButtonCaptureResult()
+    {
+        if (string.IsNullOrWhiteSpace(pendingCustomCaptureToken)) return;
+        string path = Path.Combine(root, "custom-button-capture-result.json");
+        if (!File.Exists(path)) return;
+        try
+        {
+            CustomButtonCaptureResult result = new JavaScriptSerializer().Deserialize<CustomButtonCaptureResult>(File.ReadAllText(path, Encoding.UTF8));
+            if (result == null || !string.Equals(result.token, pendingCustomCaptureToken, StringComparison.OrdinalIgnoreCase)) return;
+            if (result.slot < 0 || result.slot >= 3) { pendingCustomCaptureToken = ""; return; }
+            CustomButtonConfig button = GetCustomButton(result.slot);
+            if (button == null) { pendingCustomCaptureToken = ""; return; }
+            button.sourceType = result.sourceType ?? "keyboard";
+            button.vk = result.vk ?? "";
+            button.scan = result.scan ?? "";
+            button.usagePage = result.usagePage;
+            button.usage = result.usage;
+            button.enabled = !string.IsNullOrWhiteSpace(button.action) && !button.action.Equals("none", StringComparison.OrdinalIgnoreCase);
+            SaveConfig();
+            if (customButtonStatusLabels[result.slot] != null && !customButtonStatusLabels[result.slot].IsDisposed)
+                customButtonStatusLabels[result.slot].Text = CustomButtonSourceText(button);
+            ShowToast("已识别 " + CustomButtonSourceText(button) + "，请选择动作后保存", "success");
+            pendingCustomCaptureToken = "";
+            File.Delete(path);
+        }
+        catch (Exception ex) { Log("Custom button capture result failed: " + ex.Message); }
     }
 
     private void ExportConfig()
@@ -4793,9 +8103,7 @@ internal sealed class VibeMicForm : Form
             return;
         }
 
-        string diagnosticGesture = UsesLongDictation(config.voiceMode)
-            ? "下一次单击录音键开始后"
-            : "下一次按住录音键时";
+        string diagnosticGesture = "下一次按住录音键时";
         DialogResult consent = MessageBox.Show(this,
             "仅" + diagnosticGesture + "，言灵会在本机保存三份音频：遥控器解码原声、处理后声音和 CABLE Output。最长 30 秒，完成后自动关闭，可随时删除。\r\n\r\n请说：测试麦克风，一二三四五六，期待效果。",
             "采集下一段诊断音频", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
@@ -4806,9 +8114,7 @@ internal sealed class VibeMicForm : Form
             using (EventWaitHandle handle = EventWaitHandle.OpenExisting("Local\\VibeMicCaptureAudioDiagnostic"))
                 handle.Set();
             Log("One-shot audio diagnostic armed by user.");
-            Toast(UsesLongDictation(config.voiceMode)
-                ? "已就绪，请单击录音键开始并说提示短句"
-                : "已就绪，请按住录音键说提示短句");
+            Toast("已就绪，请按住录音键说提示短句，完成后松开");
         }
         catch (WaitHandleCannotBeOpenedException)
         {
@@ -4849,6 +8155,12 @@ internal sealed class VibeMicForm : Form
             {
                 report.AppendLine("Capture report");
                 report.AppendLine(File.ReadAllText(captureReport, Encoding.UTF8));
+            }
+            string captureHealthPath = Path.Combine(sessionDir, "capture-health.json");
+            if (File.Exists(captureHealthPath))
+            {
+                report.AppendLine("Capture heartbeat");
+                report.AppendLine(File.ReadAllText(captureHealthPath, Encoding.UTF8));
             }
             File.WriteAllText(dialog.FileName, report.ToString(), new UTF8Encoding(false));
             ShowToast("诊断已导出，不包含录音和识别文字", "success");
@@ -4970,12 +8282,29 @@ internal sealed class VibeMicForm : Form
         public int Bottom;
     }
 
+    private sealed class BridgeHealthSnapshot
+    {
+        public bool Healthy;
+        public bool HookInstalled;
+        public bool RawInputRegistered;
+        public bool RawInputDevicePresent;
+        public string State = "";
+        public string LastInputKind = "";
+        public DateTime LastInputAtUtc = DateTime.MinValue;
+        public double FileAgeSeconds = double.MaxValue;
+        public double LastInputAgeSeconds = double.MaxValue;
+    }
+
     private sealed class SelfCheckItem
     {
         public string Id;
         public string Title;
         public string State;
         public string Detail;
+        public string Expected;
+        public string Actual;
+        public string Cause;
+        public string NextStep;
         public string ActionText;
         public string Action;
         public SelfCheckItem(string id, string title, string state, string detail, string actionText, string action)
@@ -4984,6 +8313,25 @@ internal sealed class VibeMicForm : Form
             Title = title;
             State = state;
             Detail = detail;
+            Expected = "此项符合发布版要求";
+            Actual = detail;
+            Cause = state == "pass" ? "未发现异常" : detail;
+            NextStep = state == "pass" ? "无需操作" : actionText;
+            ActionText = actionText;
+            Action = action;
+        }
+
+        public SelfCheckItem(string id, string title, string state, string expected, string actual,
+            string cause, string nextStep, string actionText, string action)
+        {
+            Id = id;
+            Title = title;
+            State = state;
+            Expected = expected;
+            Actual = actual;
+            Cause = cause;
+            NextStep = nextStep;
+            Detail = actual;
             ActionText = actionText;
             Action = action;
         }
@@ -4995,8 +8343,21 @@ internal sealed class VibeMicForm : Form
         public int PassedCount;
         public int WarningCount;
         public int FailedCount;
+        public int CheckingCount;
+        public int UnsupportedCount;
         public string Headline = "正在检查";
         public string Detail = "";
+    }
+
+    private sealed class WindowsHardwareProbe
+    {
+        public bool Completed;
+        public bool Failed;
+        public bool BluetoothPresent;
+        public bool BluetoothOk;
+        public bool RemotePresent;
+        public bool RemoteOk;
+        public string Error = "";
     }
 
     private sealed class SessionHealth
@@ -5057,6 +8418,9 @@ internal sealed class VibeMicForm : Form
         public string voiceMode { get; set; }
         public bool setupCompleted { get; set; }
         public int onboardingVersion { get; set; }
+        public int onboardingStep { get; set; }
+        public bool resumeSetupAfterRestart { get; set; }
+        public string theme { get; set; }
         public bool launchAtStartup { get; set; }
         public bool startBridgeOnLaunch { get; set; }
         public bool minimizeToTray { get; set; }
@@ -5072,6 +8436,7 @@ internal sealed class VibeMicForm : Form
         public int drainMs { get; set; }
         public string mappingPreset { get; set; }
         public Dictionary<string, string> mappings { get; set; }
+        public CustomButtonConfig[] customButtons { get; set; }
 
         public static VibeMicConfig Default()
         {
@@ -5081,17 +8446,20 @@ internal sealed class VibeMicForm : Form
             c.captureSeconds = 0;
             c.gain = 1.0;
             c.autoLevel = true;
-            c.voiceMode = "continuous";
+            c.voiceMode = "hold";
             c.setupCompleted = false;
             c.onboardingVersion = CurrentOnboardingVersion;
+            c.onboardingStep = 0;
+            c.resumeSetupAfterRestart = false;
+            c.theme = "light";
             c.launchAtStartup = false;
             c.startBridgeOnLaunch = false;
             c.minimizeToTray = true;
             c.audioEndpointName = "CABLE Input";
             c.inputMethod = "wechat";
-            c.inputMethodHotkey = WeChatAiHotkey;
+            c.inputMethodHotkey = WeChatStableHotkey;
             c.inputMethodTrigger = "toggle";
-            c.providerStartupDelayMs = 180;
+            c.providerStartupDelayMs = 80;
             c.audioProcessingMode = "speech";
             c.autoRouteVirtualMicrophone = true;
             c.soundFeedbackEnabled = true;
@@ -5102,10 +8470,40 @@ internal sealed class VibeMicForm : Form
             c.mappings["确认键"] = "enter";
             c.mappings["Home"] = "win+d";
             c.mappings["TV"] = "task-switcher";
-            c.mappings["功能键"] = "launch-client:chatgpt";
-            c.mappings["上 / 下 / 左 / 右"] = "direction-volume-fallback";
+            c.mappings["功能键"] = "ctrl+c";
+            c.mappings["功能键:short"] = "ctrl+c";
+            c.mappings["功能键:long"] = "ctrl+v";
+            c.mappings["上键"] = "up";
+            c.mappings["下键"] = "down";
+            c.mappings["左键"] = "left";
+            c.mappings["右键"] = "right";
+            c.customButtons = null;
             return c;
         }
+    }
+
+    private sealed class CustomButtonConfig
+    {
+        public string slot { get; set; }
+        public string label { get; set; }
+        public string sourceType { get; set; }
+        public string vk { get; set; }
+        public string scan { get; set; }
+        public int usagePage { get; set; }
+        public int usage { get; set; }
+        public string action { get; set; }
+        public bool enabled { get; set; }
+    }
+
+    private sealed class CustomButtonCaptureResult
+    {
+        public string token { get; set; }
+        public int slot { get; set; }
+        public string sourceType { get; set; }
+        public string vk { get; set; }
+        public string scan { get; set; }
+        public int usagePage { get; set; }
+        public int usage { get; set; }
     }
 
     private sealed class ShortcutChoice
@@ -5114,6 +8512,26 @@ internal sealed class VibeMicForm : Form
         public readonly string Shortcut;
         public ShortcutChoice(string label, string shortcut) { Label = label; Shortcut = shortcut; }
         public override string ToString() { return Label; }
+    }
+
+    private sealed class ApplicationActionChoice
+    {
+        public readonly string Label;
+        public readonly string Detail;
+        public readonly string Action;
+        public ApplicationActionChoice(string label, string detail, string action)
+        {
+            Label = label;
+            Detail = detail;
+            Action = action;
+        }
+        public override string ToString() { return Label + "    " + Detail; }
+    }
+
+    private sealed class StartApplicationRecord
+    {
+        public string Name { get; set; }
+        public string AppID { get; set; }
     }
 }
 
@@ -5784,8 +9202,6 @@ internal sealed class RemoteVisual : Control
     {
         DrawCallout(g, "录音键", sx(83), sy(29), body.Right + 10, sy(19), IsHighlighted("voice") || IsRecording, false);
         DrawCallout(g, "方向 / 确认", sx(56), sy(96), Math.Max(2, body.Left - 88), sy(86), IsHighlighted("directions") || IsHighlighted("ok"), true);
-        DrawCallout(g, "返回", sx(29), sy(158), Math.Max(2, body.Left - 58), sy(150), IsHighlighted("back"), true);
-        DrawCallout(g, "音量 +/-", sx(83), sy(180), body.Right + 10, sy(170), IsHighlighted("volumeup") || IsHighlighted("volumedown"), false);
         DrawCallout(g, "Home", sx(29), sy(199), Math.Max(2, body.Left - 62), sy(192), IsHighlighted("home"), true);
         DrawCallout(g, "功能键", sx(29), sy(240), Math.Max(2, body.Left - 68), sy(237), IsHighlighted("menu"), true);
         DrawCallout(g, "TV", sx(83), sy(240), body.Right + 10, sy(237), IsHighlighted("tv"), false);
