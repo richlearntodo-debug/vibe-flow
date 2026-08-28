@@ -19,11 +19,17 @@
   direction mappings arranged as a physical direction pad.
 - Added Windows region capture (`Win+Shift+S`) as a tested optional action for
   any one of the four direction keys; defaults remain native directions.
+- Added a visible one-click region-capture action in the direction editor while
+  keeping the existing action list and native-direction reset.
 - Replaced held-Alt task switching with persistent Windows Task View: TV opens
   Win+Tab, all four directions navigate, Enter confirms, and TV or timeout
   cancels safely.
 - Made the white light theme the default and reduced saturation in the explicit
   dark palette.
+- Replaced the theme drop-down with immediate Light/Dark buttons and rebuilt the
+  active shell safely without restarting background capture or input services.
+- Fixed a self-check false failure that still required the removed long-dictation
+  runtime marker; diagnostics now validate the stable v1.0.3/v11 runtime.
 - Advanced configuration to schema 25, onboarding to version 8, bridge config
   to schema 4, and all component file versions to 1.2.1.0.
 - Rewrote validation and release documentation around the approximately

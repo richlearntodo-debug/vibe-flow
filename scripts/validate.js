@@ -227,7 +227,7 @@ assert(includesAll(mappingsPage, [
   'string[] keys = { "上键", "下键", "左键", "右键" }',
   'string[] selectorLabels = { "↑  上键", "↓  下键", "←  左键", "→  右键" }',
   "Point[] selectorLocations", '"识别实体键"', '"禁用这个方向键"',
-  '"立即测试"', '"恢复方向导航"', '"保存并应用"',
+  '"立即测试"', '"设为区域截图"', '"恢复方向导航"', '"保存并应用"',
   '"开机、返回和独立音量键未检测到稳定按键报告，因此不做映射。"',
 ]), "The active shortcut page is not the four-direction graphical workflow");
 assert(includesAll(app, [
@@ -270,6 +270,10 @@ for (const id of ["components", "bluetooth", "remote", "keys", "microphone", "ca
   assert(selfCheck.includes(`new SelfCheckItem("${id}"`), `Self-check is missing ${id}`);
 }
 assert(includesAll(app, [
+  'IsStableCaptureRuntime(runtime)', 'recording_kernel=v1.0.3', 'voice_state_machine=v11',
+  'IsStableCaptureRuntime("long_dictation_state_machine=v3")',
+]), "Self-check still requires the removed long-dictation runtime marker");
+assert(includesAll(app, [
   "new Mutex(true", '"--background"', "SystemEvents.PowerModeChanged", "SystemEvents.SessionSwitch",
   "RecoverServicesAfterSystemChange", "RotateLogFile", "ExportDiagnostics", "BuildProblemSummary",
 ]), "Single-instance startup, resume recovery, bounded logs, or diagnostics are incomplete");
@@ -284,6 +288,8 @@ assert(includesAll(app, [
   'string[] navText = { "首页", "快捷键", "语音", "自检", "设置" }',
   'string preference = config == null ? "light"', 'preference == "dark"',
   "pageBackground = Color.FromArgb(25, 26, 31)", "cardBackground = Color.FromArgb(35, 37, 44)",
+  'SecondaryButton("白天模式"', 'SecondaryButton("夜间模式"',
+  'ApplyThemePreference("light")', 'ApplyThemePreference("dark")', "RebuildShellForTheme",
   "RemoteVisual", "DrawRecordingRipples",
 ]), "Navigation, default light theme, restrained dark theme, or recording feedback is incomplete");
 assert(includesAll(screenshotScript, [

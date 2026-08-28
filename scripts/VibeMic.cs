@@ -431,6 +431,56 @@ internal sealed class VibeMicForm : Form
         }
     }
 
+    private void ApplyThemePreference(string preference)
+    {
+        string selected = preference == "dark" ? "dark" : "light";
+        if (string.Equals(config.theme, selected, StringComparison.OrdinalIgnoreCase))
+        {
+            ShowToast(selected == "dark" ? "当前已是夜间模式" : "当前已是白天模式", "info");
+            return;
+        }
+
+        config.theme = selected;
+        SaveConfig();
+        ApplyThemePalette();
+        RebuildShellForTheme();
+        ShowToast(selected == "dark" ? "已切换到夜间模式" : "已切换到白天模式", "success");
+    }
+
+    private void RebuildShellForTheme()
+    {
+        int page = currentPageIndex;
+        SuspendLayout();
+        if (toastTimer != null)
+        {
+            toastTimer.Stop();
+            toastTimer.Dispose();
+            toastTimer = null;
+        }
+        if (connectionBadge.Parent != null) connectionBadge.Parent.Controls.Remove(connectionBadge);
+
+        var existing = new Control[Controls.Count];
+        Controls.CopyTo(existing, 0);
+        foreach (Control control in existing)
+            if (!ReferenceEquals(control, content)) control.Dispose();
+
+        Controls.Clear();
+        content.Controls.Clear();
+        navButtons.Clear();
+        BackColor = pageBackground;
+        BuildShell();
+        ShowPage(page);
+        ResumeLayout(true);
+        Invalidate(true);
+    }
+
+    private static bool IsStableCaptureRuntime(string runtime)
+    {
+        if (string.IsNullOrWhiteSpace(runtime)) return true;
+        return runtime.IndexOf("recording_kernel=v1.0.3", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            runtime.IndexOf("voice_state_machine=v11", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     private static int RunHostSelfTests()
     {
         try
@@ -454,6 +504,9 @@ internal sealed class VibeMicForm : Form
                 FindShortcutChoice(directionChoices, "win+shift+s") <= 0 ||
                 CustomActionText("win+shift+s") != "区域截图")
                 throw new InvalidOperationException("Direction screenshot action invariant failed");
+            if (!IsStableCaptureRuntime("recording_kernel=v1.0.3 voice_state_machine=v11") ||
+                IsStableCaptureRuntime("long_dictation_state_machine=v3"))
+                throw new InvalidOperationException("Stable capture runtime detection invariant failed");
 
             VibeMicConfig continuous = VibeMicConfig.Default();
             continuous.schemaVersion = 24;
@@ -633,6 +686,7 @@ internal sealed class VibeMicForm : Form
         content.BackColor = pageBackground;
         content.AutoScroll = true;
         content.AutoScrollMinSize = new Size(1000, 744);
+        content.Paint -= PaintWorkspaceTexture;
         content.Paint += PaintWorkspaceTexture;
         Controls.Add(content);
         Controls.Add(sidebar);
@@ -1354,7 +1408,17 @@ internal sealed class VibeMicForm : Form
                 ShowToast(disabledToggle.Checked ? labels[selectedIndex] + "已禁用" : labels[selectedIndex] + "已恢复方向导航", "success");
             };
 
-            var reset = SecondaryButton("恢复方向导航", new Point(2, 238), new Size(142, 40));
+            var screenshot = SecondaryButton("设为区域截图", new Point(2, 238), new Size(142, 40));
+            screenshot.Click += delegate
+            {
+                SetMapping(selectedKey, "win+shift+s");
+                config.mappingPreset = "custom";
+                SaveConfig();
+                StartKeyboardBridge();
+                renderConfiguration();
+                ShowToast(labels[selectedIndex] + "已设为区域截图", "success");
+            };
+            var reset = SecondaryButton("恢复方向导航", new Point(158, 238), new Size(142, 40));
             reset.Click += delegate
             {
                 SetMapping(selectedKey, defaultAction);
@@ -1362,7 +1426,7 @@ internal sealed class VibeMicForm : Form
                 renderConfiguration();
                 ShowToast(labels[selectedIndex] + "已恢复方向导航", "success");
             };
-            var save = PrimaryButton("保存并应用", new Point(158, 238), new Size(138, 40));
+            var save = PrimaryButton("保存并应用", new Point(314, 238), new Size(138, 40));
             save.Click += delegate
             {
                 SaveConfig();
@@ -1376,6 +1440,7 @@ internal sealed class VibeMicForm : Form
             configuration.Controls.Add(actionLabel);
             configuration.Controls.Add(actionBox);
             configuration.Controls.Add(actionTest);
+            configuration.Controls.Add(screenshot);
             configuration.Controls.Add(reset);
             configuration.Controls.Add(save);
             configuration.Controls.Add(note);
@@ -1799,15 +1864,15 @@ internal sealed class VibeMicForm : Form
         var themeLabel = NewLabel("界面主题", 9.5f, FontStyle.Bold, ink);
         themeLabel.Location = new Point(32, 218);
         themeLabel.Size = new Size(120, 30);
-        var theme = StyledCombo(new Point(176, 212), new Size(220, 38));
-        theme.Items.AddRange(new object[] { "跟随 Windows", "白天（默认）", "夜间" });
-        theme.SelectedIndex = config.theme == "light" ? 1 : config.theme == "dark" ? 2 : 0;
-        theme.SelectedIndexChanged += delegate
-        {
-            config.theme = theme.SelectedIndex == 1 ? "light" : theme.SelectedIndex == 2 ? "dark" : "system";
-            SaveConfig();
-            ShowToast("主题已保存，下次打开言灵时完整应用", "success");
-        };
+        var lightTheme = SecondaryButton("白天模式", new Point(176, 212), new Size(106, 38));
+        var darkThemeButton = SecondaryButton("夜间模式", new Point(290, 212), new Size(106, 38));
+        bool lightSelected = config.theme != "dark";
+        lightTheme.BackColor = lightSelected ? violet : surfaceBackground;
+        lightTheme.ForeColor = lightSelected ? Color.White : ink;
+        darkThemeButton.BackColor = lightSelected ? surfaceBackground : violet;
+        darkThemeButton.ForeColor = lightSelected ? ink : Color.White;
+        lightTheme.Click += delegate { ApplyThemePreference("light"); };
+        darkThemeButton.Click += delegate { ApplyThemePreference("dark"); };
         var startupBand = new Panel();
         startupBand.Location = new Point(30, 282);
         startupBand.Size = new Size(520, 58);
@@ -1822,7 +1887,8 @@ internal sealed class VibeMicForm : Form
         startupCard.Controls.Add(traySetting);
         startupCard.Controls.Add(startup);
         startupCard.Controls.Add(themeLabel);
-        startupCard.Controls.Add(theme);
+        startupCard.Controls.Add(lightTheme);
+        startupCard.Controls.Add(darkThemeButton);
         startupCard.Controls.Add(startupBand);
 
         var feedbackCard = NewCard(new Point(630, 100), new Size(364, 360));
@@ -5105,7 +5171,7 @@ internal sealed class VibeMicForm : Form
         result.AppendLine("版本：" + ProductRelease + "  ·  时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
         result.AppendLine("系统：" + Environment.OSVersion.VersionString);
         result.AppendLine("转写工具：" + ProviderDisplayName(config.inputMethod) + "  ·  快捷键：" + config.inputMethodHotkey + "  ·  " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换"));
-        result.AppendLine("遥控器录音：按住说话 · 松开结束 · 单逻辑会话内自动续接物理音频分段");
+        result.AppendLine("遥控器录音：按住说话 · 松开结束 · 稳定单会话模式");
         result.AppendLine("语音桥接：" + (IsCapturing ? "运行中" : "已暂停") + "  ·  遥控器语音：" + (bridgeReady ? "已就绪" : "未就绪"));
         result.AppendLine("VB-CABLE：Input " + (HasCableInput() ? "已检测" : "未检测") + " / Output " + (HasCableOutput() ? "已检测" : "未检测"));
         result.AppendLine("稳定语音档案：" + (HasStableVoiceProfile(config) ? "v" + StableVoiceProfileVersion + " 已应用" : "参数已自定义"));
@@ -5244,9 +5310,7 @@ internal sealed class VibeMicForm : Form
 
         string componentError;
         bool versionsReady = AreCoreComponentsCurrent(out componentError);
-        bool runtimeReady = !IsCapturing || string.IsNullOrWhiteSpace(runtime) ||
-            (runtime.IndexOf("voice_state_machine=v11", StringComparison.OrdinalIgnoreCase) >= 0 &&
-             runtime.IndexOf("long_dictation_state_machine=v3", StringComparison.OrdinalIgnoreCase) >= 0);
+        bool runtimeReady = !IsCapturing || IsStableCaptureRuntime(runtime);
         bool filesReady = File.Exists(Path.Combine(root, "VibeMicAtvvCapture.exe")) &&
             File.Exists(Path.Combine(root, "VoxDeckInputBridge.exe")) &&
             File.Exists(Path.Combine(root, "NAudio.Core.dll")) && File.Exists(Path.Combine(root, "NAudio.Wasapi.dll"));
@@ -5254,7 +5318,7 @@ internal sealed class VibeMicForm : Form
         report.Items.Add(new SelfCheckItem("components", "本地核心组件与单实例状态",
             componentsReady ? "pass" : "fail",
             "主程序、语音捕获、按键桥接和 WASAPI 运行库版本一致，且只运行一个捕获会话",
-            componentsReady ? "组件完整，P0 按住说话状态机 v11/v3 已就绪" :
+            componentsReady ? "组件完整，稳定录音内核 v1.0.3 / 状态机 v11 已就绪" :
                 !filesReady ? "安装目录缺少必要组件" : !versionsReady ? componentError : "运行中的捕获组件不是当前状态机",
             componentsReady ? "未发现组件缺失或版本争用" : "文件缺失、版本混用或旧进程仍在运行",
             componentsReady ? "无需操作" : "重新安装完整发布包，然后重新自检",

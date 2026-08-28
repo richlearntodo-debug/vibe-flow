@@ -42,11 +42,17 @@ Release date: 2026-08-28
 - Record: hold to capture, release to finish.
 - Function: short copy, long paste.
 - Directions: native arrows by default; each can be assigned one verified keyboard action.
-- Screenshot: any one direction can invoke Windows `Win + Shift + S`.
+- Screenshot: any one direction can invoke Windows `Win + Shift + S`, including a one-click setup action.
 - Center: Enter.
 - Home: Win+D.
 - TV: Win+Tab Task View; arrows navigate and Enter confirms.
 - Power, Back, and independent Volume controls are intentionally unmapped.
+
+## UI and diagnostics contract
+
+- Light and Dark are explicit buttons and apply immediately without restarting capture or input services.
+- Core-component self-check validates `recording_kernel=v1.0.3` and `voice_state_machine=v11`.
+- Removed long-dictation markers are never required for a healthy result.
 
 ## Release gate
 

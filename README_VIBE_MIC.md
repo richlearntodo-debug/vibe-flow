@@ -24,7 +24,7 @@ The capture binary uses the exact `v1.0.3` recording kernel with only V1.2.1 hea
 | --- | --- |
 | Record | Hold to capture; release to finish |
 | Function | Short Copy; long Paste |
-| Direction pad | Native arrows by default; one verified action per direction, including `Win+Shift+S` capture |
+| Direction pad | Native arrows by default; one verified action per direction, with a one-click `Win+Shift+S` capture option |
 | Center | Enter |
 | Home | Show Desktop |
 | TV | Open persistent Windows Task View; arrows navigate; Enter confirms |
@@ -42,7 +42,7 @@ Power, Back, and independent Volume controls are intentionally not mapped becaus
 
 ## First run
 
-The application provides an eleven-step setup for Bluetooth, pairing, key verification, microphone service, VB-CABLE, provider selection, real dictation, four direction mappings, startup consent, and a final summary. A ten-item self-check provides direct repair links and privacy-safe diagnostics.
+The application provides an eleven-step setup for Bluetooth, pairing, key verification, microphone service, VB-CABLE, provider selection, real dictation, four direction mappings, startup consent, and a final summary. A ten-item self-check provides direct repair links and privacy-safe diagnostics, and validates the actual stable v1.0.3/v11 runtime without requiring removed long-dictation markers. Light and Dark buttons switch the complete interface immediately.
 
 See [QUICK_START_ZH.md](QUICK_START_ZH.md), the [V1.2.1 illustrated tutorial](docs/V1_2_1_TUTORIAL_ZH.md), and the [immutable version download archive](docs/VERSION_ARCHIVE_ZH.md).
 
