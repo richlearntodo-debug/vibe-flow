@@ -656,7 +656,10 @@ assert(includesAll(screenshotScript, [
 // Release, installer, CI, signing, and isolated hardware candidate safety.
 assert(includesAll(release, [
   'Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir',
-  'Copy-Item (Join-Path $root "NAudio.Core.dll") $packageDir',
+  'tools\\naudio.core.2.2.1\\lib\\netstandard2.0\\NAudio.Core.dll',
+  'tools\\naudio.wasapi.2.2.1\\lib\\netstandard2.0\\NAudio.Wasapi.dll',
+  'Copy-Item -LiteralPath $naudioCorePath -Destination $packageDir',
+  'Copy-Item -LiteralPath $naudioWasapiPath -Destination $packageDir',
   'if ($releaseVersion -ne "1.5.0")',
   'Copy-Item (Join-Path $root "docs\\V1_5_USER_GUIDE_ZH.md") $packageDocs',
   'Copy-Item (Join-Path $root "docs\\VERSION_ARCHIVE_ZH.md") $packageDocs',

@@ -10,6 +10,8 @@ $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
 $releaseBodySource = Join-Path $root "docs\GITHUB_RELEASE_BODY_ZH.md"
 $releaseBodyPath = Join-Path $releaseRoot ("RELEASE_BODY_v" + $releaseVersion + ".md")
 $stableCapturePath = Join-Path ([IO.Path]::GetTempPath()) "VibeFlow-StableCapture-v1.2.1.exe"
+$naudioCorePath = Join-Path $root "tools\naudio.core.2.2.1\lib\netstandard2.0\NAudio.Core.dll"
+$naudioWasapiPath = Join-Path $root "tools\naudio.wasapi.2.2.1\lib\netstandard2.0\NAudio.Wasapi.dll"
 $signingThumbprint = if ($env:VIBE_FLOW_SIGN_THUMBPRINT) { $env:VIBE_FLOW_SIGN_THUMBPRINT.Trim() } else { "" }
 $signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } else { "" }
 $timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
@@ -17,6 +19,15 @@ $signingRequested = -not [string]::IsNullOrWhiteSpace($signingThumbprint) -or -n
 
 if ($releaseVersion -ne "1.5.0") {
     throw "Formal release builder is pinned to V1.5.0; package.json reports $releaseVersion."
+}
+
+if (-not (Test-Path -LiteralPath $naudioCorePath) -or -not (Test-Path -LiteralPath $naudioWasapiPath)) {
+    & (Join-Path $root "RESTORE_BUILD_DEPS.ps1")
+}
+foreach ($dependency in @($naudioCorePath, $naudioWasapiPath)) {
+    if (-not (Test-Path -LiteralPath $dependency)) {
+        throw "Required runtime dependency was not restored: $dependency"
+    }
 }
 
 function Resolve-SignTool {
@@ -99,8 +110,8 @@ New-Item -ItemType Directory -Path $packageDir | Out-Null
 
 Copy-Item (Join-Path $root "VibeMic.exe") (Join-Path $packageDir "VibeFlow.exe")
 Copy-Item -LiteralPath $stableCapturePath -Destination (Join-Path $packageDir "VibeMicAtvvCapture.exe")
-Copy-Item (Join-Path $root "NAudio.Core.dll") $packageDir
-Copy-Item (Join-Path $root "NAudio.Wasapi.dll") $packageDir
+Copy-Item -LiteralPath $naudioCorePath -Destination $packageDir
+Copy-Item -LiteralPath $naudioWasapiPath -Destination $packageDir
 Copy-Item (Join-Path $root "VoxDeckInputBridge.exe") $packageDir
 Copy-Item (Join-Path $root "START_VIBE_FLOW.cmd") $packageDir
 Copy-Item (Join-Path $root "vibe-flow-logo.png") $packageDir
