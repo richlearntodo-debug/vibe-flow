@@ -14,9 +14,20 @@
 
 ## 用户社区
 
-遥控器固件、蓝牙适配器和语音工具版本可能不同。设置时遇到问题，可扫码加入用户社区；反馈前建议先从“自检”页导出诊断包。
+加入社群可获得：
 
-<img src="images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="420">
+- 新手配置与 VB-CABLE 排错答疑；
+- 不同遥控器、蓝牙适配器和语音工具的兼容经验；
+- 新版本测试通知与功能建议反馈；
+- Vibe Coding 快捷键、Profiles 和工作流分享。
+
+<p align="center">
+  <img src="images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
+</p>
+
+遇到问题时，请先在“自检”页导出诊断包，再扫码进入社群反馈。诊断日志不会包含录音或转译文字。
+
+[先查看 V1.5 完整功能看板](FEATURES_ZH.md)
 
 ## 准备清单
 

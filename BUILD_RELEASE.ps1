@@ -133,6 +133,7 @@ Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\V1_5_USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\VERSION_ARCHIVE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\FEATURES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs
 $currentGuideImages = @(
     "00-first-run.png",

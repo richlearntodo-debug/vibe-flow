@@ -1,10 +1,12 @@
 # 言灵 · Vibe Flow Remote
 
-把小米 RC003 / MI RC 蓝牙语音遥控器变成 Windows 语音输入与快捷控制器：**聚焦输入框，按住录音键说话，松开结束，再按确认键发送。**
+**把小米 RC003 / MI RC 蓝牙遥控器变成 Windows 上的语音输入与 AI 工作流控制器。**
 
-## 下载最新正式版 · V1.5.0
+聚焦输入框，按住录音键说话，松开完成转译；再用遥控器打开应用、执行快捷键、截图或切换工作流。V1.5 优先保证核心链路稳定，不要求用户学习复杂手势。
 
-**Windows 10 / 11 x64 · 2026-09-02 · 推荐普通用户使用**
+## 最新正式版 · V1.5.0
+
+**Windows 10 / 11 x64 · 稳定语音基线 · 快捷键与 Profiles 正式升级**
 
 | 下载 | 适合谁 | 固定入口 |
 | --- | --- | --- |
@@ -15,17 +17,36 @@
 > [!IMPORTANT]
 > 普通用户下载第一行的 `VibeFlow-Setup.exe`。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是 Windows 安装程序。当前安装包尚未配置商业代码签名，Windows 首次运行可能显示 SmartScreen 提醒；请只从本仓库 Release 下载并核对 SHA-256。
 
-[V1.5 零基础图文教程](docs/V1_5_USER_GUIDE_ZH.md) · [V1.4 + V1.5 更新说明](docs/RELEASE_NOTES_ZH.md) · [所有版本与固定下载入口](docs/VERSION_ARCHIVE_ZH.md)
+[V1.5 零基础图文教程](docs/V1_5_USER_GUIDE_ZH.md) · [完整功能看板](docs/FEATURES_ZH.md) · [V1.4 + V1.5 更新说明](docs/RELEASE_NOTES_ZH.md) · [所有版本下载](docs/VERSION_ARCHIVE_ZH.md)
 
-## 用户社区
+## 功能展示看板
 
-配对、VB-CABLE、语音工具或真机型号有差异时，可扫码加入 Vibe Flow 用户社区。二维码放在教程前，设置过程中随时都能找到。
+| 核心场景 | V1.5 支持能力 | 用户得到什么 |
+| --- | --- | --- |
+| **遥控器语音输入** | RC003 麦克风、按住说话、松开结束，支持微信输入法、Typeless、豆包输入法和 Windows 语音输入 | 离开键盘也能向 AI、编辑器或网页输入内容 |
+| **实体快捷键录制** | 直接在键盘按下组合键完成映射，无需填写 `Ctrl`、`Shift` 等名称 | 自定义快捷键更快，也更不容易配错 |
+| **应用与网页控制** | 查找正在运行和已安装的 APP，支持打开、切换应用及打开 HTTPS 网页 | 一个遥控器快速进入常用 AI 与 Coding 工具 |
+| **Profiles 工作流** | 通用导航、Vibe Coding、浏览器 AI、Terminal Agent；支持导入、导出和可选 Smart Profiles | 不同工作场景使用各自的按键布局 |
+| **常用快捷动作** | 截图、复制、粘贴、撤销、重做、系统、媒体及自定义组合键 | 把高频操作放到触手可及的位置 |
+| **自检与恢复** | 检查蓝牙、遥控器、真实音频、VB-CABLE、语音工具、自启动和完整会话 | 出现问题时能看到原因和下一步修复入口 |
 
-<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="420">
+[查看完整功能、按键能力与边界说明](docs/FEATURES_ZH.md)
 
-## V1.5 有什么新变化
+![V1.5 首页与连接状态](docs/images/01-overview.png)
 
-V1.5 合并了未完整发布的 V1.4 工作，并把同一条快捷键配置体验补齐：
+## 加入 Vibe Flow 用户社区
+
+在社群中获取**配置答疑、设备兼容反馈、版本更新通知和 Vibe Coding 工作流分享**。遇到配对、VB-CABLE、语音工具或不同遥控器固件问题时，也可以带上自检诊断包一起排查。
+
+<p align="center">
+  <img src="docs/images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
+</p>
+
+> 扫码加入后，建议备注“Vibe Flow + 遥控器型号”。反馈问题时请附上“自检”页面导出的诊断包；日志不会包含录音或转译文字。
+
+## V1.5 重点更新
+
+V1.5 合并了 V1.4 尚未完整交付的快捷键升级，并补齐配置、验证与新手教程：
 
 | 能力 | 使用结果 |
 | --- | --- |
@@ -47,8 +68,6 @@ V1.5 合并了未完整发布的 V1.4 工作，并把同一条快捷键配置体
 - 没有加入长录音续接、宏、多步骤自动化或新的录音状态机。
 
 V1.4 只完成了 Profile、应用目录、Browser Back 和执行回执的一部分，因此以**不完整预览版**归档，不建议日常安装。[查看 V1.4 归档说明](docs/V1_4_PREVIEW_ZH.md)。
-
-![V1.5 首页](docs/images/01-overview.png)
 
 ## 三分钟开始使用
 

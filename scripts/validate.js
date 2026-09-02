@@ -45,6 +45,7 @@ const requiredFiles = [
   "docs/V1_2_1_TUTORIAL_ZH.md",
   "docs/V1_3_USER_GUIDE_ZH.md",
   "docs/V1_5_USER_GUIDE_ZH.md",
+  "docs/FEATURES_ZH.md",
   "docs/VERSION_ARCHIVE_ZH.md",
   "docs/RELEASE_NOTES_ZH.md",
   "docs/GITHUB_RELEASE_BODY_ZH.md",
@@ -126,6 +127,7 @@ const guide = read("docs/USER_GUIDE_ZH.md");
 const versionTutorial = read("docs/V1_2_1_TUTORIAL_ZH.md");
 const v13Guide = read("docs/V1_3_USER_GUIDE_ZH.md");
 const v15Guide = read("docs/V1_5_USER_GUIDE_ZH.md");
+const featuresBoard = read("docs/FEATURES_ZH.md");
 const versionArchive = read("docs/VERSION_ARCHIVE_ZH.md");
 const quickStart = read("QUICK_START_ZH.md");
 const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
@@ -663,6 +665,7 @@ assert(includesAll(release, [
   'if ($releaseVersion -ne "1.5.0")',
   'Copy-Item (Join-Path $root "docs\\V1_5_USER_GUIDE_ZH.md") $packageDocs',
   'Copy-Item (Join-Path $root "docs\\VERSION_ARCHIVE_ZH.md") $packageDocs',
+  'Copy-Item (Join-Path $root "docs\\FEATURES_ZH.md") $packageDocs',
   '"07-shortcut-actions.png"', '"08-shortcut-recorder.png"', '"09-smart-profile-apps.png"',
   '"vibe-flow-community.png"',
   '"VibeFlow-Setup.exe"', '"SHA256SUMS.txt"', "Invoke-VibeFlowCodeSign",
@@ -808,8 +811,13 @@ assert(includesAll(v15PreviewGuide, [
 ]), "V1.5 preview guide lacks shortcut recorder, Smart Profile, privacy, or release-gate guidance");
 assert(includesAll(githubReleaseBody, [
   "V1.5.0", "VibeFlow-Setup.exe", "直接录制快捷键", "Smart Profiles",
-  "V1.5 零基础图文教程", "无剪贴板回填",
+  "V1.5 零基础图文教程", "核心功能看板", "Vibe Flow 用户社区", "无剪贴板回填",
 ]), "The V1.5 GitHub release body is incomplete");
+assert(includesAll(featuresBoard, [
+  "功能看板", "语音输入", "语音工具适配", "快捷键录制", "应用控制",
+  "Profiles", "Smart Profiles", "自检中心", "可配置按键", "稳定性边界",
+  "vibe-flow-community.png",
+]), "The public feature board is incomplete");
 assert(includesAll(v14GithubReleaseBody, [
   "V1.4.0 不完整预览归档", "普通用户请下载", "不提供安装版 EXE",
   "Vibe-Flow-v1.4.0-Incomplete-Preview.zip", "V1.5",
