@@ -7,7 +7,15 @@ body:
   - type: markdown
     attributes:
       value: |
-        请先在言灵的“连接与自检”页面处理红色或黄色项目并点击“重新自检”，再点击“复制问题摘要”。普通摘要不包含录音、识别文字、蓝牙地址或完整设备路径。
+        请先在言灵的“自检”页面处理第一项橙色或红色结果并重新检测，再点击“导出诊断”。诊断包不包含普通录音或识别文字，并会隐藏蓝牙身份、完整设备路径、URL 和应用目标。
+  - type: input
+    id: version
+    attributes:
+      label: Vibe Flow 版本
+      description: 可在设置页右上角查看，例如 1.5.0。
+      placeholder: 1.5.0
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
@@ -19,9 +27,8 @@ body:
   - type: textarea
     id: summary
     attributes:
-      label: 言灵问题摘要
-      description: 在应用内点击“复制问题摘要”后直接粘贴到这里。
-      render: text
+      label: 自检结果与关键日志
+      description: 请粘贴自检中的失败项、发生时间和诊断包内对应的脱敏日志；不要粘贴私人转译内容。
     validations:
       required: true
   - type: dropdown
@@ -31,8 +38,8 @@ body:
       options:
         - 微信输入法
         - Typeless
+        - 豆包输入法
         - Windows 语音输入
-        - Voquill
         - 其他工具
     validations:
       required: true
@@ -46,6 +53,12 @@ body:
         3. 松开录音键
     validations:
       required: true
+  - type: input
+    id: profile
+    attributes:
+      label: 当前快捷键 Profile
+      description: 快捷键问题请填写首页显示的实际生效 Profile；语音问题可填“不适用”。
+      placeholder: 通用导航 / Vibe Coding / 浏览器 AI / Terminal Agent / 不适用
   - type: checkboxes
     id: privacy
     attributes:

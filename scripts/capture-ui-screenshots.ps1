@@ -159,6 +159,16 @@ function Find-ProcessWindow([int]$ProcessId, [string]$TitlePrefix) {
     return $script:matchingWindow
 }
 
+function Wait-ForProcessWindow([int]$ProcessId, [string]$TitlePrefix, [int]$TimeoutMilliseconds = 5000) {
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        $window = Find-ProcessWindow $ProcessId $TitlePrefix
+        if ($window -ne [IntPtr]::Zero) { return $window }
+        Start-Sleep -Milliseconds 150
+    } while ([DateTime]::UtcNow -lt $deadline)
+    throw "Window not found: $TitlePrefix"
+}
+
 function Invoke-Button([IntPtr]$Parent, [string]$Text) {
     $button = Find-ChildButton $Parent $Text
     [VibeScreenshotNative]::PostMessage($button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
@@ -330,6 +340,11 @@ $screenshotActionLabel = ConvertFrom-CodePoints @(0x7CFB, 0x7EDF, 0x20, 0xB7, 0x
 $setupLabel = ConvertFrom-CodePoints @(0x6253, 0x5F00, 0x5165, 0x95E8, 0x6307, 0x5357)
 $welcomePrefix = ConvertFrom-CodePoints @(0x9996, 0x6B21, 0x8BBE, 0x7F6E)
 $healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x4F7F, 0x7528)
+$upActionLabel = ConvertFrom-CodePoints @(0x4E0A, 0x65B9, 0x5411)
+$shortcutRecorderLabel = ConvertFrom-CodePoints @(0x5F55, 0x5236, 0x952E, 0x76D8, 0x5FEB, 0x6377, 0x952E)
+$bindApplicationsLabel = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x5E94, 0x7528)
+$configureUpTitle = ConvertFrom-CodePoints @(0x914D, 0x7F6E, 0x20, 0x4E0A, 0x952E)
+$smartProfileDialogTitle = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x20, 0x53, 0x6D, 0x61, 0x72, 0x74, 0x20, 0x50, 0x72, 0x6F, 0x66, 0x69, 0x6C, 0x65, 0x20, 0x5E94, 0x7528)
 $pages = @(
     @{ Button = $overviewLabel; File = "01-overview.png" },
     @{ Button = $dictationLabel; File = "02-dictation.png" },
@@ -367,13 +382,26 @@ foreach ($page in $pages) {
     }
 }
 
+# Capture the actual V1.5 configuration dialogs used by the illustrated guide.
+Invoke-Button $main $shortcutsLabel
+Invoke-Button $main $upActionLabel
+$actionPicker = Wait-ForProcessWindow $process.Id $configureUpTitle
+Save-Window $actionPicker (Join-Path $OutputDirectory "07-shortcut-actions.png")
+Invoke-Button $actionPicker $shortcutRecorderLabel
+$shortcutRecorder = Wait-ForProcessWindow $process.Id $shortcutRecorderLabel
+Save-Window $shortcutRecorder (Join-Path $OutputDirectory "08-shortcut-recorder.png")
+[VibeScreenshotNative]::PostMessage($shortcutRecorder, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+Start-Sleep -Milliseconds 350
+
+Invoke-Button $main $bindApplicationsLabel
+$smartProfileDialog = Wait-ForProcessWindow $process.Id $smartProfileDialogTitle 10000
+Save-Window $smartProfileDialog (Join-Path $OutputDirectory "09-smart-profile-apps.png")
+[VibeScreenshotNative]::PostMessage($smartProfileDialog, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+Start-Sleep -Milliseconds 350
+
+Invoke-Button $main $settingsLabel
 Invoke-Button $main $setupLabel
-$wizard = [IntPtr]::Zero
-for ($attempt = 0; $attempt -lt 20 -and $wizard -eq [IntPtr]::Zero; $attempt++) {
-    Start-Sleep -Milliseconds 150
-    $wizard = Find-ProcessWindow $process.Id $welcomePrefix
-}
-if ($wizard -eq [IntPtr]::Zero) { throw "First-run wizard did not open." }
+$wizard = Wait-ForProcessWindow $process.Id $welcomePrefix
 if ($CaptureFullOnboarding) {
     $nextStep = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
 }

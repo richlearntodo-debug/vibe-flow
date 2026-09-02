@@ -1,5 +1,5 @@
 #define MyAppName "言灵 Vibe Flow Remote"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "Vibe Flow Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases/latest
-VersionInfoVersion=1.4.0.0
+VersionInfoVersion=1.5.0.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
@@ -53,7 +53,7 @@ Source: "..\release\Vibe-Flow-Windows-x64\*"; DestDir: "{app}"; Flags: ignorever
 
 [Icons]
 Name: "{group}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\使用教程"; Filename: "https://github.com/richlearntodo-debug/vibe-flow/blob/main/docs/V1_3_USER_GUIDE_ZH.md"
+Name: "{group}\使用教程"; Filename: "https://github.com/richlearntodo-debug/vibe-flow/blob/v1.5.0/docs/V1_5_USER_GUIDE_ZH.md"
 Name: "{group}\卸载言灵"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 

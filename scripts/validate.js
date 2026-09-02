@@ -44,9 +44,11 @@ const requiredFiles = [
   "docs/USER_GUIDE_ZH.md",
   "docs/V1_2_1_TUTORIAL_ZH.md",
   "docs/V1_3_USER_GUIDE_ZH.md",
+  "docs/V1_5_USER_GUIDE_ZH.md",
   "docs/VERSION_ARCHIVE_ZH.md",
   "docs/RELEASE_NOTES_ZH.md",
   "docs/GITHUB_RELEASE_BODY_ZH.md",
+  "docs/GITHUB_RELEASE_BODY_V1_4_ZH.md",
   "docs/CONTINUOUS_DICTATION_ZH.md",
   "docs/CODE_SIGNING_ZH.md",
   "docs/ARCHITECTURE.md",
@@ -55,6 +57,7 @@ const requiredFiles = [
   "docs/V1_3_PREVIEW_ZH.md",
   "docs/V1_3_HARDWARE_ACCEPTANCE_ZH.md",
   "docs/V1_4_PREVIEW_ZH.md",
+  "docs/V1_5_PREVIEW_ZH.md",
   "docs/RC003_DRIVER_LAB_ZH.md",
   "docs/images/00-first-run.png",
   "docs/images/00-setup-01-device.png",
@@ -69,6 +72,9 @@ const requiredFiles = [
   "docs/images/04-diagnostics.png",
   "docs/images/05-settings.png",
   "docs/images/06-transcription-tools.png",
+  "docs/images/07-shortcut-actions.png",
+  "docs/images/08-shortcut-recorder.png",
+  "docs/images/09-smart-profile-apps.png",
   "docs/images/vibe-flow-community.png",
   ".github/actionlint.yaml",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
@@ -119,10 +125,12 @@ const englishReadme = read("README_VIBE_MIC.md");
 const guide = read("docs/USER_GUIDE_ZH.md");
 const versionTutorial = read("docs/V1_2_1_TUTORIAL_ZH.md");
 const v13Guide = read("docs/V1_3_USER_GUIDE_ZH.md");
+const v15Guide = read("docs/V1_5_USER_GUIDE_ZH.md");
 const versionArchive = read("docs/VERSION_ARCHIVE_ZH.md");
 const quickStart = read("QUICK_START_ZH.md");
 const releaseNotes = read("docs/RELEASE_NOTES_ZH.md");
 const githubReleaseBody = read("docs/GITHUB_RELEASE_BODY_ZH.md");
+const v14GithubReleaseBody = read("docs/GITHUB_RELEASE_BODY_V1_4_ZH.md");
 const continuousGuide = read("docs/CONTINUOUS_DICTATION_ZH.md");
 const architecture = read("docs/ARCHITECTURE.md");
 const versionDoc = read("VIBE_MIC_VERSION.md");
@@ -130,6 +138,7 @@ const voiceResearch = read("docs/VOICE_PIPELINE_RESEARCH.md");
 const hardwareAcceptance = read("docs/V1_2_HARDWARE_ACCEPTANCE_ZH.md");
 const previewGuide = read("docs/V1_3_PREVIEW_ZH.md");
 const v14PreviewGuide = read("docs/V1_4_PREVIEW_ZH.md");
+const v15PreviewGuide = read("docs/V1_5_PREVIEW_ZH.md");
 const v13HardwareAcceptance = read("docs/V1_3_HARDWARE_ACCEPTANCE_ZH.md");
 const rc003DriverLabGuide = read("docs/RC003_DRIVER_LAB_ZH.md");
 const gitignore = read(".gitignore");
@@ -146,32 +155,41 @@ const actionlintConfig = read(".github/actionlint.yaml");
 const isolationHelper = read("scripts/diagnostics/Invoke-Rc003KeyboardIsolation.ps1");
 const exclusiveGattTest = read("scripts/diagnostics/Test-Rc003ExclusiveGatt.ps1");
 
+const dialogScreenshots = new Set([
+  "docs/images/07-shortcut-actions.png",
+  "docs/images/08-shortcut-recorder.png",
+  "docs/images/09-smart-profile-apps.png",
+]);
 for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/") && item.endsWith(".png"))) {
   const png = fs.readFileSync(path.join(root, file));
-  assert(png.length > 20000, `Screenshot is unexpectedly small: ${file}`);
+  assert(png.length > (dialogScreenshots.has(file) ? 10000 : 20000),
+    `Screenshot is unexpectedly small: ${file}`);
   assert(png.toString("ascii", 1, 4) === "PNG", `Screenshot is not a PNG: ${file}`);
-  assert(png.readUInt32BE(16) >= 900 && png.readUInt32BE(20) >= 600,
+  const minimumWidth = dialogScreenshots.has(file) ? 600 : 900;
+  const minimumHeight = dialogScreenshots.has(file) ? 300 : 600;
+  assert(png.readUInt32BE(16) >= minimumWidth && png.readUInt32BE(20) >= minimumHeight,
     `Screenshot dimensions are too small: ${file}`);
 }
 
 // Product identity, release metadata, and persistent configuration.
 assert(includesAll(app, [
   'DisplayProductName = "言灵 · Vibe Flow Remote"',
-  'ProductRelease = "1.4.0"',
+  'ProductRelease = "1.5.0"',
   'StableCaptureBinaryVersion = "1.2.1"',
-  'AssemblyFileVersion("1.4.0.0")',
-  'AssemblyInformationalVersion("1.4.0-preview")',
-  'ConfigSchemaVersion = 31',
+  'AssemblyFileVersion("1.5.0.0")',
+  'AssemblyInformationalVersion("1.5.0")',
+  'ConfigSchemaVersion = 32',
   'CurrentOnboardingVersion = 9',
   'OnboardingStepCount = 5',
-]), "Application identity or V1.4 preview configuration metadata is inconsistent");
-assert(packageJson.version === "1.4.0", "package.json version is not aligned with the preview app");
-assert(capture.includes('AssemblyFileVersion("1.2.1.0")') && bridge.includes('AssemblyFileVersion("1.4.0.0")'),
-  "The stable capture or preview bridge binary version is inconsistent");
+]), "Application identity or V1.5 release configuration metadata is inconsistent");
+assert(packageJson.version === "1.5.0", "package.json version is not aligned with the release app");
+assert(capture.includes('AssemblyFileVersion("1.2.1.0")') && bridge.includes('AssemblyFileVersion("1.5.0.0")'),
+  "The stable capture or release bridge binary version is inconsistent");
 assert(includesAll(app, [
   "LoadConfig();", "MigrateConfig(", "SyncKeyboardBridgeConfig();",
   "WriteTextAtomically(configPath", "WriteTextAtomically(bridgeConfigPath",
   'configPath + ".bak"', 'bridgeConfigPath + ".bak"', "File.Replace",
+  "config = VibeMicConfig.Default();",
 ]), "Configuration migration or atomic persistence is incomplete");
 const loadConfigIndex = app.indexOf("config = LoadConfig();");
 const syncBridgeIndex = app.indexOf("SyncKeyboardBridgeConfig();", loadConfigIndex);
@@ -270,14 +288,16 @@ const expectedMappings = {
   "左键": "left",
   "右键": "right",
 };
-assert(defaultConfig.schemaVersion === 31 && defaultConfig.onboardingVersion === 9 &&
+assert(defaultConfig.schemaVersion === 32 && defaultConfig.onboardingVersion === 9 &&
   defaultConfig.voiceMode === "hold" && defaultConfig.theme === "light" &&
   defaultConfig.inputRoutingMode === "strict" && defaultConfig.mappingPreset === "general" &&
   !Object.prototype.hasOwnProperty.call(defaultConfig, "customButtons"),
-  "Default configuration is not the schema-31 stable hold baseline");
+  "Default configuration is not the schema-32 stable hold baseline");
 assert(JSON.stringify(defaultConfig.mappings) === JSON.stringify(expectedMappings),
   "Default mappings expose an unsupported control or changed a verified action");
 assert(defaultConfig.activeShortcutProfileId === "general" &&
+  defaultConfig.smartProfilesEnabled === false && defaultConfig.smartProfileLocked === false &&
+  defaultConfig.smartProfileFallbackId === "general" &&
   Array.isArray(defaultConfig.shortcutProfiles) && defaultConfig.shortcutProfiles.length === 4,
   "Default shortcut Profiles or active Profile are missing");
 const expectedProfiles = new Map([
@@ -289,22 +309,28 @@ for (const profile of defaultConfig.shortcutProfiles) {
     `Unexpected official shortcut Profile: ${profile.id}/${profile.name}`);
   assert(profile.preset === profile.id && Object.keys(profile.mappings).length === 12,
     `Official Profile is malformed: ${profile.id}`);
+  assert(Array.isArray(profile.processNames), `Profile process bindings are missing: ${profile.id}`);
   for (const forbidden of ["gain", "audioEndpointName", "inputMethod", "inputMethodHotkey", "voiceMode"])
     assert(!Object.prototype.hasOwnProperty.call(profile, forbidden),
       `Shortcut Profile leaked voice configuration: ${profile.id}/${forbidden}`);
 }
 assert(defaultConfig.shortcutProfiles.find(profile => profile.id === "browser-ai").mappings["左键"] === "browserback",
   "Browser AI does not use the dedicated Browser Back action");
+assert(defaultConfig.shortcutProfiles.find(profile => profile.id === "vibe-coding").processNames.includes("cursor") &&
+  defaultConfig.shortcutProfiles.find(profile => profile.id === "browser-ai").processNames.includes("chrome") &&
+  defaultConfig.shortcutProfiles.find(profile => profile.id === "terminal-agent").processNames.includes("windowsterminal"),
+  "Recommended Smart Profile application bindings are incomplete");
 for (const unsupported of ["电源键", "返回键", "音量 +", "音量 -"]) {
   assert(!Object.prototype.hasOwnProperty.call(defaultConfig.mappings, unsupported),
     `Unsupported default mapping is present: ${unsupported}`);
 }
 const mappingsPage = section(app, "private void BuildMappingsPage()", "private void BuildMappingsPageV13Legacy()");
 assert(includesAll(mappingsPage, [
-  'AddPageTitle("快捷键"', "动作只响应已确认的 RC003 设备事件", "安全直通", "RemoteVisual",
+  'AddPageTitle("快捷键"', "录制任意键盘组合；按应用自动切换工作流", "安全直通", "RemoteVisual",
   '"Home:short", "Home:long"',
   "AddFixedVoiceOverviewCard", "ShowMappingActionPicker", "TestMappingAction",
-  '"按住听写 · 松开结束"', 'NewLabel("手动切换"',
+  '"按住听写 · 松开结束"', 'config.smartProfilesEnabled ? "回退 Profile" : "当前 Profile"', "录制键盘快捷键",
+  "SetSmartProfilesEnabled", "ConfigureActiveSmartProfileApplications", "ToggleSmartProfileLock",
   "SwitchShortcutProfile", "CreateShortcutProfile", "RenameActiveShortcutProfile",
   "DeleteActiveShortcutProfile", "ImportShortcutProfile", "ExportActiveShortcutProfile",
   "shortEdit.Enabled = hardwareReady", "longEdit.Enabled = hardwareReady",
@@ -316,6 +342,13 @@ assert(includesAll(app, [
   "Schema 25 migration discarded a valid custom mapping", "GetInstalledApplicationChoices",
   '"custom-button-test-result.json"', "MappingActionTestResult", "测试成功", "测试失败",
 ]), "Custom app, web, shortcut, or screenshot actions are absent");
+assert(includesAll(app, [
+  "KeyboardShortcutCaptureSession", "ShowKeyboardShortcutRecorder", "TryNormalizeCapturedShortcut",
+  "TryNormalizeMappingShortcut", "MappingShortcutDisplay", "SetWindowsHookEx",
+  "录制期间按键会被拦截", "一次只能录制一个主键", "Ctrl+Alt+Delete 由 Windows 保留",
+  'new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")',
+  "Keyboard shortcut recorder normalization invariant failed",
+]), "Physical keyboard shortcut recording or its strict validation is incomplete");
 assert(!mappingsPage.includes('"返回键"') && !mappingsPage.includes('"音量 +"') &&
   !mappingsPage.includes('"音量 -"') && !mappingsPage.includes('"电源键"'),
   "The active shortcut page exposes an unsupported physical control");
@@ -358,6 +391,14 @@ assert(includesAll(bridge, [
   'health["last_execution_profile_name"]', 'health["last_execution_success"]',
   "activeShortcutProfileId", "activeShortcutProfileName",
 ]), "The bridge does not publish an actual action execution receipt");
+assert(includesAll(bridge, [
+  "SMART_PROFILE_POLL_MS = 250", "SMART_PROFILE_DEBOUNCE_MS = 350",
+  "InitializeSmartProfileRuntime", "EvaluateSmartProfile", "ResolveSmartProfileTarget",
+  "FindBridgeProfileForProcess", "GetForegroundProcessName", "IsVibeFlowProcess",
+  'health["smart_profiles_enabled"]', 'health["smart_profile_effective_id"]',
+  'health["smart_profile_match_state"]', "Smart Profile did not match the foreground process",
+  "Smart Profile fallback was not deterministic", "Smart Profile lock did not retain the configured Profile",
+]), "Smart Profile routing, health, or deterministic resolver coverage is incomplete");
 assert(includesAll(app, [
   "LastExecutionSequence", "LastExecutionAction", "LastExecutionProfileName",
   "LastExecutionSuccess", "UpdateActionReceipt", "最近一次快捷操作",
@@ -608,15 +649,19 @@ assert(includesAll(app, [
 assert(includesAll(screenshotScript, [
   "CaptureFullOnboarding", "Wait-ForChildText", '"00-setup-01-device.png"', '"00-setup-05-ready.png"',
   '"03-shortcuts-screenshot.png"', 'ValidateSet("Current", "Light", "Dark", "System")',
+  "Wait-ForProcessWindow", '"07-shortcut-actions.png"', '"08-shortcut-recorder.png"',
+  '"09-smart-profile-apps.png"',
 ]), "Screenshot automation is not aligned with the five-task setup");
 
 // Release, installer, CI, signing, and isolated hardware candidate safety.
 assert(includesAll(release, [
   'Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir',
   'Copy-Item (Join-Path $root "NAudio.Core.dll") $packageDir',
-  'Copy-Item (Join-Path $root "docs\\V1_2_1_TUTORIAL_ZH.md") $packageDocs',
-  'Copy-Item (Join-Path $root "docs\\V1_3_USER_GUIDE_ZH.md") $packageDocs',
+  'if ($releaseVersion -ne "1.5.0")',
+  'Copy-Item (Join-Path $root "docs\\V1_5_USER_GUIDE_ZH.md") $packageDocs',
   'Copy-Item (Join-Path $root "docs\\VERSION_ARCHIVE_ZH.md") $packageDocs',
+  '"07-shortcut-actions.png"', '"08-shortcut-recorder.png"', '"09-smart-profile-apps.png"',
+  '"vibe-flow-community.png"',
   '"VibeFlow-Setup.exe"', '"SHA256SUMS.txt"', "Invoke-VibeFlowCodeSign",
   'scripts\\Get-StableCaptureBinary.ps1', 'VibeFlow-StableCapture-v1.2.1.exe',
   '@("VibeMic.exe", "--self-test")', '@("VoxDeckInputBridge.exe", "--self-test")',
@@ -632,7 +677,7 @@ assert(!release.includes("VibeFlowRc003Filter") &&
 assert(!release.includes('(Join-Path $packageDir "vibe-mic-config.json")'),
   "Release packaging can overwrite an existing user configuration");
 assert(includesAll(candidateBuild, [
-  'if ($version -ne "1.4.0")', '"hardware-candidate"', 'hardwareAcceptancePassed = $false',
+  'if ($version -ne "1.5.0")', '"hardware-candidate"', 'hardwareAcceptancePassed = $false',
   'recordingKernel = "v1.0.3"', '"CANDIDATE_MANIFEST.json"', '"SHA256SUMS.txt"',
   'B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683',
   'stableCaptureSha256 = $stableCaptureSha256',
@@ -641,9 +686,10 @@ assert(includesAll(candidateBuild, [
   '"docs\\V1_3_USER_GUIDE_ZH.md"',
   '"docs\\VERSION_ARCHIVE_ZH.md"', '"docs\\V1_3_PREVIEW_ZH.md"',
   '"docs\\V1_4_PREVIEW_ZH.md"',
+  '"docs\\V1_5_PREVIEW_ZH.md"',
   '"docs\\V1_3_HARDWARE_ACCEPTANCE_ZH.md"',
   '"scripts\\Measure-HardwareAcceptance.ps1"',
-  'configurationSchema = 31', 'bridgeConfigurationSchema = 6',
+  'configurationSchema = 32', 'bridgeConfigurationSchema = 7',
   'powerKeySupport = "unsupported-no-stable-windows-event"',
 ]) && !candidateBuild.includes("VibeFlow-Setup.exe"),
   "Hardware candidate packaging can overwrite or masquerade as the installed release");
@@ -674,9 +720,10 @@ assert(includesAll(dependencyRestore, [
   'naudio.wasapi.2.2.1\\lib\\netstandard2.0\\NAudio.Wasapi.dll',
 ]), "Build dependencies do not use the reproducible NuGet layout");
 assert(includesAll(installer, [
-  '#define MyAppVersion "1.4.0"', "PrivilegesRequired=lowest", "WaitForVibeFlowExit",
+  '#define MyAppVersion "1.5.0"', "PrivilegesRequired=lowest", "WaitForVibeFlowExit",
   "ConfigRequestsStartup", "RestoreConfiguredStartupRegistration", "vibe-mic-config.json.bak",
   "MigrateLegacyUserConfig", "Vibe Flow Remote\\UserData", "UserConfigPath",
+  "blob/v1.5.0/docs/V1_5_USER_GUIDE_ZH.md",
 ]), "Installer upgrades cannot safely preserve settings and startup state");
 assert(includesAll(hardwareAcceptanceTool, [
   'Join-Path $env:LOCALAPPDATA "Vibe Flow Remote\\UserData"',
@@ -687,45 +734,57 @@ assert(includesAll(workflow, [
   "WINDOWS_SIGNING_PFX_BASE64", "WINDOWS_SIGNING_PFX_PASSWORD",
 ]), "GitHub Actions validation, artifact upload, or signing secrets are incomplete");
 
-// Current documentation must describe only the shipped V1.2.1 interaction.
-const userDocs = { readme, englishReadme, guide, versionTutorial, versionArchive, quickStart, releaseNotes, githubReleaseBody, continuousGuide, architecture };
-for (const [name, document] of Object.entries(userDocs)) {
-  assert(document.includes("1.2.1"), `${name} does not identify V1.2.1`);
+// Current documentation must describe the shipped V1.5 interaction and preserve the stable voice boundary.
+const currentUserDocs = { readme, englishReadme, guide, v15Guide, versionArchive, quickStart, releaseNotes, githubReleaseBody };
+for (const [name, document] of Object.entries(currentUserDocs)) {
+  assert(document.includes("1.5") || document.includes("V1.5"), `${name} does not identify V1.5`);
   assert(!document.includes("单击录音键开始") && !document.includes("再次单击结束"),
     `${name} still instructs users to use click-toggle recording`);
 }
-for (const [name, document] of Object.entries({ readme, guide, quickStart, releaseNotes, continuousGuide })) {
+for (const [name, document] of Object.entries({ readme, v15Guide, quickStart, releaseNotes, githubReleaseBody })) {
   assert(document.includes("按住") && document.includes("松开"), `${name} does not explain hold-to-talk`);
   assert(document.includes("60 秒") || document.includes("60-second"),
     `${name} does not explain the current RC003 session limit`);
 }
-for (const [name, document] of Object.entries({ readme, guide, quickStart, releaseNotes, githubReleaseBody })) {
-  for (const claim of ["开机键、返回键和 TV 键", "音量 + / 音量 -", "应用、网页、系统动作"])
-    assert(!document.includes(claim), `${name} still advertises unsupported controls: ${claim}`);
+for (const [name, document] of Object.entries({ readme, v15Guide, quickStart, releaseNotes, githubReleaseBody })) {
+  assert(document.includes("开机、返回和独立音量键") &&
+    (document.includes("不提供") || document.includes("没有稳定")),
+    `${name} does not explain unsupported RC003 controls`);
 }
 assert(includesAll(readme, [
-  "docs/USER_GUIDE_ZH.md", "docs/images/01-overview.png", "VibeFlow-Setup.exe",
-  "Source code (zip)", "vibe-flow-community.png", "docs/VERSION_ARCHIVE_ZH.md",
-  "docs/V1_2_1_TUTORIAL_ZH.md", "docs/images/03-shortcuts-screenshot.png",
+  "docs/V1_5_USER_GUIDE_ZH.md", "docs/images/01-overview.png", "VibeFlow-Setup.exe",
+  "Source code (zip/tar.gz)", "vibe-flow-community.png", "docs/VERSION_ARCHIVE_ZH.md",
+  "releases/download/v1.5.0", "V1.4", "不完整预览版",
+  "docs/images/07-shortcut-actions.png", "docs/images/09-smart-profile-apps.png",
 ]), "README lacks the installer, tutorial, screenshot, or community entry points");
 assert(includesAll(guide, [
-  "CABLE Input", "CABLE Output", "Typeless", "豆包", "Windows 语音输入",
-  "11 步", "10 项", "现象 | 先检查 | 处理方法", "vibe-flow-community.png",
-  "系统 · 区域截图", "images/03-shortcuts-screenshot.png",
-]), "The beginner guide lacks providers, onboarding, self-check, troubleshooting, or community help");
+  "V1_5_USER_GUIDE_ZH.md", "vibe-flow-community.png", "RELEASE_NOTES_ZH.md",
+  "VERSION_ARCHIVE_ZH.md",
+]), "The current guide index lacks tutorial, community, release notes, or version links");
+assert(includesAll(v15Guide, [
+  "CABLE Input", "CABLE Output", "Typeless", "豆包输入法", "Windows 语音输入",
+  "5 项任务", "10 项", "现象 | 先检查 | 处理方式", "vibe-flow-community.png",
+  "录制键盘快捷键", "Smart Profiles", "images/07-shortcut-actions.png",
+  "images/08-shortcut-recorder.png", "images/09-smart-profile-apps.png",
+]), "The V1.5 illustrated guide lacks providers, onboarding, Profiles, troubleshooting, or community help");
 assert(includesAll(versionTutorial, [
   "用户友好稳定版", "images/vibe-flow-community.png", "11 步", "10 项",
   "CABLE Input", "CABLE Output", "系统 · 区域截图", "Win + Shift + S",
   "images/03-shortcuts-screenshot.png", "VERSION_ARCHIVE_ZH.md",
 ]), "The V1.2.1 illustrated tutorial is incomplete");
-for (const releaseVersion of ["v1.2.1", "v1.2.0", "v1.1.0", "v1.0.3", "v1.0.2", "v1.0.1", "v1.0.0"]) {
+for (const releaseVersion of ["v1.5.0", "v1.2.1", "v1.2.0", "v1.1.0", "v1.0.3", "v1.0.2", "v1.0.1", "v1.0.0"]) {
   const base = `https://github.com/richlearntodo-debug/vibe-flow/releases/download/${releaseVersion}/`;
   for (const asset of ["VibeFlow-Setup.exe", "Vibe-Flow-Windows-x64.zip", "SHA256SUMS.txt"])
     assert(versionArchive.includes(base + asset), `Version archive is missing ${releaseVersion}/${asset}`);
 }
+assert(includesAll(versionArchive, [
+  "V1.4.0", "不完整预览版，仅归档", "Vibe-Flow-v1.4.0-Incomplete-Preview.zip",
+  "SHA256SUMS-v1.4.0.txt", "不提供",
+]), "Version archive does not distinguish the incomplete V1.4 archive");
 assert(includesAll(versionDoc, [
-  "1.4.0 Preview", "Configuration schema: `31`", "Bridge configuration schema: `6`",
-  "Stable capture file version: `1.2.1.0`", "Recording kernel: `v1.0.3`",
+  "1.5.0", "Product version: `1.5.0`", "Configuration schema: `32`", "Bridge configuration schema: `7`",
+  "Stable Capture file version: `1.2.1.0`", "Recording kernel: `v1.0.3`",
+  "recommended public release", "incomplete preview archive",
 ]), "Version metadata documentation is stale");
 assert(includesAll(previewGuide, [
   "Raw Input 安全直通", "普通键盘", "打开 HTTPS 网页", "100 次录音按下与松开",
@@ -733,11 +792,25 @@ assert(includesAll(previewGuide, [
   "开机、返回和独立音量加减", "不提供配置入口", "真实执行结果",
 ]), "V1.3 preview guide lacks source isolation, customization, or hardware acceptance guidance");
 assert(includesAll(v14PreviewGuide, [
-  "V1.3 本地稳定基线", "不修改语音链路", "我的快捷键", "Vibe Coding",
+  "不完整预览归档", "普通用户请下载 V1.5", "不修改语音链路", "我的快捷键", "Vibe Coding",
   "浏览器 AI", "Terminal Agent", "最近一次快捷操作", "配置 revision",
   "选择本机应用", "Browser Back", "正在运行与已安装应用",
-  "100 次录音按下/松开", "普通键盘冲突", "125%", "150%", "不提交",
+  "100 次录音按下/松开", "普通键盘冲突", "125%", "150%",
 ]), "V1.4 preview guide lacks frozen-baseline, Profile, receipt, or release-gate guidance");
+assert(includesAll(v15PreviewGuide, [
+  "发布验收记录", "推荐正式版", "直接录制键盘快捷键", "Smart Profiles", "默认关闭",
+  "Ctrl + Win", "Ctrl + Alt + Delete", "250 ms", "350 ms", "锁定当前",
+  "回退 Profile", "窗口标题", "100 次录音按下/松开", "125%", "150%",
+  "正式发布", "VibeMicAtvvCapture.exe",
+]), "V1.5 preview guide lacks shortcut recorder, Smart Profile, privacy, or release-gate guidance");
+assert(includesAll(githubReleaseBody, [
+  "V1.5.0", "VibeFlow-Setup.exe", "直接录制快捷键", "Smart Profiles",
+  "V1.5 零基础图文教程", "无剪贴板回填",
+]), "The V1.5 GitHub release body is incomplete");
+assert(includesAll(v14GithubReleaseBody, [
+  "V1.4.0 不完整预览归档", "普通用户请下载", "不提供安装版 EXE",
+  "Vibe-Flow-v1.4.0-Incomplete-Preview.zip", "V1.5",
+]), "The V1.4 archive release body does not prevent accidental installation");
 assert(includesAll(v13Guide, [
   "五项首次设置", "00-setup-01-device.png", "00-setup-05-ready.png",
   "CABLE Input", "CABLE Output", "Typeless", "豆包输入法", "Windows 语音输入",
@@ -756,4 +829,4 @@ assert(includesAll(hardwareAcceptance, [
   "不提交版本标签", "增益 | `1.0`", "尾音排空 | `180 ms`", "录音内核 | `v1.0.3`",
 ]), "The V1.2.1 physical hardware release gate is incomplete");
 
-console.log("Vibe Flow V1.4.0 preview validation passed.");
+console.log("Vibe Flow V1.5.0 release validation passed.");

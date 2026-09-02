@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 31,
+  "schemaVersion": 32,
   "stableVoiceProfileVersion": 11,
   "captureSeconds": 0,
   "gain": 1.0,
@@ -40,11 +40,15 @@
     "右键": "right"
   },
   "activeShortcutProfileId": "general",
+  "smartProfilesEnabled": false,
+  "smartProfileLocked": false,
+  "smartProfileFallbackId": "general",
   "shortcutProfiles": [
     {
       "id": "general",
       "name": "通用导航",
       "preset": "general",
+      "processNames": [],
       "mappings": {
         "确认键": "enter",
         "Home": "win+d",
@@ -64,6 +68,12 @@
       "id": "vibe-coding",
       "name": "Vibe Coding",
       "preset": "vibe-coding",
+      "processNames": [
+        "cursor",
+        "code",
+        "windsurf",
+        "codex"
+      ],
       "mappings": {
         "确认键": "enter",
         "Home": "win+d",
@@ -83,6 +93,12 @@
       "id": "browser-ai",
       "name": "浏览器 AI",
       "preset": "browser-ai",
+      "processNames": [
+        "chrome",
+        "msedge",
+        "firefox",
+        "brave"
+      ],
       "mappings": {
         "确认键": "enter",
         "Home": "win+d",
@@ -102,6 +118,13 @@
       "id": "terminal-agent",
       "name": "Terminal Agent",
       "preset": "terminal-agent",
+      "processNames": [
+        "windowsterminal",
+        "powershell",
+        "pwsh",
+        "cmd",
+        "wezterm-gui"
+      ],
       "mappings": {
         "确认键": "enter",
         "Home": "launch-client:terminal",

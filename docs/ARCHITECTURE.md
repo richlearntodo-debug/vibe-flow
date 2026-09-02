@@ -1,4 +1,6 @@
-# Vibe Flow Remote v1.2.1 Architecture
+# Vibe Flow Remote v1.5 Architecture
+
+V1.5 keeps the validated V1.2.1 voice core frozen while extending the non-voice configuration and action-routing layers.
 
 ## Scope
 
@@ -26,10 +28,12 @@ VibeMic.exe
 
 ### `VibeMic.exe`
 
-- Owns schema `25` configuration and migration.
+- Owns schema `32` configuration and migration.
 - Defaults to the light theme; supports explicit light, dark, and Windows-following preferences.
 - Starts one capture process and one input bridge from the same installation root.
 - Displays recording only after an `AUDIO LIVE START` event backed by decoded samples.
+- Owns manual shortcut Profiles, the physical keyboard shortcut recorder, Smart Profile application bindings, and real action receipts.
+- Writes a normalized schema-7 bridge document as the single runtime source for non-voice actions.
 - Rotates logs and exports redacted diagnostics.
 
 ### `VoxDeckInputBridge.exe`
@@ -37,7 +41,9 @@ VibeMic.exe
 - Registers low-level keyboard and Raw Input listeners.
 - Treats F5 as the RC003 Record key and deduplicates physical DOWN/UP edges.
 - Maintains the manual-reset held event and an exactly-once release event.
-- Generates only verified default mappings: Record, Function, Center, Home, TV, and four directions.
+- Resolves only the verified controls: Record, Function, Center, Home, TV, and four directions.
+- Executes normalized application, URL, editing, system, media, screenshot, and keyboard-shortcut actions.
+- Optionally selects a shortcut Profile from the foreground process, with explicit fallback, lock, and debounce behavior.
 - Opens persistent Windows Task View with `Win + Tab`; direction input is intercepted only while that view is active.
 - Recovers the hook and Raw Input registration after HID reconnect.
 
@@ -96,14 +102,16 @@ Other providers use their configured global shortcut and trigger mode. Vibe Flow
 
 - User configuration and generated bridge configuration use atomic same-directory replacement.
 - A `.bak` file is retained.
-- Migration removes Power, Back, independent Volume, app-launch, URL, and retired long-session defaults.
-- Only four direction actions remain user-configurable in the active UI.
+- Migration removes unsupported Power, Back, independent Volume, and retired long-session defaults without changing the frozen voice profile.
+- Directions and Center support single actions; Home and Function support short/long actions; TV supports one action.
+- Shortcut Profiles contain only non-voice mappings. Import/export cannot carry microphone, endpoint, provider, gain, or transcript data.
+- Smart Profiles are disabled by default. When enabled, a normalized process can belong to only one Profile; unmatched applications use an explicit fallback.
 - Existing settings are preserved across installer upgrade and optional startup registration is restored.
 
 ## Diagnostics and privacy
 
-Normal logs contain timestamps, generations, connection state, audio duration, RMS/peak levels, queue metrics, and error codes. They do not contain transcript text, ordinary session audio, complete Bluetooth addresses, or full device paths. One-shot diagnostic audio requires explicit confirmation and is capped at 30 seconds.
+Normal logs contain timestamps, generations, connection state, audio duration, RMS/peak levels, queue metrics, action identifiers, effective Profile, and error codes. They do not contain transcript text, ordinary session audio, window titles, complete Bluetooth addresses, URLs, application targets, or full device paths. One-shot diagnostic audio requires explicit confirmation and is capped at 30 seconds.
 
 ## Release validation
 
-Automated gates compile all three executables, run their native self-tests, validate defaults/docs/installer metadata, and capture the UI. Physical release still requires 100 hold/release cycles, approximately 60-second boundary behavior, no second provider session, editable-focus delivery, Task View navigation, reconnect, sleep/wake, and configuration persistence.
+Automated gates compile all three executables, run their native self-tests, validate defaults/docs/installer metadata, verify the frozen Capture hashes, exercise resource stability, and capture Light/Dark UI states. Physical regression covers hold/release behavior, the approximately 60-second boundary, no second provider session, editable-focus delivery, each published remote action, Profile persistence, reconnect, and sleep/wake recovery.

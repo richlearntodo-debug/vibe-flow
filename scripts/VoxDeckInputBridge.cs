@@ -13,9 +13,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.4.0-preview")]
+[assembly: System.Reflection.AssemblyVersion("1.5.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.5.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.5.0")]
 
 internal static class VoxDeckInputBridge
 {
@@ -56,6 +56,8 @@ internal static class VoxDeckInputBridge
     private const int HOLD_REPEAT_INITIAL_DELAY_MS = 420;
     private const int HOLD_REPEAT_INTERVAL_MS = 80;
     private const int VOICE_RESTART_GUARD_MS = 500;
+    private const int SMART_PROFILE_POLL_MS = 250;
+    private const int SMART_PROFILE_DEBOUNCE_MS = 350;
 
     private static readonly object stateLock = new object();
     private static readonly object logLock = new object();
@@ -100,6 +102,7 @@ internal static class VoxDeckInputBridge
     private static bool taskSwitcherActive;
     private static System.Threading.Timer taskSwitcherTimer;
     private static System.Threading.Timer bridgeHealthTimer;
+    private static System.Threading.Timer smartProfileTimer;
     private static bool rawInputRegistered;
     private static int rawInputDeviceMisses;
     private static DateTime lastRawInputDeviceChangeLogUtc = DateTime.MinValue;
@@ -130,6 +133,13 @@ internal static class VoxDeckInputBridge
     private static readonly object actionReceiptLock = new object();
     private static long actionReceiptSequence;
     private static ActionExecutionReceipt lastExecutionReceipt;
+    private static string configuredShortcutProfileId = "general";
+    private static string configuredShortcutProfileName = "通用导航";
+    private static string smartProfileCandidateId = "";
+    private static DateTime smartProfileCandidateSinceUtc = DateTime.MinValue;
+    private static string smartProfileForegroundProcess = "";
+    private static string smartProfileMatchState = "manual";
+    private static int smartProfileEvaluationRunning;
 
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string ConfigPath = Path.Combine(Root, "voxdeck-shortcuts.json");
@@ -200,6 +210,8 @@ internal static class VoxDeckInputBridge
             StartKeyboardHookThread();
             WriteHealth("starting");
             bridgeHealthTimer = new System.Threading.Timer(delegate { WriteHealth("running"); }, null, 0, 2000);
+            smartProfileTimer = new System.Threading.Timer(delegate { EvaluateSmartProfile(false); }, null, 0,
+                SMART_PROFILE_POLL_MS);
             customTestTimer = new System.Threading.Timer(delegate { ProcessCustomButtonTest(); }, null, 250, 250);
             Application.Run(form);
             StopRc003FilterClient();
@@ -208,6 +220,7 @@ internal static class VoxDeckInputBridge
             mappingQueue.CompleteAdding();
             if (mappingWorker != null) mappingWorker.Join(1500);
             if (bridgeHealthTimer != null) { bridgeHealthTimer.Dispose(); bridgeHealthTimer = null; }
+            if (smartProfileTimer != null) { smartProfileTimer.Dispose(); smartProfileTimer = null; }
             if (customTestTimer != null) { customTestTimer.Dispose(); customTestTimer = null; }
             if (reloadConfigRegistration != null) { reloadConfigRegistration.Unregister(null); reloadConfigRegistration = null; }
             WriteHealth("stopped");
@@ -736,6 +749,13 @@ internal static class VoxDeckInputBridge
             foreach (string shortcut in executableShortcuts)
                 if (ParseShortcut(shortcut).Count == 0)
                     throw new InvalidOperationException("Mapping action cannot be injected: " + shortcut);
+            if (ParseShortcut("rightctrl+rightshift+rightalt+rightwin+p").Count != 5 ||
+                ParseShortcut("ctrl+win").Count != 2 ||
+                ParseShortcut("ctrl+0xBA").Count != 2 ||
+                ParseShortcut("ctrl+unknown").Count != 0 ||
+                ParseShortcut("ctrl+p+k").Count != 0 ||
+                ParseShortcut("ctrl+alt+delete").Count != 0)
+                throw new InvalidOperationException("Custom shortcut parsing accepted a partial or reserved chord");
 
             var protocolConfig = new BridgeConfig
             {
@@ -809,24 +829,52 @@ internal static class VoxDeckInputBridge
             {
                 var fixture = new BridgeConfig
                 {
-                    version = 6,
+                    version = 7,
                     revision = "config-integrity-fixture",
                     notes = "self-test",
                     inputRoutingMode = "compatibility",
                     activeShortcutProfileId = "self-test",
                     activeShortcutProfileName = "Self Test",
+                    smartProfilesEnabled = true,
+                    smartProfileLocked = false,
+                    fallbackShortcutProfileId = "self-test",
                     mappings = new ShortcutMapping[]
                     {
                         new ShortcutMapping { name = "voice", label = "录音键", vk = "F5", scan = "0x3F", enabled = true, suppress = true, mode = "suppress", shortcut = "" },
                         new ShortcutMapping { name = "up", label = "上键", vk = "Up", scan = "0x48", enabled = true, suppress = true, mode = "tap", shortcut = "win+shift+s", sourceType = "keyboard" }
+                    },
+                    profiles = new BridgeShortcutProfile[]
+                    {
+                        new BridgeShortcutProfile { id = "self-test", name = "Self Test", processNames = new string[0], mappings = new ShortcutMapping[0] },
+                        new BridgeShortcutProfile { id = "browser", name = "Browser", processNames = new string[] { "chrome", "msedge.exe" }, mappings = new ShortcutMapping[0] }
                     }
                 };
                 string serialized = new JavaScriptSerializer().Serialize(fixture);
                 BridgeConfig loaded = new JavaScriptSerializer().Deserialize<BridgeConfig>(serialized);
                 config = loaded;
                 ShortcutMapping upMapping = FindMapping(0x26, 0x48);
-                if (loaded == null || loaded.version != 6 || loaded.revision != "config-integrity-fixture" ||
+                string smartState;
+                BridgeShortcutProfile smartMatched = ResolveSmartProfileTarget(
+                    loaded, "self-test", "chrome.exe", out smartState);
+                if (smartMatched == null || smartMatched.id != "browser" || smartState != "matched")
+                    throw new InvalidOperationException("Smart Profile did not match the foreground process");
+                BridgeShortcutProfile smartFallback = ResolveSmartProfileTarget(
+                    loaded, "self-test", "notepad", out smartState);
+                if (smartFallback == null || smartFallback.id != "self-test" || smartState != "fallback")
+                    throw new InvalidOperationException("Smart Profile fallback was not deterministic");
+                loaded.smartProfileLocked = true;
+                BridgeShortcutProfile smartLocked = ResolveSmartProfileTarget(
+                    loaded, "self-test", "chrome", out smartState);
+                loaded.smartProfileLocked = false;
+                if (smartLocked == null || smartLocked.id != "self-test" || smartState != "locked")
+                    throw new InvalidOperationException("Smart Profile lock did not retain the configured Profile");
+                if (loaded == null || loaded.version != 7 || loaded.revision != "config-integrity-fixture" ||
                     loaded.activeShortcutProfileId != "self-test" || loaded.activeShortcutProfileName != "Self Test" ||
+                    FindBridgeProfileForProcess(loaded, "chrome.exe").id != "browser" ||
+                    FindBridgeProfileForProcess(loaded, "MSedge").id != "browser" ||
+                    FindBridgeProfileForProcess(loaded, "notepad") != null ||
+                    !IsVibeFlowProcess("VibeFlow.exe") || !IsVibeFlowProcess("VoxDeckInputBridge") ||
+                    IsVibeFlowProcess("cursor") ||
                     upMapping == null || upMapping.shortcut != "win+shift+s" || ParseShortcut(upMapping.shortcut).Count != 3 ||
                     NormalizeInputRoutingMode(loaded.inputRoutingMode) != "strict")
                     throw new InvalidOperationException("Persisted bridge configuration did not resolve to its configured runtime actions");
@@ -2263,21 +2311,28 @@ internal static class VoxDeckInputBridge
     private static List<int> ParseShortcut(string shortcut)
     {
         List<int> keys = new List<int>();
-        if (string.IsNullOrWhiteSpace(shortcut))
-        {
-            return keys;
-        }
-
+        if (string.IsNullOrWhiteSpace(shortcut)) return keys;
         string[] parts = shortcut.Split(new char[] { '+', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || parts.Length > 5) return keys;
+        var seen = new HashSet<int>();
+        int mainKeyCount = 0;
         foreach (string raw in parts)
         {
             int vk = VkFromName(raw.Trim());
-            if (vk > 0)
-            {
-                keys.Add(vk);
-            }
+            if (vk <= 0 || vk > 0xFF || !seen.Add(vk)) return new List<int>();
+            if (!IsModifierKey(vk) && ++mainKeyCount > 1) return new List<int>();
+            keys.Add(vk);
         }
+        bool control = keys.Contains(0xA2) || keys.Contains(0xA3);
+        bool alt = keys.Contains(0xA4) || keys.Contains(0xA5);
+        if (control && alt && keys.Contains(0x2E)) return new List<int>();
         return keys;
+    }
+
+    private static bool IsModifierKey(int virtualKey)
+    {
+        return virtualKey == 0xA0 || virtualKey == 0xA1 || virtualKey == 0xA2 || virtualKey == 0xA3 ||
+            virtualKey == 0xA4 || virtualKey == 0xA5 || virtualKey == 0x5B || virtualKey == 0x5C;
     }
 
     private static int VkFromName(string name)
@@ -2290,7 +2345,8 @@ internal static class VoxDeckInputBridge
         string value = name.Trim().ToLowerInvariant();
         if (value.StartsWith("0x"))
         {
-            return ParseHexOrDecimal(value);
+            int parsed = ParseHexOrDecimal(value);
+            return parsed > 0 && parsed <= 0xFF ? parsed : -1;
         }
         if (value.Length == 1)
         {
@@ -2310,12 +2366,19 @@ internal static class VoxDeckInputBridge
         Dictionary<string, int> map = new Dictionary<string, int>
         {
             {"ctrl", 0xA2}, {"control", 0xA2}, {"lctrl", 0xA2}, {"leftctrl", 0xA2},
-            {"rctrl", 0xA3}, {"win", 0x5B}, {"lwin", 0x5B}, {"leftwin", 0x5B},
-            {"rwin", 0x5C}, {"alt", 0xA4}, {"lalt", 0xA4}, {"shift", 0xA0},
+            {"rctrl", 0xA3}, {"rightctrl", 0xA3},
+            {"win", 0x5B}, {"meta", 0x5B}, {"lwin", 0x5B}, {"leftwin", 0x5B},
+            {"rwin", 0x5C}, {"rightwin", 0x5C},
+            {"alt", 0xA4}, {"lalt", 0xA4}, {"leftalt", 0xA4},
+            {"ralt", 0xA5}, {"rightalt", 0xA5},
+            {"shift", 0xA0}, {"lshift", 0xA0}, {"leftshift", 0xA0},
+            {"rshift", 0xA1}, {"rightshift", 0xA1},
             {"enter", 0x0D}, {"return", 0x0D}, {"esc", 0x1B}, {"escape", 0x1B},
             {"back", 0x08}, {"backspace", 0x08}, {"tab", 0x09}, {"space", 0x20},
             {"left", 0x25}, {"up", 0x26}, {"right", 0x27}, {"down", 0x28},
             {"home", 0x24}, {"end", 0x23}, {"pageup", 0x21}, {"pagedown", 0x22},
+            {"insert", 0x2D}, {"delete", 0x2E}, {"capslock", 0x14}, {"numlock", 0x90},
+            {"scrolllock", 0x91}, {"printscreen", 0x2C}, {"pause", 0x13},
             {"apps", 0x5D}, {"menu", 0x5D}, {"oemtilde", 0xC0}, {"oem3", 0xC0},
             {"oemcomma", 0xBC}, {"oemperiod", 0xBE}, {"oemquestion", 0xBF},
             {"volumeup", 0xAF}, {"volumedown", 0xAE}, {"volumemute", 0xAD},
@@ -2348,7 +2411,10 @@ internal static class VoxDeckInputBridge
 
     private static bool IsExtendedKey(int vk)
     {
-        return vk == 0x5B || vk == 0x5C || vk == 0x5D || vk == 0x25 || vk == 0x26 || vk == 0x27 || vk == 0x28 || vk == 0x21 || vk == 0x22 || vk == 0x23 || vk == 0x24 || vk == 0xA6 || vk == 0xA7 || vk == 0xAD || vk == 0xAE || vk == 0xAF || vk == 0xB3;
+        return vk == 0x5B || vk == 0x5C || vk == 0x5D || vk == 0xA3 || vk == 0xA5 ||
+            vk == 0x25 || vk == 0x26 || vk == 0x27 || vk == 0x28 || vk == 0x21 || vk == 0x22 ||
+            vk == 0x23 || vk == 0x24 || vk == 0x2D || vk == 0x2E || vk == 0x2C ||
+            vk == 0xA6 || vk == 0xA7 || vk == 0xAD || vk == 0xAE || vk == 0xAF || vk == 0xB3;
     }
 
     private static bool IsDiagnosticCandidate(int vk)
@@ -2375,6 +2441,7 @@ internal static class VoxDeckInputBridge
                 config = loaded;
             }
             config.inputRoutingMode = NormalizeInputRoutingMode(config.inputRoutingMode);
+            InitializeSmartProfileRuntime(config);
             if (File.Exists(ConfigPath))
             {
                 configLastWriteUtc = File.GetLastWriteTimeUtc(ConfigPath);
@@ -2446,6 +2513,181 @@ internal static class VoxDeckInputBridge
             configLoadError = ex.Message;
             return false;
         }
+    }
+
+    private static void InitializeSmartProfileRuntime(BridgeConfig loaded)
+    {
+        if (loaded == null) return;
+        configuredShortcutProfileId = loaded.activeShortcutProfileId ?? "";
+        configuredShortcutProfileName = loaded.activeShortcutProfileName ?? "";
+        BridgeShortcutProfile configured = FindBridgeProfile(loaded, configuredShortcutProfileId);
+        if (configured == null && loaded.profiles != null && loaded.profiles.Length > 0)
+            configured = loaded.profiles[0];
+        if (configured != null)
+        {
+            configuredShortcutProfileId = configured.id ?? "";
+            configuredShortcutProfileName = configured.name ?? "";
+            loaded.activeShortcutProfileId = configuredShortcutProfileId;
+            loaded.activeShortcutProfileName = configuredShortcutProfileName;
+            if (configured.mappings != null && configured.mappings.Length > 0)
+                loaded.mappings = configured.mappings;
+        }
+        if (string.IsNullOrWhiteSpace(loaded.fallbackShortcutProfileId) ||
+            FindBridgeProfile(loaded, loaded.fallbackShortcutProfileId) == null)
+            loaded.fallbackShortcutProfileId = configuredShortcutProfileId;
+        if (!loaded.smartProfilesEnabled) loaded.smartProfileLocked = false;
+        smartProfileCandidateId = "";
+        smartProfileCandidateSinceUtc = DateTime.MinValue;
+        smartProfileForegroundProcess = "";
+        smartProfileMatchState = loaded.smartProfilesEnabled
+            ? loaded.smartProfileLocked ? "locked" : "waiting" : "manual";
+    }
+
+    private static void EvaluateSmartProfile(bool immediate)
+    {
+        if (Interlocked.CompareExchange(ref smartProfileEvaluationRunning, 1, 0) != 0) return;
+        try
+        {
+            BridgeConfig snapshot = config;
+            if (snapshot == null) return;
+            string foreground = "";
+            if (snapshot.smartProfilesEnabled && !snapshot.smartProfileLocked)
+            {
+                foreground = GetForegroundProcessName();
+                if (IsVibeFlowProcess(foreground)) return;
+            }
+            string matchState;
+            BridgeShortcutProfile target = ResolveSmartProfileTarget(snapshot,
+                configuredShortcutProfileId, foreground, out matchState);
+            if (target == null) return;
+            smartProfileForegroundProcess = NormalizeProcessName(foreground);
+            smartProfileMatchState = matchState;
+
+            if (string.Equals(snapshot.activeShortcutProfileId, target.id, StringComparison.OrdinalIgnoreCase))
+            {
+                smartProfileCandidateId = "";
+                smartProfileCandidateSinceUtc = DateTime.MinValue;
+                return;
+            }
+            DateTime now = DateTime.UtcNow;
+            if (!string.Equals(smartProfileCandidateId, target.id, StringComparison.OrdinalIgnoreCase))
+            {
+                smartProfileCandidateId = target.id;
+                smartProfileCandidateSinceUtc = now;
+                if (!immediate) return;
+            }
+            if (!immediate && (now - smartProfileCandidateSinceUtc).TotalMilliseconds < SMART_PROFILE_DEBOUNCE_MS)
+                return;
+            ActivateSmartProfile(snapshot, target, matchState, smartProfileForegroundProcess);
+            smartProfileCandidateId = "";
+            smartProfileCandidateSinceUtc = DateTime.MinValue;
+        }
+        catch (Exception ex)
+        {
+            Log("Smart Profile evaluation failed: " + ex.Message);
+            smartProfileMatchState = "error";
+        }
+        finally { Interlocked.Exchange(ref smartProfileEvaluationRunning, 0); }
+    }
+
+    private static void ActivateSmartProfile(BridgeConfig source, BridgeShortcutProfile target,
+        string matchState, string foregroundProcess)
+    {
+        if (source == null || target == null || target.mappings == null || target.mappings.Length == 0) return;
+        ReleaseAllShortcuts();
+        var next = new BridgeConfig
+        {
+            version = source.version,
+            revision = source.revision,
+            notes = source.notes,
+            inputRoutingMode = source.inputRoutingMode,
+            activeShortcutProfileId = target.id,
+            activeShortcutProfileName = target.name,
+            smartProfilesEnabled = source.smartProfilesEnabled,
+            smartProfileLocked = source.smartProfileLocked,
+            fallbackShortcutProfileId = source.fallbackShortcutProfileId,
+            profiles = source.profiles,
+            mappings = target.mappings
+        };
+        config = next;
+        RefreshRc003FilterPolicy();
+        Log("Smart Profile switched profile=" + (target.id ?? "") + " state=" + (matchState ?? "") +
+            " foreground=" + (foregroundProcess ?? ""));
+        BridgeForm.SetStatusText("Profile 已切换：" + (target.name ?? target.id ?? "快捷键方案"));
+        WriteHealth("running");
+    }
+
+    private static BridgeShortcutProfile FindBridgeProfile(BridgeConfig source, string id)
+    {
+        if (source == null || source.profiles == null || string.IsNullOrWhiteSpace(id)) return null;
+        foreach (BridgeShortcutProfile profile in source.profiles)
+            if (profile != null && string.Equals(profile.id, id, StringComparison.OrdinalIgnoreCase)) return profile;
+        return null;
+    }
+
+    private static BridgeShortcutProfile ResolveSmartProfileTarget(BridgeConfig source,
+        string configuredId, string foregroundProcess, out string matchState)
+    {
+        matchState = "manual";
+        if (source == null) return null;
+        if (!source.smartProfilesEnabled)
+            return FindBridgeProfile(source, configuredId);
+        if (source.smartProfileLocked)
+        {
+            matchState = "locked";
+            return FindBridgeProfile(source, configuredId);
+        }
+        BridgeShortcutProfile matched = FindBridgeProfileForProcess(source, foregroundProcess);
+        if (matched != null)
+        {
+            matchState = "matched";
+            return matched;
+        }
+        matchState = string.IsNullOrWhiteSpace(foregroundProcess) ? "waiting" : "fallback";
+        BridgeShortcutProfile fallback = FindBridgeProfile(source, source.fallbackShortcutProfileId);
+        return fallback ?? FindBridgeProfile(source, configuredId);
+    }
+
+    private static BridgeShortcutProfile FindBridgeProfileForProcess(BridgeConfig source, string processName)
+    {
+        string normalized = NormalizeProcessName(processName);
+        if (source == null || source.profiles == null || normalized.Length == 0) return null;
+        foreach (BridgeShortcutProfile profile in source.profiles)
+        {
+            if (profile == null || profile.processNames == null) continue;
+            foreach (string candidate in profile.processNames)
+                if (string.Equals(NormalizeProcessName(candidate), normalized, StringComparison.OrdinalIgnoreCase))
+                    return profile;
+        }
+        return null;
+    }
+
+    private static string GetForegroundProcessName()
+    {
+        try
+        {
+            IntPtr window = GetForegroundWindow();
+            if (window == IntPtr.Zero) return "";
+            uint processId;
+            GetWindowThreadProcessIdForSmartProfile(window, out processId);
+            if (processId == 0) return "";
+            using (Process process = Process.GetProcessById((int)processId)) return process.ProcessName;
+        }
+        catch { return ""; }
+    }
+
+    private static string NormalizeProcessName(string value)
+    {
+        string name = (value ?? "").Trim();
+        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            name = name.Substring(0, name.Length - 4);
+        return name.ToLowerInvariant();
+    }
+
+    private static bool IsVibeFlowProcess(string value)
+    {
+        string process = NormalizeProcessName(value);
+        return process == "vibeflow" || process == "vibemic" || process == "voxdeckinputbridge";
     }
 
     private static void SetMode(bool scanCode)
@@ -2818,6 +3060,13 @@ internal static class VoxDeckInputBridge
             health["config_revision"] = snapshot == null ? "" : snapshot.revision ?? "";
             health["config_loaded_at"] = configLoadedAtUtc == DateTime.MinValue ? "" : configLoadedAtUtc.ToString("o");
             health["config_mapping_count"] = snapshot == null || snapshot.mappings == null ? 0 : snapshot.mappings.Length;
+            health["smart_profiles_enabled"] = snapshot != null && snapshot.smartProfilesEnabled;
+            health["smart_profile_locked"] = snapshot != null && snapshot.smartProfileLocked;
+            health["smart_profile_configured_id"] = configuredShortcutProfileId ?? "";
+            health["smart_profile_effective_id"] = snapshot == null ? "" : snapshot.activeShortcutProfileId ?? "";
+            health["smart_profile_effective_name"] = snapshot == null ? "" : snapshot.activeShortcutProfileName ?? "";
+            health["smart_profile_foreground_process"] = smartProfileForegroundProcess ?? "";
+            health["smart_profile_match_state"] = smartProfileMatchState ?? "";
             health["input_routing_mode"] = snapshot == null
                 ? "strict" : NormalizeInputRoutingMode(snapshot.inputRoutingMode);
             bool filterHealthy = IsRc003FilterHealthy();
@@ -3589,18 +3838,26 @@ internal static class VoxDeckInputBridge
         public string inputRoutingMode { get; set; }
         public string activeShortcutProfileId { get; set; }
         public string activeShortcutProfileName { get; set; }
+        public bool smartProfilesEnabled { get; set; }
+        public bool smartProfileLocked { get; set; }
+        public string fallbackShortcutProfileId { get; set; }
+        public BridgeShortcutProfile[] profiles { get; set; }
         public ShortcutMapping[] mappings { get; set; }
 
         public static BridgeConfig Default()
         {
             return new BridgeConfig
             {
-                version = 6,
+                version = 7,
                 revision = "default",
                 notes = "Default VoxDeck RC003 mapping.",
                 inputRoutingMode = "strict",
                 activeShortcutProfileId = "general",
                 activeShortcutProfileName = "通用导航",
+                smartProfilesEnabled = false,
+                smartProfileLocked = false,
+                fallbackShortcutProfileId = "general",
+                profiles = new BridgeShortcutProfile[0],
                 mappings = new ShortcutMapping[]
                 {
                     new ShortcutMapping { name = "voice", label = "录音键", vk = "F5", scan = "0x3F", enabled = true, suppress = true, mode = "suppress", shortcut = "" },
@@ -3860,6 +4117,14 @@ internal static class VoxDeckInputBridge
         }
     }
 
+    public sealed class BridgeShortcutProfile
+    {
+        public string id { get; set; }
+        public string name { get; set; }
+        public string[] processNames { get; set; }
+        public ShortcutMapping[] mappings { get; set; }
+    }
+
     private sealed class GestureTimerRequest
     {
         public string Name;
@@ -3980,6 +4245,9 @@ internal static class VoxDeckInputBridge
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
+    private static extern uint GetWindowThreadProcessIdForSmartProfile(IntPtr window, out uint processId);
 
     [DllImport("user32.dll")]
     private static extern bool AttachThreadInput(uint attachThread, uint attachToThread, bool attach);

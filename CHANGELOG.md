@@ -1,6 +1,35 @@
 # Changelog
 
-## 1.4.0 preview - 2026-09-02
+## 1.5.0 - 2026-09-02
+
+- Replaced custom-shortcut text entry with a guarded keyboard recorder. Users
+  press the real combination, release all keys, review the normalized chord,
+  and save it without typing names such as `control`.
+- Added symmetric Host/Bridge validation for left/right modifiers,
+  modifier-only chords, function/navigation/OEM keys, a five-key limit, and one
+  non-modifier key. Unknown, partial, multi-main-key, and `Ctrl+Alt+Delete`
+  combinations are rejected before persistence or execution.
+- Added opt-in Smart Profiles. A Profile can bind installed or running
+  applications by normalized process name and switch automatically when the
+  foreground application remains stable for the debounce window.
+- Added explicit fallback and lock behavior, deterministic duplicate-binding
+  removal, Vibe Flow process exclusion, runtime health fields, homepage Profile
+  feedback, and Profile-format v2 import/export for application bindings.
+- Kept manual Profiles as the default. Multi Action, macros, app-specific
+  conditional execution, and marketplace features remain deferred to protect
+  the verified single-action routing model.
+- Advanced application configuration to schema 32 and bridge configuration to
+  schema 7. Shortcut recording, Profile switching, persistence, resource, UI,
+  build, and frozen-voice gates passed before promotion to the public release.
+- Preserved the exact validated `v1.0.3` recording kernel, stable voice profile
+  v11, gain `1.0`, speech processing, `180 ms` drain, `CABLE Input`, WeChat
+  `Ctrl+Win` toggle at `80 ms`, hold-to-talk behavior, and clipboard-free text
+  delivery. The frozen Capture source and binary are unchanged.
+
+## 1.4.0 incomplete preview archive - 2026-09-02
+
+- Published only as a traceable preview archive. V1.5 completes and supersedes
+  this intermediate shortcut workflow; ordinary users should not install V1.4.
 
 - Kept the exact validated `v1.0.3` recording kernel, stable voice profile v11,
   WeChat `Ctrl+Win` toggle, and the approximately 60-second RC003 hardware
@@ -28,8 +57,8 @@
   Windows Browser Back key. Existing schema-30 Left mappings are migrated so the
   physical Left key can no longer collide with the synthetic navigation action.
 - Advanced application configuration to schema 31 and bridge configuration to
-  schema 6. This remains an isolated hardware candidate until physical RC003,
-  keyboard-conflict, reconnect, persistence, and high-DPI gates pass.
+  schema 6. The missing direct shortcut recorder and Smart Profiles are
+  completed in V1.5 rather than backported to this incomplete archive.
 
 ## 1.3.0 preview - 2026-09-01
 

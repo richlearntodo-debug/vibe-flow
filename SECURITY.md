@@ -10,4 +10,4 @@ Formal release builds support optional Windows Authenticode signing. When signin
 
 Third-party components such as VB-CABLE must be downloaded from their official publisher. Vibe Flow does not redistribute VB-CABLE.
 
-For WeChat Input Method, Vibe Flow first restores the exact text control through Windows UI Automation. If WeChat changes the clipboard instead of inserting text, Vibe Flow checks only the clipboard sequence number and whether a text format is available, then sends `Ctrl + V` to the captured text control. It does not open the clipboard, read recognized text, write it to logs, retain it, or upload it.
+The selected voice provider owns transcription and writes directly into the focused text field. Vibe Flow does not read transcript text, inspect the clipboard, synthesize paste, retain recognized content, or upload it. Users should review the privacy policy of their selected third-party provider separately.

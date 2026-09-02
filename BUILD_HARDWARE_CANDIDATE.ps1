@@ -16,8 +16,8 @@ $resolvedOutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $stableCapturePath = Join-Path ([IO.Path]::GetTempPath()) "VibeFlow-StableCapture-v1.2.1.exe"
 $stableCaptureSha256 = "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683"
 
-if ($version -ne "1.4.0") {
-    throw "Hardware candidate builder is pinned to V1.4.0; package.json reports $version."
+if ($version -ne "1.5.0") {
+    throw "Hardware candidate builder is pinned to V1.5.0; package.json reports $version."
 }
 if ($resolvedOutputRoot.StartsWith($installedRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Candidate output must not be inside the installed V1.0 directory: $installedRoot"
@@ -85,6 +85,7 @@ Copy-Item (Join-Path $root "docs\V1_3_HARDWARE_ACCEPTANCE_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_3_PREVIEW_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_3_INPUT_ROUTING_ROOT_CAUSE_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_4_PREVIEW_ZH.md") $candidateDocs
+Copy-Item (Join-Path $root "docs\V1_5_PREVIEW_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\images\*.png") $candidateImages
 
 $manifest = [ordered]@{
@@ -94,8 +95,8 @@ $manifest = [ordered]@{
     builtAt = (Get-Date).ToString("o")
     installable = $false
     hardwareAcceptancePassed = $false
-    configurationSchema = 31
-    bridgeConfigurationSchema = 6
+    configurationSchema = 32
+    bridgeConfigurationSchema = 7
     recordingKernel = "v1.0.3"
     stableCaptureSha256 = $stableCaptureSha256
     recordingInteraction = "hold-to-talk; natural RC003 stop; approximately 60 seconds"

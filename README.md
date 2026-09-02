@@ -2,133 +2,114 @@
 
 把小米 RC003 / MI RC 蓝牙语音遥控器变成 Windows 语音输入与快捷控制器：**聚焦输入框，按住录音键说话，松开结束，再按确认键发送。**
 
-## v1.3.0 候选版
+## 下载最新正式版 · V1.5.0
 
-当前分支正在验证 v1.3：录音内核和语音参数保持 v1.2.1 原样，重点升级可靠快捷键、五项首次设置、本机 APP/网页启动、配置备份恢复、隐私化诊断，以及浅色/深色/跟随 Windows 三种主题。
+**Windows 10 / 11 x64 · 2026-09-02 · 推荐普通用户使用**
 
-> [!WARNING]
-> v1.3 尚未完成 RC003 100 次按键、蓝牙重连、睡眠唤醒和 Windows 重启门禁，因此暂不提供正式安装包。日常使用请继续下载下方 v1.2.1。
-
-[v1.3 图文教程](docs/V1_3_USER_GUIDE_ZH.md) · [候选版说明与验收](docs/V1_3_PREVIEW_ZH.md) · [产品审计](docs/PRODUCT_AUDIT_2026-09-01_ZH.md)
-
-![言灵 v1.3 首页](docs/images/01-overview.png)
-
-## v1.2.1 用户友好稳定版
-
-**Windows 10/11 x64 · 默认白天模式 · 稳定性优先**
-
-| 下载 | 链接 |
-| --- | --- |
-| 推荐安装版 | [**VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/VibeFlow-Setup.exe) |
-| 免安装版 | [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/Vibe-Flow-Windows-x64.zip) |
-| SHA-256 | [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/SHA256SUMS.txt) |
+| 下载 | 适合谁 | 固定入口 |
+| --- | --- | --- |
+| **安装版 EXE** | **普通用户，推荐** | [**下载 VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe) |
+| 免安装 ZIP | 熟悉便携软件的用户 | [下载 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/Vibe-Flow-Windows-x64.zip) |
+| SHA-256 | 校验文件是否完整 | [查看 SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/SHA256SUMS.txt) |
 
 > [!IMPORTANT]
-> 普通用户请选择 `VibeFlow-Setup.exe`。GitHub 的 `Source code (zip)` 和 `Source code (tar.gz)` 是源码，不是 Windows 安装程序。
+> 普通用户下载第一行的 `VibeFlow-Setup.exe`。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是 Windows 安装程序。当前安装包尚未配置商业代码签名，Windows 首次运行可能显示 SmartScreen 提醒；请只从本仓库 Release 下载并核对 SHA-256。
 
-[查看所有历史版本、亮点与固定 EXE 下载入口](docs/VERSION_ARCHIVE_ZH.md)
+[V1.5 零基础图文教程](docs/V1_5_USER_GUIDE_ZH.md) · [V1.4 + V1.5 更新说明](docs/RELEASE_NOTES_ZH.md) · [所有版本与固定下载入口](docs/VERSION_ARCHIVE_ZH.md)
 
 ## 用户社区
 
-安装、配对或语音工具配置遇到问题，可扫码加入 Vibe Flow 用户社区。
+配对、VB-CABLE、语音工具或真机型号有差异时，可扫码加入 Vibe Flow 用户社区。二维码放在教程前，设置过程中随时都能找到。
 
-<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="640">
+<img src="docs/images/vibe-flow-community.png" alt="Vibe Flow 用户社区二维码" width="420">
 
-[快速开始](QUICK_START_ZH.md) · [v1.2.1 图文教程](docs/V1_2_1_TUTORIAL_ZH.md) · [完整教程](docs/USER_GUIDE_ZH.md) · [版本下载](docs/VERSION_ARCHIVE_ZH.md) · [更新说明](docs/RELEASE_NOTES_ZH.md)
+## V1.5 有什么新变化
 
-## v1.2.1 变化
+V1.5 合并了未完整发布的 V1.4 工作，并把同一条快捷键配置体验补齐：
 
-| 变化 | 结果 |
+| 能力 | 使用结果 |
 | --- | --- |
-| **回到首个正式版录音内核** | 捕获组件使用已验证的 `v1.0.3` 实现；微信输入法保持 `Ctrl + Win`、切换触发和 `80 ms`。 |
-| **可靠按住/松开** | RC003 自然 ATVV 流负责开始和结束；已移除长录音续接、`MIC_EXTEND` 和强制松开关闭逻辑。 |
-| **直接写入输入框** | 先聚焦目标输入框，语音工具直接写入；言灵不读取文字，也不做剪贴板或粘贴回填。 |
-| **四方向键自定义** | 上、下、左、右可分别选择一个已验证动作；可直接点击“设为区域截图”应用 `Win + Shift + S`。 |
-| **TV 持久任务视图** | TV 打开 `Win + Tab` 任务视图，上下左右选择，确认键进入，再按 TV 关闭。 |
-| **双主题即时切换** | 默认使用白色白天模式；设置页可用两个按钮即时切换白天或夜间，无需重启。 |
-| **真实状态与自检** | 没有真实音频就不显示假波形；10 项自检提供原因和修复入口，并已修复稳定录音内核被误判为异常的问题。 |
+| **直接录制快捷键** | 点击“录制键盘快捷键”，在实体键盘按下组合即可，不再手动输入 `control` 等名称。 |
+| **快捷键 Profiles** | 通用导航、Vibe Coding、浏览器 AI、Terminal Agent 可手动切换，也可新建、导入、导出。 |
+| **Smart Profiles** | 可选按当前前台应用自动切换 Profile；默认关闭，原有稳定手动模式不受影响。 |
+| **本机应用选择器** | 同时查找正在运行与已安装应用，显示名称和图标，并优先切换已有窗口。 |
+| **浏览器返回修复** | Browser AI Profile 使用专用 Browser Back 事件，避免与实体左键冲突。 |
+| **真实执行回执** | 首页显示实体按键最终执行的动作、Profile 与成功/失败结果。 |
+| **图形化快捷动作** | 支持 APP、HTTPS 网页、截图、系统、媒体、编辑和自定义键盘组合。 |
+| **浅色 / 深色主题** | 默认浅色，可切换夜间或跟随 Windows；设置立即生效。 |
 
-开机、返回和独立音量键没有稳定的 Windows 按键报告，因此 v1.2.1 不映射、不配置，也不宣传这些功能。
+### 保持不变的稳定语音链路
 
-## 日常使用
+- 录音仍是**按住说话、松开结束**；RC003 单段约 60 秒。
+- Capture 继续使用已验证的 `v1.0.3` 内核，增益 `1.0`、`speech`、尾音排空 `180 ms`。
+- 音频仍走 `CABLE Input -> CABLE Output -> 用户选择的语音工具`。
+- 语音工具直接把文字写入当前聚焦输入框；言灵不读取转译文字，也不使用剪贴板回填。
+- 没有加入长录音续接、宏、多步骤自动化或新的录音状态机。
 
-1. 单击 ChatGPT、Codex、浏览器或其他应用的文本输入框，让插入光标出现。
-2. 按住遥控器录音键并说话。
-3. 松开后等待所选语音工具完成转译。
-4. 检查文字，按中间确认键发送。
+V1.4 只完成了 Profile、应用目录、Browser Back 和执行回执的一部分，因此以**不完整预览版**归档，不建议日常安装。[查看 V1.4 归档说明](docs/V1_4_PREVIEW_ZH.md)。
 
-当前稳定模式遵循 RC003 的物理按键周期：单段最长约 `60 秒`。提前松开会立即结束；达到硬件边界时也会结束，不会自动创建第二个麦克风会话。
+![V1.5 首页](docs/images/01-overview.png)
+
+## 三分钟开始使用
+
+1. 安装并启动言灵，完成应用内 5 项首次设置。
+2. 在 Windows 蓝牙中配对 `MI RC` / RC003。
+3. 按向导安装 VB-CABLE；语音工具的麦克风输入选择 `CABLE Output`。
+4. 选择微信输入法、Typeless、豆包输入法、Windows 语音输入或自定义工具，并核对双方快捷键一致。
+5. 单击 ChatGPT、Codex、Cursor、浏览器或其他应用的文本输入框。
+6. 按住遥控器录音键说话，松开等待转译，再按中间确认键发送。
 
 ```text
 RC003 microphone -> Bluetooth ATVV -> Vibe Flow
-  -> CABLE Input -> CABLE Output -> selected voice tool -> focused text box
+  -> CABLE Input -> CABLE Output -> voice tool -> focused text box
 ```
 
 ![语音工具与音频配置](docs/images/02-dictation.png)
 
-## 首次设置 11 步
+## 已公开支持的实体按键
 
-1. 了解按住说话、松开结束、确认发送。
-2. 检查 Windows 蓝牙。
-3. 配对并连接 RC003。
-4. 验证真实按键事件。
-5. 检查 RC003 麦克风服务。
-6. 安装并检测 VB-CABLE。
-7. 选择默认语音工具并核对快捷键。
-8. 在内置文本框完成真实转译。
-9. 保持或配置四个方向键，可将任一方向设为区域截图。
-10. 选择是否随 Windows 启动。
-11. 查看汇总并处理异常项。
-
-![首次设置](docs/images/00-setup-01-intro.png)
-
-## 语音工具
-
-| 工具 | 推荐起点 | 说明 |
+| 实体按键 | 默认行为 | 是否可配置 |
 | --- | --- | --- |
-| 微信输入法 | `Ctrl + Win` · 单击切换 | 默认稳定档案；AI 整理由微信输入法内部所选模式决定。 |
-| Typeless | 常见为 `Right Alt` | 以客户端实际全局快捷键为准。 |
-| 豆包输入法 | 客户端全局语音快捷键 | 两边必须完全一致。 |
-| Windows 语音输入 | `Win + H` | 系统自带兼容选项。 |
-| 其他语音工具 | 自定义全局快捷键 | 必须支持从全局快捷键开始和结束。 |
+| 录音键 | 按住收音，松开结束 | 固定稳定链路，不参与自定义 |
+| 上 / 下 / 左 / 右 | 标准方向键 | 可分别设置 APP、网页、截图、系统动作或快捷键 |
+| 中间确认键 | `Enter`，确认或发送 | 可配置 |
+| Home | 短按显示桌面，长按可自定义 | 支持短按 / 长按 |
+| TV | 打开持久任务视图 | 可配置单击动作 |
+| 功能键 | 短按复制，长按粘贴 | 支持短按 / 长按 |
 
-第三方工具不包含在安装包中，其账号、网络、识别质量和数据规则由对应软件负责。
+开机、返回和独立音量键在当前 RC003 / Windows 蓝牙组合上没有稳定事件，因此 V1.5 不提供配置入口，也不宣传为可用功能。
 
-## 已验证按键
+![V1.5 快捷键与遥控器示意](docs/images/03-shortcuts.png)
 
-| 实体按键 | 行为 |
-| --- | --- |
-| 录音键 | 按住收音，松开结束，约 60 秒硬件上限 |
-| 功能键 | 短按复制，长按粘贴 |
-| 上 / 下 / 左 / 右 | 默认标准方向；可分别配置一个动作或区域截图 |
-| 中间确认键 | `Enter`，确认或发送 |
-| Home | `Win + D`，显示桌面 |
-| TV | 打开持久任务视图；方向选择，确认进入 |
+## 快捷键与 Smart Profiles
 
-![方向键配置](docs/images/03-shortcuts.png)
+在“快捷键”页选择实体按键后，可以直接挑选动作，或点击“录制键盘快捷键”并在真实键盘上按下组合。Smart Profiles 默认关闭；开启后可把 Cursor、浏览器或终端绑定到不同 Profile，切换前台应用时自动使用对应动作表。Profile 只保存快捷键，不包含麦克风或语音参数。
 
-![区域截图配置](docs/images/03-shortcuts-screenshot.png)
+![动作选择与快捷键录制入口](docs/images/07-shortcut-actions.png)
 
-## 自检、稳定性与隐私
+![Smart Profile 应用绑定](docs/images/09-smart-profile-apps.png)
 
-- 自检覆盖组件、蓝牙、遥控器、按键、真实音频、VB-CABLE、稳定参数、语音工具、自启动和完整会话。
-- 用户配置采用原子替换并保留 `.bak`；升级和重启不会主动覆盖配置。
-- 蓝牙晚启动、睡眠恢复和解锁会触发受控重连。
-- 普通日志不记录音频或转译文字，并自动限制大小。
-- 诊断音频仅在用户明确确认后捕获下一段、最长 30 秒。
+## 自检与排错
+
+“自检”页覆盖组件、蓝牙、遥控器、按键、真实音频、VB-CABLE、稳定参数、语音工具、自启动和完整会话。每项都会显示当前状态、原因与修复入口；完成修复返回后可直接重新检测。
 
 ![一键自检](docs/images/04-diagnostics.png)
+
+遇到问题时先确认：
+
+1. 只运行一个 Vibe Flow 实例；
+2. 语音工具的麦克风输入是 `CABLE Output`；
+3. 文本框已经被单击并出现插入光标；
+4. 言灵与语音工具中的快捷键、触发方式完全一致；
+5. 从自检页导出诊断包再反馈，日志不包含录音或转译文字。
 
 ## 开发与验证
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\RESTORE_BUILD_DEPS.ps1
 cmd /c BUILD_INPUT_BRIDGE.cmd
-cmd /c BUILD_VIBE_MIC_CAPTURE.cmd
 cmd /c BUILD_VIBE_MIC.cmd
 npm test
 ```
-
-隔离候选包使用 `BUILD_HARDWARE_CANDIDATE.ps1`。真机验收通过前，不覆盖当前已安装稳定版、不发布安装器、不移动 Git 标签。
 
 Vibe Flow Remote 以 [GPL-3.0](LICENSE) 发布。VB-CABLE 不包含在仓库中，由 [VB-Audio](https://vb-audio.com/Cable/) 提供。

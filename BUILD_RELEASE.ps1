@@ -15,6 +15,10 @@ $signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } el
 $timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
 $signingRequested = -not [string]::IsNullOrWhiteSpace($signingThumbprint) -or -not [string]::IsNullOrWhiteSpace($signingPfx)
 
+if ($releaseVersion -ne "1.5.0") {
+    throw "Formal release builder is pinned to V1.5.0; package.json reports $releaseVersion."
+}
+
 function Resolve-SignTool {
     $command = Get-Command signtool.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -ErrorAction SilentlyContinue
     if ($command -and (Test-Path -LiteralPath $command)) { return $command }
@@ -115,13 +119,31 @@ $packageDocs = Join-Path $packageDir "docs"
 $packageImages = Join-Path $packageDocs "images"
 New-Item -ItemType Directory -Force -Path $packageImages | Out-Null
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
-Copy-Item (Join-Path $root "docs\V1_2_1_TUTORIAL_ZH.md") $packageDocs
-Copy-Item (Join-Path $root "docs\V1_3_USER_GUIDE_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\V1_5_USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\VERSION_ARCHIVE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
-Copy-Item (Join-Path $root "docs\CONTINUOUS_DICTATION_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs
-Copy-Item (Join-Path $root "docs\images\*.png") $packageImages
+$currentGuideImages = @(
+    "00-first-run.png",
+    "00-setup-01-device.png",
+    "00-setup-02-remote.png",
+    "00-setup-03-audio.png",
+    "00-setup-04-dictation.png",
+    "00-setup-05-ready.png",
+    "01-overview.png",
+    "02-dictation.png",
+    "03-shortcuts.png",
+    "04-diagnostics.png",
+    "05-settings.png",
+    "06-transcription-tools.png",
+    "07-shortcut-actions.png",
+    "08-shortcut-recorder.png",
+    "09-smart-profile-apps.png",
+    "vibe-flow-community.png"
+)
+foreach ($image in $currentGuideImages) {
+    Copy-Item (Join-Path $root ("docs\images\" + $image)) $packageImages
+}
 
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 

@@ -20,16 +20,16 @@ using Microsoft.Win32;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.4.0-preview")]
+[assembly: System.Reflection.AssemblyVersion("1.5.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.5.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.5.0")]
 
 internal sealed class VibeMicForm : Form
 {
     private const string DisplayProductName = "言灵 · Vibe Flow Remote";
-    private const string ProductRelease = "1.4.0";
+    private const string ProductRelease = "1.5.0";
     private const string StableCaptureBinaryVersion = "1.2.1";
-    private const int ConfigSchemaVersion = 31;
+    private const int ConfigSchemaVersion = 32;
     private const int CurrentOnboardingVersion = 9;
     private const int OnboardingStepCount = 5;
     private const int StableVoiceProfileVersion = 11;
@@ -91,6 +91,7 @@ internal sealed class VibeMicForm : Form
     private RoundPanel heroPanel;
     private RemoteVisual remoteVisual;
     private Label voiceBridgeStateLabel;
+    private Label overviewProfileLabel;
     private Label actionReceiptGlyph;
     private Label actionReceiptTitle;
     private Label actionReceiptDetail;
@@ -134,6 +135,7 @@ internal sealed class VibeMicForm : Form
     private DateTime keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
     private string expectedKeyboardConfigRevision = "";
     private DateTime lastKeyboardRootConflictLogAt = DateTime.MinValue;
+    private string lastObservedSmartProfileId = "";
     private DateTime lastSystemRecoveryAt = DateTime.MinValue;
     private string pendingSystemRecoveryReason = "";
     private string pendingCustomCaptureToken = "";
@@ -264,6 +266,7 @@ internal sealed class VibeMicForm : Form
         config = LoadConfig();
         if (uiSmokeMode)
         {
+            config = VibeMicConfig.Default();
             config.setupCompleted = true;
             config.resumeSetupAfterRestart = false;
             config.launchAtStartup = false;
@@ -692,6 +695,7 @@ internal sealed class VibeMicForm : Form
         activityLabel = null;
         bridgeButton = null;
         voiceBridgeStateLabel = null;
+        overviewProfileLabel = null;
         actionReceiptGlyph = null;
         actionReceiptTitle = null;
         actionReceiptDetail = null;
@@ -773,12 +777,16 @@ internal sealed class VibeMicForm : Form
                 throw new InvalidOperationException("Default remote mapping invariant failed");
             if (defaults.shortcutProfiles == null || defaults.shortcutProfiles.Length != 4 ||
                 defaults.activeShortcutProfileId != "general" ||
+                defaults.smartProfilesEnabled || defaults.smartProfileLocked ||
+                defaults.smartProfileFallbackId != "general" ||
                 FindShortcutProfile(defaults, "vibe-coding") == null ||
                 FindShortcutProfile(defaults, "browser-ai") == null ||
                 FindShortcutProfile(defaults, "terminal-agent") == null ||
                 FindShortcutProfile(defaults, "vibe-coding").mappings["上键"] != "ctrl+z" ||
                 FindShortcutProfile(defaults, "browser-ai").mappings["上键"] != "pageup" ||
                 FindShortcutProfile(defaults, "browser-ai").mappings["左键"] != "browserback" ||
+                Array.IndexOf(FindShortcutProfile(defaults, "browser-ai").processNames, "chrome") < 0 ||
+                Array.IndexOf(FindShortcutProfile(defaults, "vibe-coding").processNames, "cursor") < 0 ||
                 FindShortcutProfile(defaults, "terminal-agent").mappings["Home:short"] != "launch-client:terminal")
                 throw new InvalidOperationException("Official shortcut Profile invariant failed");
 
@@ -794,6 +802,37 @@ internal sealed class VibeMicForm : Form
                 browserBackFixture.mappings["左键"] != "browserback" ||
                 FindShortcutProfile(browserBackFixture, "browser-ai").mappings["左键"] != "browserback")
                 throw new InvalidOperationException("Schema 30 browser-back migration retained a conflicting Alt+Left action");
+
+            VibeMicConfig smartProfileMigration = VibeMicConfig.Default();
+            smartProfileMigration.schemaVersion = 31;
+            smartProfileMigration.smartProfilesEnabled = true;
+            smartProfileMigration.smartProfileLocked = false;
+            smartProfileMigration.smartProfileFallbackId = "";
+            foreach (ShortcutProfileConfig profile in smartProfileMigration.shortcutProfiles)
+                profile.processNames = null;
+            if (!MigrateConfig(smartProfileMigration) || smartProfileMigration.schemaVersion != 32 ||
+                smartProfileMigration.smartProfileFallbackId != "general" ||
+                Array.IndexOf(FindShortcutProfile(smartProfileMigration, "vibe-coding").processNames, "cursor") < 0 ||
+                Array.IndexOf(FindShortcutProfile(smartProfileMigration, "browser-ai").processNames, "chrome") < 0 ||
+                !HasStableVoiceProfile(smartProfileMigration))
+                throw new InvalidOperationException("Schema 31 Smart Profile migration changed voice or lost application rules");
+
+            VibeMicConfig duplicateSmartBindings = VibeMicConfig.Default();
+            duplicateSmartBindings.schemaVersion = 32;
+            duplicateSmartBindings.smartProfilesEnabled = false;
+            duplicateSmartBindings.smartProfileLocked = true;
+            duplicateSmartBindings.smartProfileFallbackId = "missing-profile";
+            FindShortcutProfile(duplicateSmartBindings, "vibe-coding").processNames =
+                new string[] { "cursor.exe", "chrome" };
+            FindShortcutProfile(duplicateSmartBindings, "browser-ai").processNames =
+                new string[] { "chrome.exe", "msedge" };
+            if (!MigrateConfig(duplicateSmartBindings) || duplicateSmartBindings.smartProfileLocked ||
+                duplicateSmartBindings.smartProfileFallbackId != "general" ||
+                Array.IndexOf(FindShortcutProfile(duplicateSmartBindings, "vibe-coding").processNames, "chrome") < 0 ||
+                Array.IndexOf(FindShortcutProfile(duplicateSmartBindings, "browser-ai").processNames, "chrome") >= 0 ||
+                Array.IndexOf(FindShortcutProfile(duplicateSmartBindings, "browser-ai").processNames, "msedge") < 0 ||
+                MigrateConfig(duplicateSmartBindings))
+                throw new InvalidOperationException("Smart Profile duplicate binding or fallback normalization was not deterministic");
 
             VibeMicConfig legacyProfileFixture = VibeMicConfig.Default();
             legacyProfileFixture.schemaVersion = 29;
@@ -825,7 +864,7 @@ internal sealed class VibeMicForm : Form
             var profileExportFixture = new ShortcutProfileExport
             {
                 format = "vibe-flow-shortcut-profile",
-                version = 1,
+                version = 2,
                 profile = CloneShortcutProfile(ActiveShortcutProfile(legacyProfileFixture), "export-test", "Export Test")
             };
             string profileExportJson = new JavaScriptSerializer().Serialize(profileExportFixture);
@@ -843,6 +882,41 @@ internal sealed class VibeMicForm : Form
                 !IsSupportedMappingAction("shortcut:ctrl+shift+p") ||
                 MappingActionChoicesFor("TV", "open-url:https://example.com").Count < 10)
                 throw new InvalidOperationException("Custom mapping action invariant failed");
+            string normalizedShortcut;
+            var capturedShortcutKeys = new HashSet<int> { 0xA2, 0xA0, 0x50 };
+            var capturedShortcutOrder = new List<int> { 0xA2, 0xA0, 0x50 };
+            string capturedShortcut;
+            string capturedShortcutError;
+            var modifierOnlyKeys = new HashSet<int> { 0xA2, 0x5B };
+            var modifierOnlyOrder = new List<int> { 0xA2, 0x5B };
+            string modifierOnlyShortcut;
+            string modifierOnlyError;
+            var invalidMultiMainKeys = new HashSet<int> { 0xA2, 0x50, 0x4B };
+            var invalidMultiMainOrder = new List<int> { 0xA2, 0x50, 0x4B };
+            string invalidMultiMainShortcut;
+            string invalidMultiMainError;
+            if (!TryNormalizeMappingShortcut("Control + Shift + P", out normalizedShortcut) ||
+                normalizedShortcut != "ctrl+shift+p" ||
+                !TryNormalizeMappingShortcut("Control + Win", out normalizedShortcut) ||
+                normalizedShortcut != "ctrl+win" ||
+                !TryNormalizeMappingShortcut("rightalt", out normalizedShortcut) ||
+                normalizedShortcut != "rightalt" ||
+                !TryNormalizeMappingShortcut("ctrl+0xBA", out normalizedShortcut) ||
+                normalizedShortcut != "ctrl+0xBA" ||
+                TryNormalizeMappingShortcut("ctrl+unknown", out normalizedShortcut) ||
+                TryNormalizeMappingShortcut("ctrl+alt+delete", out normalizedShortcut) ||
+                !TryNormalizeCapturedShortcut(capturedShortcutKeys, capturedShortcutOrder,
+                    out capturedShortcut, out capturedShortcutError) ||
+                capturedShortcut != "ctrl+shift+p" ||
+                !TryNormalizeCapturedShortcut(modifierOnlyKeys, modifierOnlyOrder,
+                    out modifierOnlyShortcut, out modifierOnlyError) ||
+                modifierOnlyShortcut != "ctrl+win" ||
+                TryNormalizeCapturedShortcut(invalidMultiMainKeys, invalidMultiMainOrder,
+                    out invalidMultiMainShortcut, out invalidMultiMainError) ||
+                invalidMultiMainError != "一次只能录制一个主键" ||
+                MappingShortcutDisplay(capturedShortcut) != "Ctrl + Shift + P" ||
+                CustomActionText("shortcut:ctrl+shift+p") != "快捷键 · Ctrl + Shift + P")
+                throw new InvalidOperationException("Keyboard shortcut recorder normalization invariant failed");
             var startAppsFixture = new List<StartApplicationRecord>();
             var startAppsSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AddStartApplicationRecord(startAppsFixture, startAppsSeen, "微信输入法", "测试.应用");
@@ -1000,9 +1074,13 @@ internal sealed class VibeMicForm : Form
                 FindGeneratedBridgeMapping(bridgeDocument, "power", "keyboard") != null ||
                 FindGeneratedBridgeMapping(bridgeDocument, "power", "hid") != null ||
                 string.IsNullOrWhiteSpace(bridgeRevision) ||
-                Convert.ToInt32(bridgeDocument["version"]) != 6 ||
+                Convert.ToInt32(bridgeDocument["version"]) != 7 ||
                 Convert.ToString(bridgeDocument["activeShortcutProfileId"]) != "general" ||
                 Convert.ToString(bridgeDocument["activeShortcutProfileName"]) != "通用导航" ||
+                Convert.ToBoolean(bridgeDocument["smartProfilesEnabled"]) ||
+                Convert.ToBoolean(bridgeDocument["smartProfileLocked"]) ||
+                Convert.ToString(bridgeDocument["fallbackShortcutProfileId"]) != "general" ||
+                ((Dictionary<string, object>[])bridgeDocument["profiles"]).Length != 4 ||
                 Convert.ToString(bridgeDocument["inputRoutingMode"]) != "strict" ||
                 Convert.ToString(BuildKeyboardBridgeDocument(mappingFixture)["revision"]) != bridgeRevision)
                 throw new InvalidOperationException("UI configuration did not normalize to the expected bridge actions");
@@ -1379,6 +1457,10 @@ internal sealed class VibeMicForm : Form
     {
         content.AutoScrollMinSize = new Size(1000, 830);
         AddPageTitle("首页", "按住听写、连接状态与遥控器快捷操作");
+        BridgeHealthSnapshot overviewBridge = ReadKeyboardBridgeHealth();
+        string effectiveProfileName = !string.IsNullOrWhiteSpace(overviewBridge.SmartEffectiveProfileName)
+            ? overviewBridge.SmartEffectiveProfileName : ActiveShortcutProfile(config) == null
+                ? "通用导航" : ActiveShortcutProfile(config).name;
 
         var hero = NewCard(new Point(34, 92), new Size(960, 322));
         heroPanel = hero;
@@ -1398,10 +1480,10 @@ internal sealed class VibeMicForm : Form
         string[,] linkFacts = {
             { "●", "RC003 遥控器" },
             { "●", ProviderDisplayName(config.inputMethod) },
-            { "●", "按住说话 · 稳定模式" }
+            { "●", "Profile · " + effectiveProfileName }
         };
         Color[] linkColors = { violet, cyan, green };
-        int[] linkWidths = { 132, 154, 176 };
+        int[] linkWidths = { 132, 154, 250 };
         int factX = 52;
         for (int i = 0; i < linkFacts.GetLength(0); i++)
         {
@@ -1410,6 +1492,7 @@ internal sealed class VibeMicForm : Form
             fact.Size = new Size(linkWidths[i], 25);
             factX += linkWidths[i] + 12;
             hero.Controls.Add(fact);
+            if (i == 2) overviewProfileLabel = fact;
         }
 
         bridgeButton = PrimaryButton(IsCapturing ? "管理语音桥接" : "启动语音桥接", new Point(52, 217), new Size(152, 44));
@@ -1613,7 +1696,8 @@ internal sealed class VibeMicForm : Form
         if (actionReceiptTitle == null || actionReceiptTitle.IsDisposed ||
             actionReceiptDetail == null || actionReceiptDetail.IsDisposed) return;
         ShortcutProfileConfig active = ActiveShortcutProfile(config);
-        string activeName = active == null ? "当前 Profile" : active.name;
+        string activeName = receipt != null && !string.IsNullOrWhiteSpace(receipt.SmartEffectiveProfileName)
+            ? receipt.SmartEffectiveProfileName : active == null ? "当前 Profile" : active.name;
         if (receipt == null || receipt.LastExecutionSequence <= 0)
         {
             actionReceiptTitle.Text = "等待一次真实按键操作";
@@ -1902,12 +1986,12 @@ internal sealed class VibeMicForm : Form
 
     private void BuildMappingsPage()
     {
-        content.AutoScrollMinSize = new Size(1000, 900);
+        content.AutoScrollMinSize = new Size(1000, 980);
         BridgeHealthSnapshot mappingHealth = ReadKeyboardBridgeHealth();
         bool exactDeviceIsolation = mappingHealth.FilterHealthy;
-        AddPageTitle("快捷键", "手动切换 Profile；动作只响应已确认的 RC003 设备事件");
+        AddPageTitle("快捷键", "录制任意键盘组合；按应用自动切换工作流");
 
-        var header = NewCard(new Point(34, 100), new Size(960, 136));
+        var header = NewCard(new Point(34, 100), new Size(960, 204));
         var headerTitle = NewLabel("快捷键 Profile", 14f, FontStyle.Bold, ink);
         headerTitle.Location = new Point(24, 12);
         headerTitle.Size = new Size(220, 28);
@@ -1924,7 +2008,8 @@ internal sealed class VibeMicForm : Form
         sourceBadge.BackColor = StatusSurface("connected");
         ApplyRoundedRegion(sourceBadge, 6);
 
-        var profileLabel = NewLabel("当前 Profile", 8.6f, FontStyle.Bold, muted);
+        var profileLabel = NewLabel(config.smartProfilesEnabled ? "回退 Profile" : "当前 Profile",
+            8.6f, FontStyle.Bold, muted);
         profileLabel.Location = new Point(24, 79);
         profileLabel.Size = new Size(82, 36);
         profileLabel.TextAlign = ContentAlignment.MiddleLeft;
@@ -1941,28 +2026,71 @@ internal sealed class VibeMicForm : Form
             }
         }
         if (profilePicker.Items.Count > 0) profilePicker.SelectedIndex = Math.Min(activeProfileIndex, profilePicker.Items.Count - 1);
-        var switchProfile = PrimaryButton("切换", new Point(326, 77), new Size(72, 40));
+        var switchProfile = PrimaryButton(config.smartProfilesEnabled ? "设为回退" : "切换",
+            new Point(326, 77), new Size(config.smartProfilesEnabled ? 82 : 72, 40));
         switchProfile.Click += delegate
         {
             ShortcutProfileChoice choice = profilePicker.SelectedItem as ShortcutProfileChoice;
             if (choice != null) SwitchShortcutProfile(choice.Profile.id);
         };
-        var createProfile = SecondaryButton("新建", new Point(408, 77), new Size(72, 40));
+        int profileActionsStart = config.smartProfilesEnabled ? 418 : 408;
+        var createProfile = SecondaryButton("新建", new Point(profileActionsStart, 77), new Size(72, 40));
         createProfile.Click += delegate { CreateShortcutProfile(); };
-        var renameProfile = SecondaryButton("重命名", new Point(490, 77), new Size(82, 40));
+        var renameProfile = SecondaryButton("重命名", new Point(profileActionsStart + 82, 77), new Size(82, 40));
         renameProfile.Click += delegate { RenameActiveShortcutProfile(); };
-        var deleteProfile = SecondaryButton("删除", new Point(582, 77), new Size(72, 40));
+        var deleteProfile = SecondaryButton("删除", new Point(profileActionsStart + 174, 77), new Size(72, 40));
         deleteProfile.Click += delegate { DeleteActiveShortcutProfile(); };
-        var importProfile = SecondaryButton("导入", new Point(664, 77), new Size(72, 40));
+        var importProfile = SecondaryButton("导入", new Point(profileActionsStart + 256, 77), new Size(72, 40));
         importProfile.Click += delegate { ImportShortcutProfile(); };
-        var exportProfile = SecondaryButton("导出", new Point(746, 77), new Size(72, 40));
+        var exportProfile = SecondaryButton("导出", new Point(profileActionsStart + 338, 77), new Size(72, 40));
         exportProfile.Click += delegate { ExportActiveShortcutProfile(); };
-        var manualBadge = NewLabel("手动切换", 8.2f, FontStyle.Bold, violet);
-        manualBadge.Location = new Point(830, 80);
-        manualBadge.Size = new Size(100, 34);
-        manualBadge.TextAlign = ContentAlignment.MiddleCenter;
-        manualBadge.BackColor = StatusSurface("recording");
-        ApplyRoundedRegion(manualBadge, 6);
+        string effectiveProfile = !string.IsNullOrWhiteSpace(mappingHealth.SmartEffectiveProfileName)
+            ? mappingHealth.SmartEffectiveProfileName : (ActiveShortcutProfile(config) == null
+                ? "当前方案" : ActiveShortcutProfile(config).name);
+        var effectiveBadge = NewLabel(config.smartProfilesEnabled ? "生效 · " + effectiveProfile : "手动模式",
+            8.1f, FontStyle.Bold, config.smartProfilesEnabled ? green : violet);
+        effectiveBadge.Location = new Point(638, 18);
+        effectiveBadge.Size = new Size(152, 34);
+        effectiveBadge.TextAlign = ContentAlignment.MiddleCenter;
+        effectiveBadge.BackColor = StatusSurface(config.smartProfilesEnabled ? "connected" : "recording");
+        ApplyRoundedRegion(effectiveBadge, 6);
+
+        var smartLabel = NewLabel("智能切换", 8.6f, FontStyle.Bold, muted);
+        smartLabel.Location = new Point(24, 142);
+        smartLabel.Size = new Size(82, 36);
+        smartLabel.TextAlign = ContentAlignment.MiddleLeft;
+        var smartToggle = new CheckBox();
+        smartToggle.Appearance = Appearance.Button;
+        smartToggle.AutoCheck = true;
+        smartToggle.Checked = config.smartProfilesEnabled;
+        smartToggle.Text = config.smartProfilesEnabled ? "已开启" : "未开启";
+        smartToggle.Location = new Point(108, 140);
+        smartToggle.Size = new Size(112, 38);
+        smartToggle.TextAlign = ContentAlignment.MiddleCenter;
+        smartToggle.FlatStyle = FlatStyle.Flat;
+        smartToggle.FlatAppearance.BorderColor = config.smartProfilesEnabled ? green : line;
+        smartToggle.BackColor = config.smartProfilesEnabled ? StatusSurface("connected") : surfaceBackground;
+        smartToggle.ForeColor = config.smartProfilesEnabled ? green : muted;
+        smartToggle.Font = new Font("Microsoft YaHei UI", 8.8f, FontStyle.Bold);
+        smartToggle.CheckedChanged += delegate { SetSmartProfilesEnabled(smartToggle.Checked); };
+        var bindApps = SecondaryButton("绑定应用", new Point(232, 139), new Size(120, 40));
+        bindApps.Click += delegate { ConfigureActiveSmartProfileApplications(); };
+        var lockProfile = SecondaryButton(config.smartProfileLocked ? "解除锁定" : "锁定当前",
+            new Point(364, 139), new Size(108, 40));
+        lockProfile.Enabled = config.smartProfilesEnabled;
+        lockProfile.Click += delegate { ToggleSmartProfileLock(); };
+        ShortcutProfileConfig activeRules = ActiveShortcutProfile(config);
+        int ruleCount = activeRules == null || activeRules.processNames == null ? 0 : activeRules.processNames.Length;
+        string smartDetail = config.smartProfilesEnabled
+            ? config.smartProfileLocked
+                ? "已锁定“" + effectiveProfile + "”，前台应用变化不会切换"
+                : ruleCount + " 个应用绑定到此 Profile；无匹配时使用回退方案"
+            : "开启后按前台应用自动切换；不会重启录音或修改语音参数";
+        var smartSummary = NewLabel(smartDetail, 8.3f, FontStyle.Regular,
+            config.smartProfileLocked ? amber : muted);
+        smartSummary.Location = new Point(490, 141);
+        smartSummary.Size = new Size(440, 38);
+        smartSummary.TextAlign = ContentAlignment.MiddleLeft;
         header.Controls.Add(headerTitle);
         header.Controls.Add(headerDetail);
         header.Controls.Add(sourceBadge);
@@ -1974,9 +2102,14 @@ internal sealed class VibeMicForm : Form
         header.Controls.Add(deleteProfile);
         header.Controls.Add(importProfile);
         header.Controls.Add(exportProfile);
-        header.Controls.Add(manualBadge);
+        header.Controls.Add(effectiveBadge);
+        header.Controls.Add(smartLabel);
+        header.Controls.Add(smartToggle);
+        header.Controls.Add(bindApps);
+        header.Controls.Add(lockProfile);
+        header.Controls.Add(smartSummary);
 
-        var canvas = NewCard(new Point(34, 252), new Size(960, 610));
+        var canvas = NewCard(new Point(34, 320), new Size(960, 610));
         var canvasTitle = NewLabel("小米蓝牙遥控器 2 Pro", 10.2f, FontStyle.Bold, ink);
         canvasTitle.Location = new Point(342, 16);
         canvasTitle.Size = new Size(276, 28);
@@ -2043,13 +2176,16 @@ internal sealed class VibeMicForm : Form
 
         CaptureActiveShortcutProfileMappings(config);
         string previousId = config.activeShortcutProfileId;
+        string previousFallbackId = config.smartProfileFallbackId;
         config.activeShortcutProfileId = target.id;
+        config.smartProfileFallbackId = target.id;
         ProjectActiveShortcutProfile(config);
         HostLog("SHORTCUT PROFILE switch_requested=true from=" + SafeLogValue(previousId) +
             " to=" + SafeLogValue(target.id));
         if (!SaveConfig())
         {
             config.activeShortcutProfileId = previousId;
+            config.smartProfileFallbackId = previousFallbackId;
             ProjectActiveShortcutProfile(config);
             ShowToast("Profile 切换保存失败，仍使用原方案", "error");
             return;
@@ -2058,9 +2194,306 @@ internal sealed class VibeMicForm : Form
         HostLog("SHORTCUT PROFILE switched=true id=" + SafeLogValue(target.id) +
             " bridge_ack=" + acknowledged);
         ShowPage(PageShortcuts);
-        ShowToast(acknowledged ? "已切换到“" + target.name + "”" :
-            "已切换到“" + target.name + "”，桥接仍在确认",
+        string successText = config.smartProfilesEnabled
+            ? "已将“" + target.name + "”设为回退 Profile"
+            : "已切换到“" + target.name + "”";
+        ShowToast(acknowledged ? successText : successText + "，桥接仍在确认",
             acknowledged ? "success" : "warning");
+    }
+
+    private void SetSmartProfilesEnabled(bool enabled)
+    {
+        if (config.smartProfilesEnabled == enabled) return;
+        bool previousEnabled = config.smartProfilesEnabled;
+        bool previousLocked = config.smartProfileLocked;
+        string previousFallback = config.smartProfileFallbackId;
+        config.smartProfilesEnabled = enabled;
+        config.smartProfileLocked = enabled && config.smartProfileLocked;
+        config.smartProfileFallbackId = config.activeShortcutProfileId;
+        HostLog("SMART PROFILE mode_change requested=true enabled=" + enabled);
+        if (!SaveConfig())
+        {
+            config.smartProfilesEnabled = previousEnabled;
+            config.smartProfileLocked = previousLocked;
+            config.smartProfileFallbackId = previousFallback;
+            ShowToast("智能切换保存失败，设置没有改变", "error");
+            return;
+        }
+        bool acknowledged = StartKeyboardBridge();
+        ShowPage(PageShortcuts);
+        ShowToast(enabled
+            ? acknowledged ? "智能切换已开启" : "智能切换已保存，桥接仍在确认"
+            : acknowledged ? "已回到手动 Profile" : "手动模式已保存，桥接仍在确认",
+            acknowledged ? "success" : "warning");
+    }
+
+    private void ToggleSmartProfileLock()
+    {
+        if (!config.smartProfilesEnabled)
+        {
+            ShowToast("请先开启智能切换", "info");
+            return;
+        }
+        bool previous = config.smartProfileLocked;
+        string previousActiveId = config.activeShortcutProfileId;
+        string previousFallbackId = config.smartProfileFallbackId;
+        Dictionary<string, string> previousMappings = CloneMappings(config.mappings);
+        if (!previous)
+        {
+            BridgeHealthSnapshot health = ReadKeyboardBridgeHealth();
+            ShortcutProfileConfig effective = FindShortcutProfile(config,
+                health == null ? "" : health.SmartEffectiveProfileId);
+            if (effective != null && !string.Equals(config.activeShortcutProfileId, effective.id,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                CaptureActiveShortcutProfileMappings(config);
+                config.activeShortcutProfileId = effective.id;
+                config.smartProfileFallbackId = effective.id;
+                ProjectActiveShortcutProfile(config);
+            }
+        }
+        config.smartProfileLocked = !previous;
+        if (!SaveConfig())
+        {
+            config.smartProfileLocked = previous;
+            config.activeShortcutProfileId = previousActiveId;
+            config.smartProfileFallbackId = previousFallbackId;
+            config.mappings = previousMappings;
+            ShowToast("锁定状态保存失败", "error");
+            return;
+        }
+        bool acknowledged = StartKeyboardBridge();
+        HostLog("SMART PROFILE lock_changed=true locked=" + config.smartProfileLocked +
+            " profile=" + SafeLogValue(config.activeShortcutProfileId));
+        ShowPage(PageShortcuts);
+        ShowToast(config.smartProfileLocked
+            ? acknowledged ? "已锁定当前 Profile" : "锁定已保存，桥接仍在确认"
+            : acknowledged ? "已恢复按应用自动切换" : "自动切换已恢复，桥接仍在确认",
+            acknowledged ? "success" : "warning");
+    }
+
+    private void ConfigureActiveSmartProfileApplications()
+    {
+        ShortcutProfileConfig active = ActiveShortcutProfile(config);
+        if (active == null)
+        {
+            ShowToast("当前没有可配置的 Profile", "error");
+            return;
+        }
+        string[] selected;
+        if (!ShowSmartProfileApplicationPicker(active, out selected)) return;
+        selected = NormalizeSmartProfileProcessNames(selected, null);
+        int moved = 0;
+        var selectedSet = new HashSet<string>(selected, StringComparer.OrdinalIgnoreCase);
+        if (config.shortcutProfiles != null)
+            foreach (ShortcutProfileConfig profile in config.shortcutProfiles)
+            {
+                if (profile == null || ReferenceEquals(profile, active) || profile.processNames == null) continue;
+                var retained = new List<string>();
+                foreach (string processName in profile.processNames)
+                {
+                    if (selectedSet.Contains(processName)) moved++;
+                    else retained.Add(processName);
+                }
+                profile.processNames = NormalizeSmartProfileProcessNames(retained.ToArray(), null);
+            }
+        active.processNames = selected;
+        HostLog("SMART PROFILE bindings_save requested=true profile=" + SafeLogValue(active.id) +
+            " count=" + selected.Length + " reassigned=" + moved);
+        if (!SaveConfig())
+        {
+            ShowToast("应用绑定保存失败，请重试", "error");
+            return;
+        }
+        bool acknowledged = StartKeyboardBridge();
+        ShowPage(PageShortcuts);
+        string detail = selected.Length == 0 ? "已清空“" + active.name + "”的应用绑定" :
+            "已为“" + active.name + "”绑定 " + selected.Length + " 个应用";
+        if (moved > 0) detail += "，并移除 " + moved + " 个重复规则";
+        ShowToast(acknowledged ? detail : detail + "，桥接仍在确认",
+            acknowledged ? "success" : "warning");
+    }
+
+    private bool ShowSmartProfileApplicationPicker(ShortcutProfileConfig profile, out string[] selectedProcesses)
+    {
+        selectedProcesses = null;
+        List<SmartApplicationChoice> choices;
+        try { choices = GetSmartProfileApplicationChoices(); }
+        catch (Exception ex)
+        {
+            HostLog("SMART PROFILE application_catalog_failed=true error=" + SafeLogValue(ex.Message));
+            ShowToast("无法读取本机应用，请稍后重试", "error");
+            return false;
+        }
+        using (var dialog = new Form())
+        using (var search = new TextBox())
+        using (var list = new ListView())
+        using (var images = new ImageList())
+        using (var clear = new Button())
+        using (var save = new Button())
+        using (var cancel = new Button())
+        {
+            dialog.Text = "绑定 Smart Profile 应用";
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MinimizeBox = false;
+            dialog.MaximizeBox = false;
+            dialog.ShowInTaskbar = false;
+            dialog.ClientSize = new Size(760, 610);
+            dialog.BackColor = cardBackground;
+            dialog.Font = Font;
+            var title = NewLabel("哪些应用使用“" + profile.name + "”？", 14f, FontStyle.Bold, ink);
+            title.Location = new Point(24, 20);
+            title.Size = new Size(700, 34);
+            var help = NewLabel("切到勾选的前台应用时自动使用此 Profile；同一个应用只能绑定一个 Profile。",
+                8.7f, FontStyle.Regular, muted);
+            help.Location = new Point(24, 56);
+            help.Size = new Size(700, 24);
+            var searchLabel = NewLabel("搜索应用", 8.6f, FontStyle.Bold, muted);
+            searchLabel.Location = new Point(24, 94);
+            searchLabel.Size = new Size(66, 34);
+            searchLabel.TextAlign = ContentAlignment.MiddleLeft;
+            search.Location = new Point(94, 94);
+            search.Size = new Size(642, 34);
+            search.Font = new Font("Microsoft YaHei UI", 10f);
+            search.BackColor = inputBackground;
+            search.ForeColor = ink;
+            images.ColorDepth = ColorDepth.Depth32Bit;
+            images.ImageSize = new Size(24, 24);
+            images.Images.Add("application", SystemIcons.Application.ToBitmap());
+            list.Location = new Point(24, 142);
+            list.Size = new Size(712, 390);
+            list.View = View.Details;
+            list.FullRowSelect = true;
+            list.MultiSelect = false;
+            list.CheckBoxes = true;
+            list.HideSelection = false;
+            list.HeaderStyle = ColumnHeaderStyle.Nonclickable;
+            list.BorderStyle = BorderStyle.FixedSingle;
+            list.BackColor = surfaceBackground;
+            list.ForeColor = ink;
+            list.Font = new Font("Microsoft YaHei UI", 9.2f);
+            list.SmallImageList = images;
+            list.Columns.Add("应用", 250, HorizontalAlignment.Left);
+            list.Columns.Add("进程 / 来源", 430, HorizontalAlignment.Left);
+            var selected = new HashSet<string>(
+                NormalizeSmartProfileProcessNames(profile.processNames, null), StringComparer.OrdinalIgnoreCase);
+            bool populating = false;
+            Action refresh = delegate
+            {
+                string query = (search.Text ?? "").Trim();
+                populating = true;
+                list.BeginUpdate();
+                list.Items.Clear();
+                foreach (SmartApplicationChoice choice in choices)
+                {
+                    if (query.Length > 0 && choice.Name.IndexOf(query, StringComparison.CurrentCultureIgnoreCase) < 0 &&
+                        choice.ProcessName.IndexOf(query, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        choice.Detail.IndexOf(query, StringComparison.CurrentCultureIgnoreCase) < 0) continue;
+                    string iconKey = AddApplicationChoiceImage(images, choice.IconReference);
+                    var item = new ListViewItem(choice.Name, iconKey);
+                    item.SubItems.Add(choice.ProcessName + " · " + choice.Detail);
+                    item.Tag = choice;
+                    item.Checked = selected.Contains(choice.ProcessName);
+                    list.Items.Add(item);
+                }
+                list.EndUpdate();
+                populating = false;
+            };
+            list.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
+            {
+                if (populating) return;
+                SmartApplicationChoice choice = list.Items[e.Index].Tag as SmartApplicationChoice;
+                if (choice == null) return;
+                if (e.NewValue == CheckState.Checked) selected.Add(choice.ProcessName);
+                else selected.Remove(choice.ProcessName);
+            };
+            search.TextChanged += delegate { refresh(); };
+            refresh();
+            clear.Text = "清空绑定";
+            clear.Location = new Point(24, 552);
+            clear.Size = new Size(112, 36);
+            clear.FlatStyle = FlatStyle.Flat;
+            clear.BackColor = surfaceBackground;
+            clear.ForeColor = ink;
+            clear.FlatAppearance.BorderColor = line;
+            clear.Click += delegate { selected.Clear(); refresh(); };
+            save.Text = "保存绑定";
+            save.Location = new Point(500, 552);
+            save.Size = new Size(124, 36);
+            save.BackColor = violet;
+            save.ForeColor = Color.White;
+            save.FlatStyle = FlatStyle.Flat;
+            save.FlatAppearance.BorderSize = 0;
+            save.Click += delegate { dialog.DialogResult = DialogResult.OK; dialog.Close(); };
+            cancel.Text = "取消";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.Location = new Point(636, 552);
+            cancel.Size = new Size(100, 36);
+            cancel.FlatStyle = FlatStyle.Flat;
+            cancel.BackColor = surfaceBackground;
+            cancel.ForeColor = ink;
+            cancel.FlatAppearance.BorderColor = line;
+            dialog.CancelButton = cancel;
+            dialog.Controls.Add(title);
+            dialog.Controls.Add(help);
+            dialog.Controls.Add(searchLabel);
+            dialog.Controls.Add(search);
+            dialog.Controls.Add(list);
+            dialog.Controls.Add(clear);
+            dialog.Controls.Add(save);
+            dialog.Controls.Add(cancel);
+            if (dialog.ShowDialog(this) != DialogResult.OK) return false;
+            var ordered = new List<string>(selected);
+            ordered.Sort(StringComparer.OrdinalIgnoreCase);
+            selectedProcesses = ordered.ToArray();
+            return true;
+        }
+    }
+
+    private List<SmartApplicationChoice> GetSmartProfileApplicationChoices()
+    {
+        StartApplicationRecord[] startApps = GetStartApplicationRecords();
+        var source = new List<ApplicationActionChoice>();
+        source.AddRange(GetRunningApplicationChoices(startApps));
+        source.AddRange(GetInstalledApplicationChoices(startApps));
+        var result = new List<SmartApplicationChoice>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ApplicationActionChoice choice in source)
+        {
+            string processName = ProcessNameFromApplicationChoice(choice);
+            if (processName.Length == 0 || !seen.Add(processName)) continue;
+            string detail = uiSmokeMode
+                ? choice.Detail.IndexOf("正在运行", StringComparison.CurrentCultureIgnoreCase) >= 0
+                    ? "正在运行"
+                    : "已安装应用"
+                : choice.Detail;
+            result.Add(new SmartApplicationChoice(choice.Label, processName,
+                detail, choice.IconReference));
+        }
+        result.Sort(delegate(SmartApplicationChoice left, SmartApplicationChoice right)
+        {
+            return string.Compare(left.Name, right.Name, StringComparison.CurrentCultureIgnoreCase);
+        });
+        return result;
+    }
+
+    private static string ProcessNameFromApplicationChoice(ApplicationActionChoice choice)
+    {
+        if (choice == null) return "";
+        string action = choice.Action ?? "";
+        string processName = "";
+        if (action.StartsWith("open-app:", StringComparison.OrdinalIgnoreCase))
+        {
+            string[] parts = action.Substring("open-app:".Length).Split('|');
+            if (parts.Length > 0) processName = DecodeActionPart(parts[0]);
+        }
+        else if (action.StartsWith("open-exe:", StringComparison.OrdinalIgnoreCase))
+            processName = Path.GetFileNameWithoutExtension(action.Substring("open-exe:".Length));
+        if (string.IsNullOrWhiteSpace(processName) && !string.IsNullOrWhiteSpace(choice.IconReference) &&
+            choice.IconReference.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            processName = Path.GetFileNameWithoutExtension(choice.IconReference);
+        return NormalizeSmartProfileProcessName(processName);
     }
 
     private bool PromptNewShortcutProfile(out string template, out string profileName)
@@ -2190,10 +2623,12 @@ internal sealed class VibeMicForm : Form
             "profile-" + Guid.NewGuid().ToString("N"), profileName);
         if (template != "duplicate") created.preset = template;
         else created.preset = "custom";
+        created.processNames = new string[0];
         var profiles = new List<ShortcutProfileConfig>(config.shortcutProfiles ?? new ShortcutProfileConfig[0]);
         profiles.Add(created);
         config.shortcutProfiles = profiles.ToArray();
         config.activeShortcutProfileId = created.id;
+        config.smartProfileFallbackId = created.id;
         ProjectActiveShortcutProfile(config);
         if (!SaveConfig())
         {
@@ -2249,6 +2684,8 @@ internal sealed class VibeMicForm : Form
             if (profile != null && !string.Equals(profile.id, active.id, StringComparison.OrdinalIgnoreCase)) profiles.Add(profile);
         config.shortcutProfiles = profiles.ToArray();
         config.activeShortcutProfileId = profiles[0].id;
+        config.smartProfileFallbackId = profiles[0].id;
+        if (config.smartProfileLocked) config.smartProfileLocked = false;
         ProjectActiveShortcutProfile(config);
         if (!SaveConfig())
         {
@@ -2276,7 +2713,7 @@ internal sealed class VibeMicForm : Form
             var export = new ShortcutProfileExport
             {
                 format = "vibe-flow-shortcut-profile",
-                version = 1,
+                version = 2,
                 profile = CloneShortcutProfile(active, active.id, active.name)
             };
             File.WriteAllText(dialog.FileName, new JavaScriptSerializer().Serialize(export), new UTF8Encoding(false));
@@ -2304,12 +2741,16 @@ internal sealed class VibeMicForm : Form
                 ShortcutProfileExport imported = new JavaScriptSerializer().Deserialize<ShortcutProfileExport>(
                     File.ReadAllText(dialog.FileName, Encoding.UTF8));
                 if (imported == null || imported.format != "vibe-flow-shortcut-profile" ||
-                    imported.version != 1 || imported.profile == null)
+                    (imported.version != 1 && imported.version != 2) || imported.profile == null)
                     throw new InvalidDataException("Profile 格式不受支持");
                 if (imported.profile.mappings != null)
                     foreach (KeyValuePair<string, string> pair in imported.profile.mappings)
                         if (!IsPersistableMappingAction(pair.Value))
                             throw new InvalidDataException("Profile 包含不支持的动作");
+                string[] importedProcesses = NormalizeSmartProfileProcessNames(
+                    imported.version >= 2 ? imported.profile.processNames : null, null);
+                if (imported.version >= 2 && !StringArraysEqual(imported.profile.processNames, importedProcesses))
+                    throw new InvalidDataException("Profile 包含无效的应用绑定");
 
                 CaptureActiveShortcutProfileMappings(config);
                 ShortcutProfileConfig profile = CloneShortcutProfile(imported.profile,
@@ -2317,9 +2758,20 @@ internal sealed class VibeMicForm : Form
                     MakeUniqueShortcutProfileName(imported.profile.name));
                 profile.preset = "custom";
                 var profiles = new List<ShortcutProfileConfig>(config.shortcutProfiles ?? new ShortcutProfileConfig[0]);
+                var importedSet = new HashSet<string>(profile.processNames ?? new string[0],
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (ShortcutProfileConfig existing in profiles)
+                {
+                    if (existing == null || existing.processNames == null || importedSet.Count == 0) continue;
+                    var retained = new List<string>();
+                    foreach (string processName in existing.processNames)
+                        if (!importedSet.Contains(processName)) retained.Add(processName);
+                    existing.processNames = retained.ToArray();
+                }
                 profiles.Add(profile);
                 config.shortcutProfiles = profiles.ToArray();
                 config.activeShortcutProfileId = profile.id;
+                config.smartProfileFallbackId = profile.id;
                 ProjectActiveShortcutProfile(config);
                 if (!SaveConfig()) throw new IOException("Profile 无法保存");
                 bool acknowledged = StartKeyboardBridge();
@@ -2475,6 +2927,7 @@ internal sealed class VibeMicForm : Form
         using (var dialog = new Form())
         using (var search = new TextBox())
         using (var list = new ListBox())
+        using (var recordShortcut = new Button())
         using (var choose = new Button())
         using (var cancel = new Button())
         {
@@ -2484,7 +2937,7 @@ internal sealed class VibeMicForm : Form
             dialog.MinimizeBox = false;
             dialog.MaximizeBox = false;
             dialog.ShowInTaskbar = false;
-            dialog.ClientSize = new Size(620, 570);
+            dialog.ClientSize = new Size(620, 626);
             dialog.BackColor = cardBackground;
             dialog.Font = Font;
             var title = NewLabel("选择要执行的动作", 14f, FontStyle.Bold, ink);
@@ -2493,18 +2946,56 @@ internal sealed class VibeMicForm : Form
             var help = NewLabel("支持应用、网页、编辑、系统、媒体与自定义快捷键", 8.7f, FontStyle.Regular, muted);
             help.Location = new Point(24, 54);
             help.Size = new Size(560, 24);
-            search.Location = new Point(24, 88);
-            search.Size = new Size(572, 32);
+            recordShortcut.Text = "⌨  录制键盘快捷键";
+            recordShortcut.Location = new Point(24, 90);
+            recordShortcut.Size = new Size(190, 40);
+            recordShortcut.BackColor = violet;
+            recordShortcut.ForeColor = Color.White;
+            recordShortcut.FlatStyle = FlatStyle.Flat;
+            recordShortcut.FlatAppearance.BorderSize = 0;
+            recordShortcut.Font = new Font("Microsoft YaHei UI", 9f, FontStyle.Bold);
+            var recordHelp = NewLabel("按下组合键即可记录，无需输入 Ctrl 等名称", 8.3f, FontStyle.Regular, muted);
+            recordHelp.Location = new Point(230, 94);
+            recordHelp.Size = new Size(360, 32);
+            recordHelp.TextAlign = ContentAlignment.MiddleLeft;
+
+            var searchLabel = NewLabel("搜索动作", 8.6f, FontStyle.Bold, muted);
+            searchLabel.Location = new Point(24, 144);
+            searchLabel.Size = new Size(66, 32);
+            searchLabel.TextAlign = ContentAlignment.MiddleLeft;
+            search.Location = new Point(94, 144);
+            search.Size = new Size(502, 32);
             search.Font = new Font("Microsoft YaHei UI", 10f);
             search.BackColor = surfaceBackground;
             search.ForeColor = ink;
-            list.Location = new Point(24, 132);
+            list.Location = new Point(24, 188);
             list.Size = new Size(572, 360);
             list.BorderStyle = BorderStyle.FixedSingle;
             list.BackColor = surfaceBackground;
             list.ForeColor = ink;
             list.Font = new Font("Microsoft YaHei UI", 10f);
             list.IntegralHeight = false;
+            list.DrawMode = DrawMode.OwnerDrawFixed;
+            list.ItemHeight = 28;
+            list.DrawItem += delegate(object sender, DrawItemEventArgs e)
+            {
+                if (e.Index < 0 || e.Index >= list.Items.Count) return;
+                bool selectedItem = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+                Color background = selectedItem
+                    ? darkTheme ? Color.FromArgb(49, 43, 74) : Color.FromArgb(238, 235, 255)
+                    : surfaceBackground;
+                Color foreground = selectedItem ? violet : ink;
+                using (var backgroundBrush = new SolidBrush(background))
+                using (var foregroundBrush = new SolidBrush(foreground))
+                {
+                    e.Graphics.FillRectangle(backgroundBrush, e.Bounds);
+                    Rectangle textBounds = new Rectangle(e.Bounds.X + 10, e.Bounds.Y,
+                        Math.Max(0, e.Bounds.Width - 20), e.Bounds.Height);
+                    TextRenderer.DrawText(e.Graphics, Convert.ToString(list.Items[e.Index]), list.Font,
+                        textBounds, foreground, TextFormatFlags.Left | TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                }
+            };
 
             Action refresh = delegate
             {
@@ -2531,9 +3022,15 @@ internal sealed class VibeMicForm : Form
                 dialog.DialogResult = DialogResult.OK;
                 dialog.Close();
             };
+            recordShortcut.Click += delegate
+            {
+                result = "shortcut:prompt";
+                dialog.DialogResult = DialogResult.OK;
+                dialog.Close();
+            };
             list.DoubleClick += delegate { accept(); };
             choose.Text = "选择";
-            choose.Location = new Point(392, 514);
+            choose.Location = new Point(392, 570);
             choose.Size = new Size(96, 36);
             choose.BackColor = violet;
             choose.ForeColor = Color.White;
@@ -2542,13 +3039,18 @@ internal sealed class VibeMicForm : Form
             choose.Click += delegate { accept(); };
             cancel.Text = "取消";
             cancel.DialogResult = DialogResult.Cancel;
-            cancel.Location = new Point(500, 514);
+            cancel.Location = new Point(500, 570);
             cancel.Size = new Size(96, 36);
             cancel.FlatStyle = FlatStyle.Flat;
             cancel.FlatAppearance.BorderColor = line;
+            cancel.BackColor = surfaceBackground;
+            cancel.ForeColor = ink;
             dialog.CancelButton = cancel;
             dialog.Controls.Add(title);
             dialog.Controls.Add(help);
+            dialog.Controls.Add(recordShortcut);
+            dialog.Controls.Add(recordHelp);
+            dialog.Controls.Add(searchLabel);
             dialog.Controls.Add(search);
             dialog.Controls.Add(list);
             dialog.Controls.Add(choose);
@@ -3384,7 +3886,7 @@ internal sealed class VibeMicForm : Form
         restore.Click += delegate { RestorePreviousConfig(); };
         var updates = SecondaryButton("安全检查更新", new Point(548, 184), new Size(124, 42));
         updates.Click += delegate { CheckForUpdates(true); };
-        var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 功能候选版\r\nRC003 本地语音传输与快捷操作工具 · 开源版本", 9.5f, FontStyle.Regular, muted);
+        var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 正式版\r\nRC003 本地语音传输与快捷操作工具 · 开源版本", 9.5f, FontStyle.Regular, muted);
         about.Location = new Point(690, 184);
         about.Size = new Size(238, 66);
         var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  配置 schema " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
@@ -4764,6 +5266,7 @@ internal sealed class VibeMicForm : Form
         object configError = null;
         if (read)
         {
+            ObserveSmartProfileHealth(health);
             unhealthy = health == null ||
                 !health.TryGetValue("state", out state) ||
                 !string.Equals(Convert.ToString(state), "running", StringComparison.OrdinalIgnoreCase) ||
@@ -4803,6 +5306,37 @@ internal sealed class VibeMicForm : Form
             keyboardBridgeHealthUnhealthySince = DateTime.MinValue;
             RestartKeyboardBridge("heartbeat_stale");
         }
+    }
+
+    private void ObserveSmartProfileHealth(Dictionary<string, object> health)
+    {
+        if (health == null) return;
+        object enabledValue;
+        object idValue;
+        object nameValue;
+        bool enabled = health.TryGetValue("smart_profiles_enabled", out enabledValue) &&
+            Convert.ToBoolean(enabledValue);
+        string profileId = health.TryGetValue("smart_profile_effective_id", out idValue)
+            ? Convert.ToString(idValue) : "";
+        string profileName = health.TryGetValue("smart_profile_effective_name", out nameValue)
+            ? Convert.ToString(nameValue) : profileId;
+        if (overviewProfileLabel != null && !overviewProfileLabel.IsDisposed && !string.IsNullOrWhiteSpace(profileName))
+            overviewProfileLabel.Text = "●  Profile · " + profileName;
+        if (!enabled || string.IsNullOrWhiteSpace(profileId))
+        {
+            lastObservedSmartProfileId = profileId;
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(lastObservedSmartProfileId))
+        {
+            lastObservedSmartProfileId = profileId;
+            return;
+        }
+        if (string.Equals(lastObservedSmartProfileId, profileId, StringComparison.OrdinalIgnoreCase)) return;
+        lastObservedSmartProfileId = profileId;
+        HostLog("SMART PROFILE observed=true effective=" + SafeLogValue(profileId));
+        if (Visible && WindowState != FormWindowState.Minimized)
+            ShowToast("已自动切换到“" + profileName + "”", "success");
     }
 
     private static bool TryReadBridgeHealth(string path, out Dictionary<string, object> health, out string error)
@@ -8147,6 +8681,13 @@ internal sealed class VibeMicForm : Form
             if (data.TryGetValue("config_version", out value)) snapshot.ConfigVersion = Convert.ToInt32(value);
             if (data.TryGetValue("config_revision", out value)) snapshot.ConfigRevision = Convert.ToString(value);
             if (data.TryGetValue("config_mapping_count", out value)) snapshot.ConfigMappingCount = Convert.ToInt32(value);
+            if (data.TryGetValue("smart_profiles_enabled", out value)) snapshot.SmartProfilesEnabled = Convert.ToBoolean(value);
+            if (data.TryGetValue("smart_profile_locked", out value)) snapshot.SmartProfileLocked = Convert.ToBoolean(value);
+            if (data.TryGetValue("smart_profile_configured_id", out value)) snapshot.SmartConfiguredProfileId = Convert.ToString(value);
+            if (data.TryGetValue("smart_profile_effective_id", out value)) snapshot.SmartEffectiveProfileId = Convert.ToString(value);
+            if (data.TryGetValue("smart_profile_effective_name", out value)) snapshot.SmartEffectiveProfileName = Convert.ToString(value);
+            if (data.TryGetValue("smart_profile_foreground_process", out value)) snapshot.SmartForegroundProcess = Convert.ToString(value);
+            if (data.TryGetValue("smart_profile_match_state", out value)) snapshot.SmartMatchState = Convert.ToString(value);
             if (data.TryGetValue("config_error", out value)) snapshot.ConfigError = Convert.ToString(value);
             if (data.TryGetValue("install_root", out value)) snapshot.InstallRoot = Convert.ToString(value);
             if (data.TryGetValue("config_loaded_at", out value))
@@ -9305,11 +9846,15 @@ internal sealed class VibeMicForm : Form
                 id = "my-shortcuts",
                 name = "我的快捷键",
                 preset = "custom",
-                mappings = NormalizeShortcutProfileMappings(value.mappings)
+                mappings = NormalizeShortcutProfileMappings(value.mappings),
+                processNames = new string[0]
             });
             foreach (ShortcutProfileConfig starter in DefaultShortcutProfiles()) migrated.Add(starter);
             value.shortcutProfiles = migrated.ToArray();
             value.activeShortcutProfileId = "my-shortcuts";
+            value.smartProfilesEnabled = false;
+            value.smartProfileLocked = false;
+            value.smartProfileFallbackId = "my-shortcuts";
             value.mappingPreset = "custom";
             value.mappings = CloneMappings(migrated[0].mappings);
             return true;
@@ -9317,6 +9862,7 @@ internal sealed class VibeMicForm : Form
 
         var profiles = new List<ShortcutProfileConfig>();
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var boundProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (value.shortcutProfiles != null)
         {
             foreach (ShortcutProfileConfig candidate in value.shortcutProfiles)
@@ -9349,6 +9895,20 @@ internal sealed class VibeMicForm : Form
                     candidate.mappings = mappings;
                     changed = true;
                 }
+                string[] processNames = NormalizeSmartProfileProcessNames(candidate.processNames,
+                    previousSchema < 32 ? StarterProfileProcessNames(candidate.preset) : null);
+                if (processNames.Length > 0)
+                {
+                    var uniqueBindings = new List<string>();
+                    foreach (string processName in processNames)
+                        if (boundProcesses.Add(processName)) uniqueBindings.Add(processName);
+                    processNames = uniqueBindings.ToArray();
+                }
+                if (!StringArraysEqual(candidate.processNames, processNames))
+                {
+                    candidate.processNames = processNames;
+                    changed = true;
+                }
                 profiles.Add(candidate);
             }
         }
@@ -9377,6 +9937,17 @@ internal sealed class VibeMicForm : Form
         if (active == null)
         {
             value.activeShortcutProfileId = profiles[0].id;
+            changed = true;
+        }
+        if (string.IsNullOrWhiteSpace(value.smartProfileFallbackId) ||
+            FindShortcutProfile(value, value.smartProfileFallbackId) == null)
+        {
+            value.smartProfileFallbackId = value.activeShortcutProfileId;
+            changed = true;
+        }
+        if (!value.smartProfilesEnabled && value.smartProfileLocked)
+        {
+            value.smartProfileLocked = false;
             changed = true;
         }
         if (ProjectActiveShortcutProfile(value)) changed = true;
@@ -9783,35 +10354,74 @@ internal sealed class VibeMicForm : Form
 
     private static Dictionary<string, object> BuildKeyboardBridgeDocument(VibeMicConfig source)
     {
-        var mappings = new List<Dictionary<string, object>>();
-        mappings.Add(BridgeMapping("voice", "录音键", "F5", "0x3F", true, true, "suppress", ""));
-        mappings.Add(GestureMapping("home", "Home 键", "Home", "0x47",
-            GetConfigMapping(source, "Home:short", GetConfigMapping(source, "Home", "win+d")),
-            GetConfigMapping(source, "Home:long", "none")));
-        mappings.Add(ConfiguredMapping("tv", "TV 键", "Oemtilde", "0x29",
-            GetConfigMapping(source, "TV", "task-switcher"), "oemtilde"));
-        mappings.Add(GestureMapping("menu", "功能键", "Apps", "0x5D",
-            GetConfigMapping(source, "功能键:short", "ctrl+c"), GetConfigMapping(source, "功能键:long", "ctrl+v")));
-        mappings.Add(ConfiguredMapping("ok", "确认键", "Enter", "0x1C", GetConfigMapping(source, "确认键", "enter"), "enter"));
-        mappings.Add(ConfiguredMapping("up", "上键", "Up", "0x48", GetConfigMapping(source, "上键", "up"), "up"));
-        mappings.Add(ConfiguredMapping("down", "下键", "Down", "0x50", GetConfigMapping(source, "下键", "down"), "down"));
-        mappings.Add(ConfiguredMapping("left", "左键", "Left", "0x4B", GetConfigMapping(source, "左键", "left"), "left"));
-        mappings.Add(ConfiguredMapping("right", "右键", "Right", "0x4D", GetConfigMapping(source, "右键", "right"), "right"));
+        List<Dictionary<string, object>> mappings = BuildBridgeMappings(source == null ? null : source.mappings);
+        var profileDocuments = new List<Dictionary<string, object>>();
+        if (source != null && source.shortcutProfiles != null)
+            foreach (ShortcutProfileConfig profile in source.shortcutProfiles)
+            {
+                if (profile == null || !IsSafeShortcutProfileId(profile.id)) continue;
+                var profileDocument = new Dictionary<string, object>();
+                profileDocument["id"] = profile.id;
+                profileDocument["name"] = NormalizeShortcutProfileName(profile.name, "快捷键方案");
+                profileDocument["processNames"] = NormalizeSmartProfileProcessNames(profile.processNames, null);
+                profileDocument["mappings"] = BuildBridgeMappings(profile.mappings).ToArray();
+                profileDocuments.Add(profileDocument);
+            }
         var document = new Dictionary<string, object>();
-        document["version"] = 6;
+        document["version"] = 7;
         string routingMode = NormalizeInputRoutingMode(source == null ? "strict" : source.inputRoutingMode);
         ShortcutProfileConfig activeProfile = ActiveShortcutProfile(source);
         string activeProfileId = activeProfile == null ? "" : activeProfile.id ?? "";
         string activeProfileName = activeProfile == null ? "" : activeProfile.name ?? "";
+        string fallbackProfileId = source == null ||
+            FindShortcutProfile(source, source.smartProfileFallbackId) == null
+            ? activeProfileId : source.smartProfileFallbackId;
+        bool smartProfilesEnabled = source != null && source.smartProfilesEnabled;
+        bool smartProfileLocked = smartProfilesEnabled && source.smartProfileLocked;
         document["inputRoutingMode"] = routingMode;
         document["activeShortcutProfileId"] = activeProfileId;
         document["activeShortcutProfileName"] = activeProfileName;
+        document["smartProfilesEnabled"] = smartProfilesEnabled;
+        document["smartProfileLocked"] = smartProfileLocked;
+        document["fallbackShortcutProfileId"] = fallbackProfileId;
+        document["profiles"] = profileDocuments.ToArray();
         document["revision"] = ComputeBridgeConfigRevision(new object[] {
-            routingMode, activeProfileId, activeProfileName, mappings.ToArray()
+            routingMode, activeProfileId, activeProfileName, smartProfilesEnabled, smartProfileLocked,
+            fallbackProfileId, profileDocuments.ToArray(), mappings.ToArray()
         });
-        document["notes"] = "Generated by Vibe Flow. Non-voice actions are device-scoped Raw Input; the Hook passes unidentified keyboard events through. The optional signed filter adds exact-device suppression.";
+        document["notes"] = "Generated by Vibe Flow. Non-voice actions are device-scoped Raw Input; Smart Profiles only swap validated action tables and never touch voice settings.";
         document["mappings"] = mappings.ToArray();
         return document;
+    }
+
+    private static List<Dictionary<string, object>> BuildBridgeMappings(Dictionary<string, string> sourceMappings)
+    {
+        var mappings = new List<Dictionary<string, object>>();
+        mappings.Add(BridgeMapping("voice", "录音键", "F5", "0x3F", true, true, "suppress", ""));
+        mappings.Add(GestureMapping("home", "Home 键", "Home", "0x47",
+            GetBridgeMapping(sourceMappings, "Home:short", GetBridgeMapping(sourceMappings, "Home", "win+d")),
+            GetBridgeMapping(sourceMappings, "Home:long", "none")));
+        mappings.Add(ConfiguredMapping("tv", "TV 键", "Oemtilde", "0x29",
+            GetBridgeMapping(sourceMappings, "TV", "task-switcher"), "oemtilde"));
+        mappings.Add(GestureMapping("menu", "功能键", "Apps", "0x5D",
+            GetBridgeMapping(sourceMappings, "功能键:short", "ctrl+c"),
+            GetBridgeMapping(sourceMappings, "功能键:long", "ctrl+v")));
+        mappings.Add(ConfiguredMapping("ok", "确认键", "Enter", "0x1C",
+            GetBridgeMapping(sourceMappings, "确认键", "enter"), "enter"));
+        mappings.Add(ConfiguredMapping("up", "上键", "Up", "0x48",
+            GetBridgeMapping(sourceMappings, "上键", "up"), "up"));
+        mappings.Add(ConfiguredMapping("down", "下键", "Down", "0x50",
+            GetBridgeMapping(sourceMappings, "下键", "down"), "down"));
+        mappings.Add(ConfiguredMapping("left", "左键", "Left", "0x4B",
+            GetBridgeMapping(sourceMappings, "左键", "left"), "left"));
+        mappings.Add(ConfiguredMapping("right", "右键", "Right", "0x4D",
+            GetBridgeMapping(sourceMappings, "右键", "right"), "right"));
+        return mappings;
+    }
+
+    private static string GetBridgeMapping(Dictionary<string, string> mappings, string key, string fallback)
+    {
+        return mappings != null && mappings.ContainsKey(key) ? mappings[key] : fallback;
     }
 
     private static string NormalizeInputRoutingMode(string value)
@@ -10038,6 +10648,17 @@ internal sealed class VibeMicForm : Form
         return mappings;
     }
 
+    private static string[] StarterProfileProcessNames(string preset)
+    {
+        if (preset == "vibe-coding")
+            return new string[] { "cursor", "code", "windsurf", "codex" };
+        if (preset == "browser-ai")
+            return new string[] { "chrome", "msedge", "firefox", "brave" };
+        if (preset == "terminal-agent")
+            return new string[] { "windowsterminal", "powershell", "pwsh", "cmd", "wezterm-gui" };
+        return new string[0];
+    }
+
     private static ShortcutProfileConfig CreateStarterShortcutProfile(string preset)
     {
         string normalized = preset == "vibe-coding" || preset == "browser-ai" || preset == "terminal-agent"
@@ -10047,7 +10668,8 @@ internal sealed class VibeMicForm : Form
             id = normalized,
             name = StarterProfileName(normalized),
             preset = normalized,
-            mappings = StarterProfileMappings(normalized)
+            mappings = StarterProfileMappings(normalized),
+            processNames = StarterProfileProcessNames(normalized)
         };
     }
 
@@ -10068,8 +10690,45 @@ internal sealed class VibeMicForm : Form
             id = id,
             name = name,
             preset = source == null || string.IsNullOrWhiteSpace(source.preset) ? "custom" : source.preset,
-            mappings = NormalizeShortcutProfileMappings(source == null ? null : source.mappings)
+            mappings = NormalizeShortcutProfileMappings(source == null ? null : source.mappings),
+            processNames = NormalizeSmartProfileProcessNames(source == null ? null : source.processNames, null)
         };
+    }
+
+    private static string NormalizeSmartProfileProcessName(string value)
+    {
+        string name = (value ?? "").Trim();
+        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            name = name.Substring(0, name.Length - 4);
+        if (name.Length == 0 || name.Length > 128 || name.IndexOfAny(new char[] { '\\', '/', ':', '\r', '\n' }) >= 0)
+            return "";
+        var clean = new StringBuilder();
+        foreach (char character in name)
+            if (!char.IsControl(character)) clean.Append(character);
+        return clean.ToString().Trim().ToLowerInvariant();
+    }
+
+    private static string[] NormalizeSmartProfileProcessNames(string[] values, string[] fallback)
+    {
+        string[] source = values == null ? fallback : values;
+        var normalized = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (source != null)
+            foreach (string value in source)
+            {
+                string processName = NormalizeSmartProfileProcessName(value);
+                if (processName.Length > 0 && seen.Add(processName)) normalized.Add(processName);
+            }
+        return normalized.ToArray();
+    }
+
+    private static bool StringArraysEqual(string[] left, string[] right)
+    {
+        if (ReferenceEquals(left, right)) return true;
+        if (left == null || right == null || left.Length != right.Length) return false;
+        for (int index = 0; index < left.Length; index++)
+            if (!string.Equals(left[index], right[index], StringComparison.Ordinal)) return false;
+        return true;
     }
 
     private static string NormalizeShortcutProfileName(string value, string fallback)
@@ -10275,8 +10934,9 @@ internal sealed class VibeMicForm : Form
             value.StartsWith("open-exe:", StringComparison.OrdinalIgnoreCase) ||
             value.StartsWith("open-url:", StringComparison.OrdinalIgnoreCase) ||
             value.StartsWith("open-app:", StringComparison.OrdinalIgnoreCase) ||
-            value.StartsWith("start-app:", StringComparison.OrdinalIgnoreCase) ||
-            value.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase)) return true;
+            value.StartsWith("start-app:", StringComparison.OrdinalIgnoreCase)) return true;
+        if (value.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase))
+            return IsValidMappingShortcut(value.Substring("shortcut:".Length));
         string[] supported = {
             "none", "passthrough", "up", "down", "left", "right",
             "ctrl+c", "ctrl+x", "ctrl+v", "ctrl+z", "ctrl+shift+z",
@@ -10561,7 +11221,8 @@ internal sealed class VibeMicForm : Form
             string label = parts.Length > 1 ? DecodeActionPart(parts[1]) : "";
             return string.IsNullOrWhiteSpace(label) ? "打开已安装应用" : "打开 " + label;
         }
-        if (value.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase)) return "发送自定义快捷键";
+        if (value.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase))
+            return "快捷键 · " + MappingShortcutDisplay(value.Substring("shortcut:".Length));
         return action;
     }
 
@@ -10608,7 +11269,7 @@ internal sealed class VibeMicForm : Form
             new ShortcutChoice("系统 · 静音切换", "volumemute"),
             new ShortcutChoice("媒体 · 播放 / 暂停", "mediaplaypause"),
             new ShortcutChoice("浏览其他 EXE…", "open-exe:prompt"),
-            new ShortcutChoice("发送自定义快捷键…", "shortcut:prompt")
+            new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")
         };
         if (!string.IsNullOrWhiteSpace(current) && !choices.Exists(delegate(ShortcutChoice choice)
             { return choice.Shortcut.Equals(current, StringComparison.OrdinalIgnoreCase); }))
@@ -10661,16 +11322,385 @@ internal sealed class VibeMicForm : Form
         }
         if (action.Equals("shortcut:prompt", StringComparison.OrdinalIgnoreCase))
         {
-            string value = PromptForText("自定义快捷键", "例如 ctrl+shift+p、alt+left 或 f6", "", owner);
-            value = (value ?? "").Trim().ToLowerInvariant();
-            if (!IsValidTranscriptionHotkey(value))
-            {
-                if (!string.IsNullOrWhiteSpace(value)) ShowToast("快捷键格式不正确", "warning");
-                return "";
-            }
-            return "shortcut:" + value;
+            string value = ShowKeyboardShortcutRecorder(owner);
+            return string.IsNullOrWhiteSpace(value) ? "" : "shortcut:" + value;
         }
         return action;
+    }
+
+    private string ShowKeyboardShortcutRecorder(IWin32Window owner)
+    {
+        using (var dialog = new Form())
+        using (var captureSurface = new Panel())
+        using (var capturedLabel = new Label())
+        using (var stateLabel = new Label())
+        using (var recordAgain = new Button())
+        using (var accept = new Button())
+        using (var cancel = new Button())
+        {
+            dialog.Text = "录制键盘快捷键";
+            dialog.StartPosition = FormStartPosition.CenterParent;
+            dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+            dialog.MinimizeBox = false;
+            dialog.MaximizeBox = false;
+            dialog.ShowInTaskbar = false;
+            dialog.ClientSize = new Size(620, 340);
+            dialog.BackColor = cardBackground;
+            dialog.Font = Font;
+
+            var title = NewLabel("直接按下要映射的快捷键", 14f, FontStyle.Bold, ink);
+            title.Location = new Point(24, 20);
+            title.Size = new Size(560, 34);
+            var help = NewLabel("无需输入 Ctrl、Shift 等名称。录制期间按键会被拦截，不会触发系统动作。",
+                8.8f, FontStyle.Regular, muted);
+            help.Location = new Point(24, 56);
+            help.Size = new Size(560, 26);
+
+            captureSurface.Location = new Point(24, 98);
+            captureSurface.Size = new Size(572, 126);
+            captureSurface.BackColor = StatusSurface("recording");
+            captureSurface.BorderStyle = BorderStyle.FixedSingle;
+            capturedLabel.Dock = DockStyle.Top;
+            capturedLabel.Height = 76;
+            capturedLabel.Text = "等待按键…";
+            capturedLabel.TextAlign = ContentAlignment.BottomCenter;
+            capturedLabel.Font = new Font("Microsoft YaHei UI", 16f, FontStyle.Bold);
+            capturedLabel.ForeColor = violet;
+            stateLabel.Dock = DockStyle.Bottom;
+            stateLabel.Height = 42;
+            stateLabel.Text = "按住完整组合键，然后全部松开";
+            stateLabel.TextAlign = ContentAlignment.TopCenter;
+            stateLabel.Font = new Font("Microsoft YaHei UI", 8.8f, FontStyle.Regular);
+            stateLabel.ForeColor = muted;
+            captureSurface.Controls.Add(capturedLabel);
+            captureSurface.Controls.Add(stateLabel);
+
+            var privacy = NewLabel("只记录这一次按键组合；不会保存键盘输入历史。Ctrl+Alt+Delete 等 Windows 保留组合无法映射。",
+                8.2f, FontStyle.Regular, muted);
+            privacy.Location = new Point(24, 236);
+            privacy.Size = new Size(572, 38);
+            privacy.TextAlign = ContentAlignment.MiddleLeft;
+
+            recordAgain.Text = "重新录制";
+            recordAgain.Location = new Point(24, 286);
+            recordAgain.Size = new Size(112, 36);
+            recordAgain.FlatStyle = FlatStyle.Flat;
+            recordAgain.BackColor = surfaceBackground;
+            recordAgain.ForeColor = ink;
+            recordAgain.FlatAppearance.BorderColor = line;
+            accept.Text = "使用此快捷键";
+            accept.Location = new Point(356, 286);
+            accept.Size = new Size(132, 36);
+            accept.BackColor = violet;
+            accept.ForeColor = Color.White;
+            accept.FlatStyle = FlatStyle.Flat;
+            accept.FlatAppearance.BorderSize = 0;
+            accept.Enabled = false;
+            cancel.Text = "取消";
+            cancel.DialogResult = DialogResult.Cancel;
+            cancel.Location = new Point(500, 286);
+            cancel.Size = new Size(96, 36);
+            cancel.BackColor = surfaceBackground;
+            cancel.ForeColor = ink;
+            cancel.FlatStyle = FlatStyle.Flat;
+            cancel.FlatAppearance.BorderColor = line;
+            dialog.CancelButton = cancel;
+
+            string captured = "";
+            KeyboardShortcutCaptureSession session = null;
+            Action beginCapture = delegate
+            {
+                if (session != null) { session.Dispose(); session = null; }
+                captured = "";
+                accept.Enabled = false;
+                capturedLabel.Text = "等待按键…";
+                capturedLabel.ForeColor = violet;
+                stateLabel.Text = "按住完整组合键，然后全部松开";
+                stateLabel.ForeColor = muted;
+                session = new KeyboardShortcutCaptureSession(delegate(string shortcut, bool completed, string error)
+                {
+                    if (dialog.IsDisposed) return;
+                    Action update = delegate
+                    {
+                        if (!string.IsNullOrWhiteSpace(error))
+                        {
+                            captured = "";
+                            capturedLabel.Text = "无法记录";
+                            capturedLabel.ForeColor = coral;
+                            stateLabel.Text = error + "，请重新按一次";
+                            stateLabel.ForeColor = coral;
+                            accept.Enabled = false;
+                            return;
+                        }
+                        if (!string.IsNullOrWhiteSpace(shortcut))
+                        {
+                            captured = shortcut;
+                            capturedLabel.Text = MappingShortcutDisplay(shortcut);
+                            capturedLabel.ForeColor = completed ? green : violet;
+                            stateLabel.Text = completed ? "已记录，可保存或重新录制" : "保持按住，松开后完成录制";
+                            stateLabel.ForeColor = completed ? green : muted;
+                            accept.Enabled = completed;
+                        }
+                    };
+                    if (dialog.InvokeRequired) dialog.BeginInvoke(update); else update();
+                });
+                string hookError;
+                if (!session.Start(out hookError))
+                {
+                    capturedLabel.Text = "录制器无法启动";
+                    capturedLabel.ForeColor = coral;
+                    stateLabel.Text = hookError;
+                    stateLabel.ForeColor = coral;
+                }
+            };
+            recordAgain.Click += delegate { beginCapture(); };
+            accept.Click += delegate
+            {
+                string normalized;
+                if (!TryNormalizeMappingShortcut(captured, out normalized))
+                {
+                    stateLabel.Text = "这个组合键无法执行，请重新录制";
+                    stateLabel.ForeColor = coral;
+                    accept.Enabled = false;
+                    return;
+                }
+                captured = normalized;
+                dialog.DialogResult = DialogResult.OK;
+                dialog.Close();
+            };
+            dialog.Shown += delegate { beginCapture(); };
+            dialog.FormClosed += delegate
+            {
+                if (session != null) { session.Dispose(); session = null; }
+            };
+            dialog.Controls.Add(title);
+            dialog.Controls.Add(help);
+            dialog.Controls.Add(captureSurface);
+            dialog.Controls.Add(privacy);
+            dialog.Controls.Add(recordAgain);
+            dialog.Controls.Add(accept);
+            dialog.Controls.Add(cancel);
+            return dialog.ShowDialog(owner ?? this) == DialogResult.OK ? captured : "";
+        }
+    }
+
+    private static bool IsValidMappingShortcut(string shortcut)
+    {
+        string normalized;
+        return TryNormalizeMappingShortcut(shortcut, out normalized);
+    }
+
+    private static bool TryNormalizeMappingShortcut(string shortcut, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrWhiteSpace(shortcut)) return false;
+        string[] parts = shortcut.Split(new char[] { '+', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0 || parts.Length > 5) return false;
+        var virtualKeys = new List<int>();
+        foreach (string raw in parts)
+        {
+            int virtualKey = MappingShortcutVirtualKey(raw);
+            if (virtualKey <= 0 || virtualKey > 0xFF || virtualKeys.Contains(virtualKey)) return false;
+            virtualKeys.Add(virtualKey);
+        }
+
+        int mainKeyCount = 0;
+        foreach (int virtualKey in virtualKeys)
+            if (!IsShortcutModifierVirtualKey(virtualKey)) mainKeyCount++;
+        if (mainKeyCount > 1) return false;
+        if (virtualKeys.Contains(0xA2) && virtualKeys.Contains(0xA5) && virtualKeys.Count == 2)
+        {
+            virtualKeys.Clear();
+            virtualKeys.Add(0xA5);
+        }
+        if (virtualKeys.Contains(0x2E) && HasControlModifier(virtualKeys) && HasAltModifier(virtualKeys)) return false;
+
+        var ordered = new List<int>();
+        int[] modifierOrder = { 0xA2, 0xA3, 0xA0, 0xA1, 0xA4, 0xA5, 0x5B, 0x5C };
+        foreach (int modifier in modifierOrder)
+            if (virtualKeys.Contains(modifier)) ordered.Add(modifier);
+        foreach (int virtualKey in virtualKeys)
+            if (!IsShortcutModifierVirtualKey(virtualKey)) ordered.Add(virtualKey);
+        if (ordered.Count == 0) return false;
+        var tokens = new List<string>();
+        foreach (int virtualKey in ordered) tokens.Add(MappingShortcutToken(virtualKey));
+        normalized = string.Join("+", tokens.ToArray());
+        return normalized.Length > 0;
+    }
+
+    private static bool TryNormalizeCapturedShortcut(ICollection<int> pressedKeys,
+        IList<int> pressOrder, out string shortcut, out string error)
+    {
+        shortcut = "";
+        error = "";
+        if (pressedKeys == null || pressedKeys.Count == 0) return false;
+        var parts = new List<string>();
+        int[] modifierOrder = { 0xA2, 0xA3, 0xA0, 0xA1, 0xA4, 0xA5, 0x5B, 0x5C };
+        foreach (int modifier in modifierOrder)
+            if (pressedKeys.Contains(modifier)) parts.Add(MappingShortcutToken(modifier));
+        int mainKey = 0;
+        if (pressOrder != null)
+            foreach (int virtualKey in pressOrder)
+            {
+                if (!pressedKeys.Contains(virtualKey) || IsShortcutModifierVirtualKey(virtualKey)) continue;
+                if (mainKey != 0 && mainKey != virtualKey)
+                {
+                    error = "一次只能录制一个主键";
+                    return false;
+                }
+                mainKey = virtualKey;
+            }
+        if (mainKey != 0) parts.Add(MappingShortcutToken(mainKey));
+        string candidate = string.Join("+", parts.ToArray());
+        if (!TryNormalizeMappingShortcut(candidate, out shortcut))
+        {
+            error = candidate.IndexOf("delete", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                candidate.IndexOf("ctrl", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                candidate.IndexOf("alt", StringComparison.OrdinalIgnoreCase) >= 0
+                ? "Ctrl+Alt+Delete 由 Windows 保留" : "这个按键组合不受支持";
+            return false;
+        }
+        return true;
+    }
+
+    private static bool HasControlModifier(ICollection<int> virtualKeys)
+    {
+        return virtualKeys.Contains(0xA2) || virtualKeys.Contains(0xA3);
+    }
+
+    private static bool HasAltModifier(ICollection<int> virtualKeys)
+    {
+        return virtualKeys.Contains(0xA4) || virtualKeys.Contains(0xA5);
+    }
+
+    private static bool IsShortcutModifierVirtualKey(int virtualKey)
+    {
+        return virtualKey == 0xA0 || virtualKey == 0xA1 || virtualKey == 0xA2 || virtualKey == 0xA3 ||
+            virtualKey == 0xA4 || virtualKey == 0xA5 || virtualKey == 0x5B || virtualKey == 0x5C;
+    }
+
+    private static int MappingShortcutVirtualKey(string token)
+    {
+        string value = (token ?? "").Trim().ToLowerInvariant();
+        if (value.Length == 0) return -1;
+        if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            int parsed;
+            return int.TryParse(value.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out parsed) &&
+                parsed > 0 && parsed <= 0xFF ? parsed : -1;
+        }
+        if (value.Length == 1)
+        {
+            char character = char.ToUpperInvariant(value[0]);
+            if ((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9')) return character;
+        }
+        int functionNumber;
+        if (value.StartsWith("f", StringComparison.OrdinalIgnoreCase) &&
+            int.TryParse(value.Substring(1), out functionNumber) && functionNumber >= 1 && functionNumber <= 24)
+            return 0x70 + functionNumber - 1;
+        var names = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "ctrl", 0xA2 }, { "control", 0xA2 }, { "leftctrl", 0xA2 }, { "lctrl", 0xA2 },
+            { "rightctrl", 0xA3 }, { "rctrl", 0xA3 },
+            { "shift", 0xA0 }, { "leftshift", 0xA0 }, { "lshift", 0xA0 },
+            { "rightshift", 0xA1 }, { "rshift", 0xA1 },
+            { "alt", 0xA4 }, { "leftalt", 0xA4 }, { "lalt", 0xA4 },
+            { "rightalt", 0xA5 }, { "ralt", 0xA5 },
+            { "win", 0x5B }, { "meta", 0x5B }, { "leftwin", 0x5B }, { "lwin", 0x5B },
+            { "rightwin", 0x5C }, { "rwin", 0x5C },
+            { "enter", 0x0D }, { "return", 0x0D }, { "escape", 0x1B }, { "esc", 0x1B },
+            { "tab", 0x09 }, { "space", 0x20 }, { "backspace", 0x08 }, { "back", 0x08 },
+            { "left", 0x25 }, { "up", 0x26 }, { "right", 0x27 }, { "down", 0x28 },
+            { "home", 0x24 }, { "end", 0x23 }, { "pageup", 0x21 }, { "pagedown", 0x22 },
+            { "insert", 0x2D }, { "delete", 0x2E }, { "capslock", 0x14 }, { "numlock", 0x90 },
+            { "scrolllock", 0x91 }, { "printscreen", 0x2C }, { "pause", 0x13 },
+            { "apps", 0x5D }, { "menu", 0x5D }, { "browserback", 0xA6 },
+            { "browserforward", 0xA7 }, { "volumeup", 0xAF }, { "volumedown", 0xAE },
+            { "volumemute", 0xAD }, { "mediaplaypause", 0xB3 }
+        };
+        int result;
+        return names.TryGetValue(value, out result) ? result : -1;
+    }
+
+    private static string MappingShortcutToken(int virtualKey)
+    {
+        if (virtualKey >= 'A' && virtualKey <= 'Z') return ((char)virtualKey).ToString().ToLowerInvariant();
+        if (virtualKey >= '0' && virtualKey <= '9') return ((char)virtualKey).ToString();
+        if (virtualKey >= 0x70 && virtualKey <= 0x87) return "f" + (virtualKey - 0x70 + 1);
+        var names = new Dictionary<int, string>
+        {
+            { 0xA2, "ctrl" }, { 0xA3, "rightctrl" }, { 0xA0, "shift" }, { 0xA1, "rightshift" },
+            { 0xA4, "alt" }, { 0xA5, "rightalt" }, { 0x5B, "win" }, { 0x5C, "rightwin" },
+            { 0x0D, "enter" }, { 0x1B, "escape" }, { 0x09, "tab" }, { 0x20, "space" },
+            { 0x08, "backspace" }, { 0x25, "left" }, { 0x26, "up" }, { 0x27, "right" },
+            { 0x28, "down" }, { 0x24, "home" }, { 0x23, "end" }, { 0x21, "pageup" },
+            { 0x22, "pagedown" }, { 0x2D, "insert" }, { 0x2E, "delete" }, { 0x14, "capslock" },
+            { 0x90, "numlock" }, { 0x91, "scrolllock" }, { 0x2C, "printscreen" }, { 0x13, "pause" },
+            { 0x5D, "apps" }, { 0xA6, "browserback" }, { 0xA7, "browserforward" },
+            { 0xAF, "volumeup" }, { 0xAE, "volumedown" }, { 0xAD, "volumemute" },
+            { 0xB3, "mediaplaypause" }
+        };
+        string value;
+        return names.TryGetValue(virtualKey, out value) ? value : "0x" + virtualKey.ToString("X2");
+    }
+
+    private static string MappingShortcutDisplay(string shortcut)
+    {
+        string normalized;
+        if (!TryNormalizeMappingShortcut(shortcut, out normalized)) return shortcut ?? "";
+        string[] parts = normalized.Split('+');
+        var labels = new List<string>();
+        foreach (string part in parts)
+        {
+            int virtualKey = MappingShortcutVirtualKey(part);
+            string label;
+            switch (virtualKey)
+            {
+                case 0xA2: label = "Ctrl"; break;
+                case 0xA3: label = "Right Ctrl"; break;
+                case 0xA0: label = "Shift"; break;
+                case 0xA1: label = "Right Shift"; break;
+                case 0xA4: label = "Alt"; break;
+                case 0xA5: label = "Right Alt"; break;
+                case 0x5B: label = "Win"; break;
+                case 0x5C: label = "Right Win"; break;
+                case 0x1B: label = "Esc"; break;
+                case 0x0D: label = "Enter"; break;
+                case 0x09: label = "Tab"; break;
+                case 0x20: label = "Space"; break;
+                case 0x08: label = "Backspace"; break;
+                case 0x25: label = "Left"; break;
+                case 0x26: label = "Up"; break;
+                case 0x27: label = "Right"; break;
+                case 0x28: label = "Down"; break;
+                case 0x24: label = "Home"; break;
+                case 0x23: label = "End"; break;
+                case 0x21: label = "Page Up"; break;
+                case 0x22: label = "Page Down"; break;
+                case 0x2D: label = "Insert"; break;
+                case 0x2E: label = "Delete"; break;
+                case 0x2C: label = "Print Screen"; break;
+                case 0xBA: label = ";"; break;
+                case 0xBB: label = "+"; break;
+                case 0xBC: label = ","; break;
+                case 0xBD: label = "-"; break;
+                case 0xBE: label = "."; break;
+                case 0xBF: label = "/"; break;
+                case 0xC0: label = "`"; break;
+                case 0xDB: label = "["; break;
+                case 0xDC: label = "\\"; break;
+                case 0xDD: label = "]"; break;
+                case 0xDE: label = "'"; break;
+                default:
+                    label = virtualKey >= 'A' && virtualKey <= 'Z' ? ((char)virtualKey).ToString() :
+                        virtualKey >= '0' && virtualKey <= '9' ? ((char)virtualKey).ToString() :
+                        virtualKey >= 0x70 && virtualKey <= 0x87 ? "F" + (virtualKey - 0x70 + 1) :
+                        MappingShortcutToken(virtualKey);
+                    break;
+            }
+            labels.Add(label);
+        }
+        return string.Join(" + ", labels.ToArray());
     }
 
     private string SelectApplicationAction(IWin32Window owner)
@@ -11975,6 +13005,170 @@ internal sealed class VibeMicForm : Form
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] public string TypeName;
     }
 
+    private sealed class KeyboardShortcutCaptureSession : IDisposable
+    {
+        private const int WhKeyboardLl = 13;
+        private const int WmKeyDown = 0x0100;
+        private const int WmKeyUp = 0x0101;
+        private const int WmSysKeyDown = 0x0104;
+        private const int WmSysKeyUp = 0x0105;
+        private const int LlkhfExtended = 0x01;
+        private const int LlkhfInjected = 0x10;
+
+        private readonly Action<string, bool, string> changed;
+        private readonly HashSet<int> pressed = new HashSet<int>();
+        private readonly List<int> pressOrder = new List<int>();
+        private LowLevelKeyboardCaptureProc callback;
+        private IntPtr hook = IntPtr.Zero;
+        private string candidate = "";
+        private string candidateError = "";
+        private bool invalidChord;
+        private bool disposed;
+
+        public KeyboardShortcutCaptureSession(Action<string, bool, string> changedCallback)
+        {
+            changed = changedCallback;
+        }
+
+        public bool Start(out string error)
+        {
+            error = "";
+            if (disposed)
+            {
+                error = "录制会话已经结束";
+                return false;
+            }
+            Stop();
+            pressed.Clear();
+            pressOrder.Clear();
+            candidate = "";
+            candidateError = "";
+            invalidChord = false;
+            callback = HookCallback;
+            hook = SetWindowsHookEx(WhKeyboardLl, callback, GetModuleHandle(null), 0);
+            if (hook != IntPtr.Zero) return true;
+            error = "Windows 键盘监听启动失败（" + Marshal.GetLastWin32Error() + "）";
+            callback = null;
+            return false;
+        }
+
+        private IntPtr HookCallback(int code, IntPtr message, IntPtr dataPointer)
+        {
+            if (code < 0 || disposed || hook == IntPtr.Zero)
+                return CallNextHookEx(hook, code, message, dataPointer);
+            int messageId = message.ToInt32();
+            bool isDown = messageId == WmKeyDown || messageId == WmSysKeyDown;
+            bool isUp = messageId == WmKeyUp || messageId == WmSysKeyUp;
+            if (!isDown && !isUp) return CallNextHookEx(hook, code, message, dataPointer);
+
+            LowLevelKeyboardCaptureData data = (LowLevelKeyboardCaptureData)Marshal.PtrToStructure(
+                dataPointer, typeof(LowLevelKeyboardCaptureData));
+            if ((data.Flags & LlkhfInjected) != 0)
+                return CallNextHookEx(hook, code, message, dataPointer);
+            int virtualKey = NormalizeVirtualKey(data.VirtualKey, data.ScanCode, data.Flags);
+            if (virtualKey <= 0) return CallNextHookEx(hook, code, message, dataPointer);
+
+            if (isDown)
+            {
+                if (pressed.Add(virtualKey)) pressOrder.Add(virtualKey);
+                string normalized;
+                string error;
+                if (TryNormalizeCapturedShortcut(pressed, pressOrder, out normalized, out error))
+                {
+                    candidate = normalized;
+                    candidateError = "";
+                    Notify(candidate, false, "");
+                }
+                else if (!string.IsNullOrWhiteSpace(error))
+                {
+                    invalidChord = true;
+                    candidateError = error;
+                    Notify("", false, error);
+                }
+                return new IntPtr(1);
+            }
+
+            if (!pressed.Remove(virtualKey))
+                return CallNextHookEx(hook, code, message, dataPointer);
+            if (pressed.Count == 0)
+            {
+                pressOrder.Clear();
+                if (!invalidChord && !string.IsNullOrWhiteSpace(candidate))
+                {
+                    string completed = candidate;
+                    Stop();
+                    Notify(completed, true, "");
+                }
+                else
+                {
+                    string error = string.IsNullOrWhiteSpace(candidateError)
+                        ? "这个按键组合不受支持" : candidateError;
+                    candidate = "";
+                    candidateError = "";
+                    invalidChord = false;
+                    Notify("", false, error);
+                }
+            }
+            return new IntPtr(1);
+        }
+
+        private static int NormalizeVirtualKey(int virtualKey, int scanCode, int flags)
+        {
+            if (virtualKey == 0x10) return scanCode == 0x36 ? 0xA1 : 0xA0;
+            if (virtualKey == 0x11) return (flags & LlkhfExtended) != 0 ? 0xA3 : 0xA2;
+            if (virtualKey == 0x12) return (flags & LlkhfExtended) != 0 ? 0xA5 : 0xA4;
+            return virtualKey;
+        }
+
+        private void Notify(string shortcut, bool completed, string error)
+        {
+            try { if (changed != null) changed(shortcut ?? "", completed, error ?? ""); }
+            catch { }
+        }
+
+        private void Stop()
+        {
+            IntPtr active = hook;
+            hook = IntPtr.Zero;
+            if (active != IntPtr.Zero) UnhookWindowsHookEx(active);
+            callback = null;
+        }
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+            Stop();
+            pressed.Clear();
+            pressOrder.Clear();
+        }
+
+        private delegate IntPtr LowLevelKeyboardCaptureProc(int code, IntPtr message, IntPtr data);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct LowLevelKeyboardCaptureData
+        {
+            public int VirtualKey;
+            public int ScanCode;
+            public int Flags;
+            public int Time;
+            public IntPtr ExtraInfo;
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int hookId, LowLevelKeyboardCaptureProc procedure,
+            IntPtr module, uint threadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hookHandle);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr CallNextHookEx(IntPtr hookHandle, int code, IntPtr message, IntPtr data);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr GetModuleHandle(string moduleName);
+    }
+
     private sealed class BridgeHealthSnapshot
     {
         public bool Healthy;
@@ -12010,6 +13204,13 @@ internal sealed class VibeMicForm : Form
         public int ConfigVersion;
         public string ConfigRevision = "";
         public int ConfigMappingCount;
+        public bool SmartProfilesEnabled;
+        public bool SmartProfileLocked;
+        public string SmartConfiguredProfileId = "";
+        public string SmartEffectiveProfileId = "";
+        public string SmartEffectiveProfileName = "";
+        public string SmartForegroundProcess = "";
+        public string SmartMatchState = "";
         public string ConfigError = "";
         public string InstallRoot = "";
         public DateTime ConfigLoadedAtUtc = DateTime.MinValue;
@@ -12171,6 +13372,9 @@ internal sealed class VibeMicForm : Form
         public string mappingPreset { get; set; }
         public Dictionary<string, string> mappings { get; set; }
         public string activeShortcutProfileId { get; set; }
+        public bool smartProfilesEnabled { get; set; }
+        public bool smartProfileLocked { get; set; }
+        public string smartProfileFallbackId { get; set; }
         public ShortcutProfileConfig[] shortcutProfiles { get; set; }
         public CustomButtonConfig[] customButtons { get; set; }
 
@@ -12205,6 +13409,9 @@ internal sealed class VibeMicForm : Form
             c.mappingPreset = "general";
             c.shortcutProfiles = DefaultShortcutProfiles();
             c.activeShortcutProfileId = "general";
+            c.smartProfilesEnabled = false;
+            c.smartProfileLocked = false;
+            c.smartProfileFallbackId = "general";
             c.mappings = CloneMappings(c.shortcutProfiles[0].mappings);
             c.customButtons = null;
             return c;
@@ -12217,6 +13424,7 @@ internal sealed class VibeMicForm : Form
         public string name { get; set; }
         public string preset { get; set; }
         public Dictionary<string, string> mappings { get; set; }
+        public string[] processNames { get; set; }
     }
 
     private sealed class ShortcutProfileExport
@@ -12298,6 +13506,21 @@ internal sealed class VibeMicForm : Form
             IconReference = iconReference ?? "";
         }
         public override string ToString() { return Label + "    " + Detail; }
+    }
+
+    private sealed class SmartApplicationChoice
+    {
+        public readonly string Name;
+        public readonly string ProcessName;
+        public readonly string Detail;
+        public readonly string IconReference;
+        public SmartApplicationChoice(string name, string processName, string detail, string iconReference)
+        {
+            Name = name ?? processName ?? "应用";
+            ProcessName = processName ?? "";
+            Detail = detail ?? "本机应用";
+            IconReference = iconReference ?? "";
+        }
     }
 
     private sealed class StartApplicationRecord
