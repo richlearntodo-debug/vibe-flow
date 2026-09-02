@@ -13,9 +13,9 @@ using System.Windows.Forms;
 [assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
 [assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
-[assembly: System.Reflection.AssemblyVersion("1.2.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("1.2.1.0")]
-[assembly: System.Reflection.AssemblyInformationalVersion("1.2.1")]
+[assembly: System.Reflection.AssemblyVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("1.4.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersion("1.4.0-preview")]
 
 internal static class VoxDeckInputBridge
 {
@@ -26,6 +26,9 @@ internal static class VoxDeckInputBridge
     private const int WM_SYSKEYUP = 0x0105;
     private const int WM_INPUT = 0x00FF;
     private const int WM_INPUT_DEVICE_CHANGE = 0x00FE;
+    private const int WM_QUIT = 0x0012;
+    private const int WM_APP_REINSTALL_HOOK = 0x8001;
+    private const uint PM_NOREMOVE = 0x0000;
     private const int LLKHF_INJECTED = 0x10;
     private const uint RID_INPUT = 0x10000003;
     private const uint RIDI_PREPARSEDDATA = 0x20000005;
@@ -34,6 +37,7 @@ internal static class VoxDeckInputBridge
     private const uint RIM_TYPEHID = 2;
     private const int RIDEV_INPUTSINK = 0x00000100;
     private const int RIDEV_DEVNOTIFY = 0x00002000;
+    private const uint MAPVK_VSC_TO_VK_EX = 3;
     private const ushort HID_USAGE_PAGE_CONSUMER = 0x0C;
     private const ushort HID_USAGE_PAGE_KEYBOARD = 0x07;
     private const ushort HID_USAGE_BACK = 0xF1;
@@ -51,6 +55,7 @@ internal static class VoxDeckInputBridge
     private const int DEFAULT_LONG_PRESS_MS = 650;
     private const int HOLD_REPEAT_INITIAL_DELAY_MS = 420;
     private const int HOLD_REPEAT_INTERVAL_MS = 80;
+    private const int VOICE_RESTART_GUARD_MS = 500;
 
     private static readonly object stateLock = new object();
     private static readonly object logLock = new object();
@@ -63,19 +68,32 @@ internal static class VoxDeckInputBridge
 
     private static IntPtr hookHandle = IntPtr.Zero;
     private static LowLevelKeyboardProc hookProc = HookCallback;
+    private static Thread keyboardHookThread;
+    private static uint keyboardHookThreadId;
+    private static readonly ManualResetEvent keyboardHookReady = new ManualResetEvent(false);
+    private static readonly object hookThreadLock = new object();
+    private static string pendingHookReinstallReason = "";
+    private static readonly RawKeyboardEdgeTracker rawKeyboardEdgeTracker =
+        new RawKeyboardEdgeTracker();
+    private static Rc003FilterClient rc003FilterClient;
     private static Mutex singleInstance;
     private static EventWaitHandle stopEvent;
     private static EventWaitHandle voiceKeyPressedEvent;
     private static EventWaitHandle voiceKeyHeldEvent;
     private static EventWaitHandle voiceKeyReleasedEvent;
     private static EventWaitHandle voiceWakeRequestEvent;
+    private static EventWaitHandle reloadConfigEvent;
+    private static RegisteredWaitHandle reloadConfigRegistration;
     private static int voiceKeyHeldState;
     private static readonly object voiceTransitionLock = new object();
+    private static DateTime lastVoiceReleaseUtc = DateTime.MinValue;
     private static readonly BlockingCollection<MappingEvent> mappingQueue = new BlockingCollection<MappingEvent>();
     private static Thread mappingWorker;
     private static BridgeConfig config = BridgeConfig.Default();
     private static bool useScanCode = true;
     private static DateTime configLastWriteUtc = DateTime.MinValue;
+    private static DateTime configLoadedAtUtc = DateTime.MinValue;
+    private static string configLoadError = "";
     private static readonly object taskSwitcherLock = new object();
     private const int TASK_SWITCHER_TIMEOUT_MS = 30000;
     private static readonly HashSet<int> taskSwitcherKeysDown = new HashSet<int>();
@@ -90,6 +108,7 @@ internal static class VoxDeckInputBridge
     private static string knownRc003DeviceFingerprint = "";
     private static readonly HashSet<int> consumerUsagesDown = new HashSet<int>();
     private static readonly HashSet<int> keyboardUsagesDown = new HashSet<int>();
+    private static readonly HashSet<string> ignoredRawCandidateFingerprints = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private static readonly object customCaptureLock = new object();
     private static DateTime customCaptureRequestLastWriteUtc = DateTime.MinValue;
     private static CustomCaptureRequest customCaptureRequest;
@@ -101,6 +120,16 @@ internal static class VoxDeckInputBridge
     private static DateTime lastHookInputUtc = DateTime.MinValue;
     private static int lastHookInputVk;
     private static int lastHookInputScan;
+    private static long rawRemoteEdgeCount;
+    private static long rawActionEdgeCount;
+    private static long hookCandidatePassthroughCount;
+    private static long filterActionEdgeCount;
+    private static DateTime lastRawActionUtc = DateTime.MinValue;
+    private static string lastRawAction = "";
+    private static string lastActionSource = "";
+    private static readonly object actionReceiptLock = new object();
+    private static long actionReceiptSequence;
+    private static ActionExecutionReceipt lastExecutionReceipt;
 
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string ConfigPath = Path.Combine(Root, "voxdeck-shortcuts.json");
@@ -109,6 +138,7 @@ internal static class VoxDeckInputBridge
     private static readonly string CustomCaptureRequestPath = Path.Combine(Root, "custom-button-capture-request.json");
     private static readonly string CustomCaptureResultPath = Path.Combine(Root, "custom-button-capture-result.json");
     private static readonly string CustomTestPath = Path.Combine(Root, "custom-button-test.json");
+    private static readonly string CustomTestResultPath = Path.Combine(Root, "custom-button-test-result.json");
 
     [STAThread]
     private static void Main(string[] args)
@@ -147,7 +177,15 @@ internal static class VoxDeckInputBridge
             voiceKeyHeldEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicVoiceKeyHeld");
             voiceKeyReleasedEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceKeyReleased");
             voiceWakeRequestEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicVoiceWakeRequested");
+            reloadConfigEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicReloadKeyboardConfig");
+            reloadConfigRegistration = ThreadPool.RegisterWaitForSingleObject(reloadConfigEvent,
+                delegate
+                {
+                    ReloadConfig(true, "reload_event");
+                    WriteHealth("running");
+                }, null, Timeout.Infinite, false);
             voiceKeyHeldEvent.Reset();
+            StartRc003FilterClient();
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
@@ -159,30 +197,29 @@ internal static class VoxDeckInputBridge
             });
             Log("Starting VoxDeckInputBridge");
             Log("INPUT size=" + Marshal.SizeOf(typeof(INPUT)));
-            hookHandle = SetHook(hookProc);
-            Log("SetWindowsHookEx result=" + hookHandle + " error=" + Marshal.GetLastWin32Error());
+            StartKeyboardHookThread();
             WriteHealth("starting");
             bridgeHealthTimer = new System.Threading.Timer(delegate { WriteHealth("running"); }, null, 0, 2000);
             customTestTimer = new System.Threading.Timer(delegate { ProcessCustomButtonTest(); }, null, 250, 250);
             Application.Run(form);
+            StopRc003FilterClient();
+            StopKeyboardHookThread();
+            rawKeyboardEdgeTracker.Reset();
             mappingQueue.CompleteAdding();
             if (mappingWorker != null) mappingWorker.Join(1500);
             if (bridgeHealthTimer != null) { bridgeHealthTimer.Dispose(); bridgeHealthTimer = null; }
             if (customTestTimer != null) { customTestTimer.Dispose(); customTestTimer = null; }
+            if (reloadConfigRegistration != null) { reloadConfigRegistration.Unregister(null); reloadConfigRegistration = null; }
             WriteHealth("stopped");
             SetVoiceKeyHeld(false);
             ReleaseAllShortcuts();
-            if (hookHandle != IntPtr.Zero)
-            {
-                UnhookWindowsHookEx(hookHandle);
-                Log("Hook uninstalled");
-            }
             try { stopEvent.Set(); } catch { }
             stopEvent.Dispose();
             voiceKeyPressedEvent.Dispose();
             voiceKeyHeldEvent.Dispose();
             voiceKeyReleasedEvent.Dispose();
             voiceWakeRequestEvent.Dispose();
+            reloadConfigEvent.Dispose();
         }
     }
 
@@ -192,6 +229,77 @@ internal static class VoxDeckInputBridge
         using (ProcessModule currentModule = currentProcess.MainModule)
         {
             return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(currentModule.ModuleName), 0);
+        }
+    }
+
+    private static void StartKeyboardHookThread()
+    {
+        keyboardHookReady.Reset();
+        keyboardHookThread = new Thread(KeyboardHookThreadMain);
+        keyboardHookThread.IsBackground = true;
+        keyboardHookThread.Name = "Vibe Flow device-aware keyboard hook";
+        keyboardHookThread.Start();
+        if (!keyboardHookReady.WaitOne(2000) || hookHandle == IntPtr.Zero)
+            Log("Keyboard hook thread failed to become ready");
+    }
+
+    private static void KeyboardHookThreadMain()
+    {
+        keyboardHookThreadId = GetCurrentThreadId();
+        MSG bootstrapMessage;
+        PeekMessage(out bootstrapMessage, IntPtr.Zero, 0, 0, PM_NOREMOVE);
+        hookHandle = SetHook(hookProc);
+        int error = hookHandle == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
+        Log("SetWindowsHookEx result=" + hookHandle + " thread=" + keyboardHookThreadId + " error=" + error);
+        keyboardHookReady.Set();
+
+        MSG message;
+        while (GetMessage(out message, IntPtr.Zero, 0, 0) > 0)
+        {
+            if (message.message == WM_APP_REINSTALL_HOOK)
+            {
+                string reason;
+                lock (hookThreadLock)
+                {
+                    reason = pendingHookReinstallReason;
+                    pendingHookReinstallReason = "";
+                }
+                InstallKeyboardHookOnCurrentThread(reason);
+                continue;
+            }
+            TranslateMessage(ref message);
+            DispatchMessage(ref message);
+        }
+
+        IntPtr installed = hookHandle;
+        hookHandle = IntPtr.Zero;
+        if (installed != IntPtr.Zero) UnhookWindowsHookEx(installed);
+        keyboardHookThreadId = 0;
+        Log("Hook uninstalled");
+    }
+
+    private static void StopKeyboardHookThread()
+    {
+        uint threadId = keyboardHookThreadId;
+        if (threadId != 0) PostThreadMessage(threadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+        if (keyboardHookThread != null && keyboardHookThread.IsAlive) keyboardHookThread.Join(1500);
+        keyboardHookThread = null;
+    }
+
+    private static void InstallKeyboardHookOnCurrentThread(string reason)
+    {
+        try
+        {
+            IntPtr previous = hookHandle;
+            hookHandle = IntPtr.Zero;
+            if (previous != IntPtr.Zero) UnhookWindowsHookEx(previous);
+            hookHandle = SetHook(hookProc);
+            Log("Keyboard hook reinstalled result=" + hookHandle + " reason=" + (reason ?? "unknown") +
+                " error=" + (hookHandle == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0));
+        }
+        catch (Exception ex)
+        {
+            Log("Keyboard hook reinstall failed reason=" + (reason ?? "unknown") + " error=" + ex.Message);
         }
     }
 
@@ -234,26 +342,43 @@ internal static class VoxDeckInputBridge
                                 " scan=0x" + data.scanCode.ToString("X2"));
                         }
                     }
-                    if (mapping != null && mapping.enabled &&
-                        (mapping.shortcut ?? "").Equals("task-switcher", StringComparison.OrdinalIgnoreCase))
+                    bool isVoiceMapping = mapping != null &&
+                        (mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase);
+                    bool taskSwitcherNavigation = IsTaskSwitcherNavigationCandidate(data.vkCode);
+                    if (ShouldBypassHookForRc003Filter(IsRc003FilterHealthy(),
+                        mapping != null, taskSwitcherNavigation))
                     {
-                        HandleTaskSwitcherToggle(isDown, isUp);
-                        return (IntPtr)1;
+                        // A healthy per-device filter has already removed every
+                        // configured RC003 edge before it can reach this hook.
+                        // Any matching edge seen here therefore belongs to an
+                        // ordinary keyboard and must pass through untouched.
+                        return CallNextHookEx(hookHandle, nCode, wParam, lParam);
                     }
-                    if (HandleTaskSwitcherNavigation(data.vkCode, isDown, isUp)) return (IntPtr)1;
-                        if (mapping != null && mapping.enabled)
+                    bool nonVoiceCandidate = !isVoiceMapping &&
+                        ((mapping != null && mapping.enabled) || taskSwitcherNavigation);
+                    if (nonVoiceCandidate)
+                    {
+                        // A low-level keyboard hook has no source-device identity. More
+                        // importantly, returning 1 here prevents Windows from delivering
+                        // the corresponding WM_INPUT packet on this RC003 stack. Let the
+                        // event continue so device-scoped Raw Input can execute the action;
+                        // matching keys on an ordinary keyboard remain untouched.
+                        Interlocked.Increment(ref hookCandidatePassthroughCount);
+                        return CallNextHookEx(hookHandle, nCode, wParam, lParam);
+                    }
+                    if (mapping != null && mapping.enabled)
+                    {
+                        if (isVoiceMapping)
                         {
-                            if ((mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase))
-                            {
-                                // The low-level keyboard hook remains the single authoritative
-                                // fallback for ordinary F5 delivery. RC003 Raw Input also calls
-                                // this same transition method, so reconnects cannot duplicate
-                                // a start/stop signal or leave the held state out of order.
-                                HandleVoicePhysicalTransition(isDown, "keyboard_hook", data.vkCode, data.scanCode);
-                                return mapping.suppress ? (IntPtr)1 : CallNextHookEx(hookHandle, nCode, wParam, lParam);
-                            }
-                            QueueMapping(mapping, isUp);
+                            // The low-level keyboard hook remains the single authoritative
+                            // fallback for ordinary F5 delivery. RC003 Raw Input also calls
+                            // this same transition method, so reconnects cannot duplicate
+                            // a start/stop signal or leave the held state out of order.
+                            HandleVoicePhysicalTransition(isDown, "keyboard_hook", data.vkCode, data.scanCode);
                             return mapping.suppress ? (IntPtr)1 : CallNextHookEx(hookHandle, nCode, wParam, lParam);
+                        }
+                        QueueMapping(mapping, isUp, "keyboard_hook");
+                        return mapping.suppress ? (IntPtr)1 : CallNextHookEx(hookHandle, nCode, wParam, lParam);
                     }
                     if (mapping == null && IsDiagnosticCandidate(data.vkCode))
                     {
@@ -264,6 +389,242 @@ internal static class VoxDeckInputBridge
         }
 
         return CallNextHookEx(hookHandle, nCode, wParam, lParam);
+    }
+
+    private static void StartRc003FilterClient()
+    {
+        if (rc003FilterClient != null) return;
+        rc003FilterClient = new Rc003FilterClient(
+            HandleRc003FilterEvent,
+            HandleRc003FilterHealthChanged);
+        rc003FilterClient.UpdatePolicy(BuildRc003FilterSuppressionMask(config));
+        rc003FilterClient.Start();
+    }
+
+    private static void StopRc003FilterClient()
+    {
+        Rc003FilterClient client = rc003FilterClient;
+        rc003FilterClient = null;
+        if (client == null) return;
+        try { client.Dispose(); }
+        catch (Exception ex) { Log("RC003 filter client shutdown failed: " + ex.Message); }
+    }
+
+    private static void RefreshRc003FilterPolicy()
+    {
+        Rc003FilterClient client = rc003FilterClient;
+        if (client == null) return;
+        client.UpdatePolicy(BuildRc003FilterSuppressionMask(config));
+    }
+
+    private static bool IsRc003FilterHealthy()
+    {
+        Rc003FilterClient client = rc003FilterClient;
+        return client != null && client.IsHealthy;
+    }
+
+    private static bool ShouldBypassHookForRc003Filter(bool filterHealthy,
+        bool mappingResolved, bool taskSwitcherNavigation)
+    {
+        return filterHealthy && (mappingResolved || taskSwitcherNavigation);
+    }
+
+    private static byte[] BuildRc003FilterSuppressionMask(BridgeConfig snapshot)
+    {
+        byte[] mask = new byte[Rc003FilterProtocol.ScanCodeCount];
+        if (snapshot == null || snapshot.mappings == null) return mask;
+        foreach (ShortcutMapping mapping in snapshot.mappings)
+        {
+            if (mapping == null || !mapping.enabled || !mapping.suppress ||
+                !(mapping.sourceType ?? "keyboard").Equals("keyboard", StringComparison.OrdinalIgnoreCase))
+                continue;
+            int scanCode = ParseHexOrDecimal(mapping.scan);
+            if (scanCode >= 0 && scanCode < mask.Length) mask[scanCode] = 1;
+            if ((mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase))
+                mask[0x5E] = 1;
+        }
+        return mask;
+    }
+
+    private static void HandleRc003FilterHealthChanged(bool healthy, string detail)
+    {
+        if (healthy)
+        {
+            rawKeyboardEdgeTracker.Reset();
+            Log("RC003 device filter ready; ordinary keyboards are passthrough detail=" + (detail ?? "ready"));
+            BridgeForm.SetStatusText("RC003 专属按键通道已就绪");
+            return;
+        }
+
+        if (Volatile.Read(ref voiceKeyHeldState) == 1)
+            HandleVoicePhysicalTransition(false, "rc003_filter_unavailable", 0, 0);
+        rawKeyboardEdgeTracker.Reset();
+        Log("RC003 device filter unavailable; Raw Input native-passthrough fallback active detail=" +
+            (detail ?? "unknown"));
+    }
+
+    private static void HandleRc003FilterEvent(Rc003FilterKeyEvent input)
+    {
+        Rc003FilterClient client = rc003FilterClient;
+        if (client == null || !client.IsGenerationActive(input.Generation)) return;
+
+        ReloadConfigIfChanged();
+        client = rc003FilterClient;
+        if (client == null || !client.IsGenerationActive(input.Generation)) return;
+
+        bool keyUp = (input.Flags & Rc003FilterProtocol.KeyBreak) != 0;
+        int virtualKey = VirtualKeyFromRc003FilterEvent(input.MakeCode, input.Flags);
+        ShortcutMapping mapping = FindRc003FilterMapping(virtualKey, input.MakeCode);
+        if (mapping == null && IsVoiceRawCandidate(virtualKey, input.MakeCode))
+            mapping = FindVoiceMapping();
+        bool isVoice = mapping != null &&
+            (mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase);
+
+        MarkRemoteInput("rc003_filter");
+        if (!keyUp && !isVoice) TryCaptureKeyboardButton(virtualKey, input.MakeCode);
+        Log("RC003 FILTER KEY " + (keyUp ? "UP" : "DOWN") +
+            " vk=0x" + virtualKey.ToString("X2") +
+            " scan=0x" + input.MakeCode.ToString("X2") +
+            " flags=0x" + input.Flags.ToString("X2") +
+            " sequence=" + input.Sequence +
+            " suppressed=" + input.Suppressed);
+
+        // Non-suppressed packets are telemetry only; Windows already received
+        // their original input and executing them again would duplicate it.
+        if (!input.Suppressed) return;
+
+        if (mapping == null || !mapping.enabled)
+        {
+            int replayFlags = (input.Flags & Rc003FilterProtocol.KeyE0) != 0 ? 1 : 0;
+            bool replayed = ReplayPhysicalKeyboardEvent(virtualKey, input.MakeCode, replayFlags, keyUp);
+            if (mapping != null && !keyUp)
+                RecordActionExecution(mapping, "单击", mapping.shortcut, replayed, "device_filter_replay");
+            Log("RC003 filter event replayed reason=mapping_not_resolved");
+            return;
+        }
+
+        if (isVoice)
+        {
+            HandleVoicePhysicalTransition(!keyUp, "rc003_filter", virtualKey, input.MakeCode);
+            return;
+        }
+        if (IsTaskSwitcherNavigationCandidate(virtualKey) &&
+            HandleTaskSwitcherNavigation(virtualKey, !keyUp, keyUp))
+        {
+            RecordFilterAction("task-switcher-navigation", keyUp);
+            return;
+        }
+        if ((mapping.shortcut ?? "").Equals("task-switcher", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleTaskSwitcherToggle(!keyUp, keyUp, mapping, "device_filter");
+            RecordFilterAction(mapping.labelOrName(), keyUp);
+            return;
+        }
+        QueueMapping(mapping, keyUp, "device_filter");
+        RecordFilterAction(mapping.labelOrName(), keyUp);
+    }
+
+    private static void RecordFilterAction(string actionName, bool keyUp)
+    {
+        Interlocked.Increment(ref filterActionEdgeCount);
+        lastRawActionUtc = DateTime.UtcNow;
+        lastRawAction = (actionName ?? "unknown") + (keyUp ? ":up" : ":down");
+        lastActionSource = "device_filter";
+        Log("RC003 action routed source=device_filter button=" + (actionName ?? "unknown") +
+            " edge=" + (keyUp ? "up" : "down") +
+            " revision=" + (config == null ? "" : config.revision ?? ""));
+    }
+
+    private static int VirtualKeyFromRc003FilterEvent(int makeCode, int flags)
+    {
+        uint encodedScan = (uint)(makeCode & 0xFF);
+        if ((flags & Rc003FilterProtocol.KeyE0) != 0) encodedScan |= 0xE000;
+        else if ((flags & Rc003FilterProtocol.KeyE1) != 0) encodedScan |= 0xE100;
+        int virtualKey = (int)MapVirtualKey(encodedScan, MAPVK_VSC_TO_VK_EX);
+        return virtualKey != 0 ? virtualKey : (int)MapVirtualKey((uint)(makeCode & 0xFF), 1);
+    }
+
+    private static ShortcutMapping FindRc003FilterMapping(int virtualKey, int scanCode)
+    {
+        ShortcutMapping exact = FindMapping(virtualKey, scanCode);
+        if (exact != null) return exact;
+        BridgeConfig snapshot = config;
+        if (snapshot == null || snapshot.mappings == null) return null;
+        foreach (ShortcutMapping mapping in snapshot.mappings)
+        {
+            if (mapping == null ||
+                !(mapping.sourceType ?? "keyboard").Equals("keyboard", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (ParseHexOrDecimal(mapping.scan) == scanCode) return mapping;
+        }
+        return null;
+    }
+
+    private static bool RouteAuthoritativeRawKeyboard(ShortcutMapping mapping,
+        int virtualKey, int scanCode, bool keyUp)
+    {
+        bool isVoice = mapping != null &&
+            (mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase);
+        if (isVoice) return false;
+
+        bool taskSwitcherNavigation = IsTaskSwitcherNavigationCandidate(virtualKey);
+        if (!taskSwitcherNavigation && mapping == null) return false;
+        if (!rawKeyboardEdgeTracker.ShouldDispatch(virtualKey, scanCode, keyUp)) return false;
+
+        Interlocked.Increment(ref rawRemoteEdgeCount);
+        if (!taskSwitcherNavigation && !mapping.enabled)
+        {
+            if (!keyUp) RecordActionExecution(mapping, "单击", mapping.shortcut, true, "raw_input_passthrough");
+            return false;
+        }
+        string actionName = taskSwitcherNavigation
+            ? "task-switcher-navigation"
+            : mapping == null ? "unmapped" : mapping.name ?? mapping.labelOrName();
+        lastRawActionUtc = DateTime.UtcNow;
+        lastRawAction = actionName + (keyUp ? ":up" : ":down");
+        lastActionSource = "raw_input";
+
+        if (taskSwitcherNavigation && ObserveNativeTaskSwitcherNavigation(virtualKey, !keyUp, keyUp))
+        {
+            Interlocked.Increment(ref rawActionEdgeCount);
+            Log("RC003 action routed source=raw_input button=" + actionName +
+                " edge=" + (keyUp ? "up" : "down") +
+                " delivery=native_passthrough revision=" +
+                (config == null ? "" : config.revision ?? ""));
+            return true;
+        }
+
+        if (mapping == null || !mapping.enabled) return false;
+        if ((mapping.shortcut ?? "").Equals("task-switcher", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleTaskSwitcherToggle(!keyUp, keyUp, mapping, "raw_input");
+        }
+        else
+            QueueMapping(mapping, keyUp, "raw_input");
+        Interlocked.Increment(ref rawActionEdgeCount);
+        Log("RC003 action routed source=raw_input button=" + mapping.labelOrName() +
+            " edge=" + (keyUp ? "up" : "down") +
+            " delivery=native_passthrough revision=" +
+            (config == null ? "" : config.revision ?? ""));
+        return true;
+    }
+
+    private static bool ReplayPhysicalKeyboardEvent(int virtualKey, int scanCode, int flags, bool keyUp)
+    {
+        bool extended = (flags & 0x01) == 0x01;
+        INPUT input = KeyInput(virtualKey, keyUp, extended);
+        if (useScanCode && scanCode > 0)
+        {
+            input.u.ki.wVk = 0;
+            input.u.ki.wScan = (ushort)scanCode;
+            input.u.ki.dwFlags = KEYEVENTF_SCANCODE |
+                (keyUp ? KEYEVENTF_KEYUP : 0) |
+                (extended ? KEYEVENTF_EXTENDEDKEY : 0);
+        }
+        uint sent = SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT)));
+        if (sent != 1) Log("Physical keyboard replay failed vk=0x" + virtualKey.ToString("X2") +
+            " error=" + Marshal.GetLastWin32Error());
+        return sent == 1;
     }
 
     private static ShortcutMapping FindMapping(int vkCode, int scanCode)
@@ -307,19 +668,19 @@ internal static class VoxDeckInputBridge
 
     private static void ReinstallKeyboardHook(string reason)
     {
-        try
+        uint threadId = keyboardHookThreadId;
+        if (threadId == 0)
         {
-            IntPtr previous = hookHandle;
-            hookHandle = IntPtr.Zero;
-            if (previous != IntPtr.Zero) UnhookWindowsHookEx(previous);
-            hookHandle = SetHook(hookProc);
-            Log("Keyboard hook reinstalled result=" + hookHandle + " reason=" + (reason ?? "unknown") +
-                " error=" + (hookHandle == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0));
+            Log("Keyboard hook reinstall skipped reason=" + (reason ?? "unknown") + " thread=not_ready");
+            return;
         }
-        catch (Exception ex)
+        lock (hookThreadLock)
         {
-            Log("Keyboard hook reinstall failed reason=" + (reason ?? "unknown") + " error=" + ex.Message);
+            pendingHookReinstallReason = reason ?? "unknown";
         }
+        if (!PostThreadMessage(threadId, WM_APP_REINSTALL_HOOK, IntPtr.Zero, IntPtr.Zero))
+            Log("Keyboard hook reinstall post failed reason=" + (reason ?? "unknown") +
+                " error=" + Marshal.GetLastWin32Error());
     }
 
     private static int RunSelfTests()
@@ -350,7 +711,7 @@ internal static class VoxDeckInputBridge
             if (gesture.TryFireLong(staleGeneration - 1) || !gesture.Release())
                 throw new InvalidOperationException("Stale long-press timer was accepted");
             if (VkFromName("pageup") != 0x21 || VkFromName("pagedown") != 0x22 ||
-                VkFromName("escape") != 0x1B)
+                VkFromName("escape") != 0x1B || VkFromName("browserback") != 0xA6)
                 throw new InvalidOperationException("Required direction customization keys are unavailable");
             List<int> screenshotShortcut = ParseShortcut("win+shift+s");
             if (screenshotShortcut.Count != 3 || screenshotShortcut[0] != 0x5B ||
@@ -361,6 +722,139 @@ internal static class VoxDeckInputBridge
                 TaskSwitcherCommandForKey(0x0D) != "confirm" || TaskSwitcherCommandForKey(0x1B) != "cancel" ||
                 TaskSwitcherCommandForKey(0x41) != null || TASK_SWITCHER_TIMEOUT_MS < 30000)
                 throw new InvalidOperationException("Persistent Task View navigation policy failed");
+            if (!ShouldBypassHookForRc003Filter(true, true, false) ||
+                !ShouldBypassHookForRc003Filter(true, false, true) ||
+                ShouldBypassHookForRc003Filter(true, false, false) ||
+                ShouldBypassHookForRc003Filter(false, true, true))
+                throw new InvalidOperationException("RC003 filter hook passthrough policy failed");
+            string[] executableShortcuts = {
+                "up", "down", "left", "right", "ctrl+c", "ctrl+x", "ctrl+v", "ctrl+z",
+                "ctrl+shift+z", "ctrl+s", "ctrl+a", "ctrl+f", "enter", "escape", "tab",
+                "shift+tab", "pageup", "pagedown", "backspace", "alt+left", "browserback", "win+d",
+                "win+shift+s", "volumeup", "volumedown", "volumemute", "mediaplaypause"
+            };
+            foreach (string shortcut in executableShortcuts)
+                if (ParseShortcut(shortcut).Count == 0)
+                    throw new InvalidOperationException("Mapping action cannot be injected: " + shortcut);
+
+            var protocolConfig = new BridgeConfig
+            {
+                mappings = new ShortcutMapping[]
+                {
+                    new ShortcutMapping { name = "voice", scan = "0x3F", enabled = true, suppress = true, sourceType = "keyboard" },
+                    new ShortcutMapping { name = "home", scan = "0x47", enabled = true, suppress = true, sourceType = "keyboard" },
+                    new ShortcutMapping { name = "up", scan = "0x48", enabled = false, suppress = true, sourceType = "keyboard" },
+                    new ShortcutMapping { name = "consumer", scan = "0x3F", enabled = true, suppress = true, sourceType = "consumer" }
+                }
+            };
+            byte[] filterMask = BuildRc003FilterSuppressionMask(protocolConfig);
+            byte[] filterPolicy = Rc003FilterProtocol.BuildPolicy(filterMask);
+            if (filterMask[0x3F] != 1 || filterMask[0x5E] != 1 ||
+                filterMask[0x47] != 1 || filterMask[0x48] != 0 ||
+                filterPolicy.Length != Rc003FilterProtocol.PolicySize || filterPolicy[16 + 0x3F] != 1 ||
+                BitConverter.ToUInt32(filterPolicy, 0) != Rc003FilterProtocol.Magic ||
+                BitConverter.ToUInt32(filterPolicy, 8) != Rc003FilterProtocol.PolicySize ||
+                Rc003FilterProtocol.IoctlGetInfo != 0x80006400U ||
+                Rc003FilterProtocol.IoctlSetPolicy != 0x8000A404U ||
+                Rc003FilterProtocol.IoctlHeartbeat != 0x8000A408U ||
+                Rc003FilterProtocol.IoctlReadEvents != 0x8000640CU ||
+                Rc003FilterProtocol.IoctlDisarm != 0x8000A410U)
+                throw new InvalidOperationException("RC003 filter policy or IOCTL layout mismatch");
+
+            byte[] infoFixture = new byte[Rc003FilterProtocol.InfoSize];
+            Buffer.BlockCopy(BitConverter.GetBytes(Rc003FilterProtocol.Magic), 0, infoFixture, 0, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(Rc003FilterProtocol.ApiVersion), 0, infoFixture, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)Rc003FilterProtocol.InfoSize), 0, infoFixture, 8, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(1U), 0, infoFixture, 12, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(7UL), 0, infoFixture, 32, 8);
+            int attachedFixture;
+            long droppedFixture;
+            Rc003FilterProtocol.ParseInfo(infoFixture, infoFixture.Length, out attachedFixture, out droppedFixture);
+            if (attachedFixture != 1 || droppedFixture != 7)
+                throw new InvalidOperationException("RC003 filter info parsing failed");
+
+            byte[] eventFixture = new byte[Rc003FilterProtocol.EventBatchHeaderSize + Rc003FilterProtocol.EventSize];
+            Buffer.BlockCopy(BitConverter.GetBytes(Rc003FilterProtocol.Magic), 0, eventFixture, 0, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(Rc003FilterProtocol.ApiVersion), 0, eventFixture, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)Rc003FilterProtocol.EventBatchHeaderSize), 0, eventFixture, 8, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(1U), 0, eventFixture, 12, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(7UL), 0, eventFixture, 16, 8);
+            int eventOffset = Rc003FilterProtocol.EventBatchHeaderSize;
+            Buffer.BlockCopy(BitConverter.GetBytes(Rc003FilterProtocol.Magic), 0, eventFixture, eventOffset, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes((uint)Rc003FilterProtocol.EventSize), 0, eventFixture, eventOffset + 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(42UL), 0, eventFixture, eventOffset + 8, 8);
+            Buffer.BlockCopy(BitConverter.GetBytes((ushort)0x47), 0, eventFixture, eventOffset + 24, 2);
+            Buffer.BlockCopy(BitConverter.GetBytes((ushort)(Rc003FilterProtocol.KeyBreak | Rc003FilterProtocol.KeyE0)), 0,
+                eventFixture, eventOffset + 26, 2);
+            List<Rc003FilterKeyEvent> parsedEvents = Rc003FilterProtocol.ParseEvents(
+                eventFixture, eventFixture.Length, 9, filterMask, out droppedFixture);
+            if (parsedEvents.Count != 1 || parsedEvents[0].Sequence != 42UL ||
+                parsedEvents[0].MakeCode != 0x47 || !parsedEvents[0].Suppressed ||
+                parsedEvents[0].Generation != 9 || droppedFixture != 7 ||
+                VirtualKeyFromRc003FilterEvent(0x47, Rc003FilterProtocol.KeyE0) != 0x24 ||
+                VirtualKeyFromRc003FilterEvent(0x3F, 0) != 0x74)
+                throw new InvalidOperationException("RC003 filter event parsing or scan translation failed");
+            bool malformedBatchRejected = false;
+            try
+            {
+                Rc003FilterProtocol.ParseEvents(eventFixture, eventFixture.Length - 1,
+                    9, filterMask, out droppedFixture);
+            }
+            catch (InvalidDataException) { malformedBatchRejected = true; }
+            if (!malformedBatchRejected)
+                throw new InvalidOperationException("RC003 filter accepted a truncated event batch");
+
+            BridgeConfig previousConfig = config;
+            try
+            {
+                var fixture = new BridgeConfig
+                {
+                    version = 6,
+                    revision = "config-integrity-fixture",
+                    notes = "self-test",
+                    inputRoutingMode = "compatibility",
+                    activeShortcutProfileId = "self-test",
+                    activeShortcutProfileName = "Self Test",
+                    mappings = new ShortcutMapping[]
+                    {
+                        new ShortcutMapping { name = "voice", label = "录音键", vk = "F5", scan = "0x3F", enabled = true, suppress = true, mode = "suppress", shortcut = "" },
+                        new ShortcutMapping { name = "up", label = "上键", vk = "Up", scan = "0x48", enabled = true, suppress = true, mode = "tap", shortcut = "win+shift+s", sourceType = "keyboard" }
+                    }
+                };
+                string serialized = new JavaScriptSerializer().Serialize(fixture);
+                BridgeConfig loaded = new JavaScriptSerializer().Deserialize<BridgeConfig>(serialized);
+                config = loaded;
+                ShortcutMapping upMapping = FindMapping(0x26, 0x48);
+                if (loaded == null || loaded.version != 6 || loaded.revision != "config-integrity-fixture" ||
+                    loaded.activeShortcutProfileId != "self-test" || loaded.activeShortcutProfileName != "Self Test" ||
+                    upMapping == null || upMapping.shortcut != "win+shift+s" || ParseShortcut(upMapping.shortcut).Count != 3 ||
+                    NormalizeInputRoutingMode(loaded.inputRoutingMode) != "strict")
+                    throw new InvalidOperationException("Persisted bridge configuration did not resolve to its configured runtime actions");
+            }
+            finally { config = previousConfig; }
+            string processPart = Convert.ToBase64String(Encoding.UTF8.GetBytes("notepad"));
+            string pathPart = Convert.ToBase64String(Encoding.UTF8.GetBytes("C:\\Windows\\System32\\notepad.exe"));
+            string labelPart = Convert.ToBase64String(Encoding.UTF8.GetBytes("Notepad"));
+            string appIdPart = Convert.ToBase64String(Encoding.UTF8.GetBytes("Microsoft.WindowsNotepad_8wekyb3d8bbwe!App"));
+            string openAppContract = "open-app:" + processPart + "|" + pathPart + "|" + labelPart + "|" + appIdPart;
+            if (!IsCustomAction(openAppContract) || DecodeActionPart(processPart) != "notepad" ||
+                !IsSafeProcessName(DecodeActionPart(processPart)) ||
+                !IsSafeStartAppId(DecodeActionPart(appIdPart)) ||
+                !IsCustomAction("open-url:https://example.com") ||
+                !IsCustomAction("open-exe:C:\\Windows\\System32\\notepad.exe") ||
+                !IsCustomAction("shortcut:ctrl+shift+p") ||
+                !IsAiLauncherAction("launch-client:codex"))
+                throw new InvalidOperationException("Application, URL, or custom shortcut contract failed");
+            var edgeTracker = new RawKeyboardEdgeTracker();
+            for (int cycle = 0; cycle < 100; cycle++)
+            {
+                if (!edgeTracker.ShouldDispatch(0x26, 0x48, false) ||
+                    edgeTracker.ShouldDispatch(0x26, 0x48, false) ||
+                    !edgeTracker.ShouldDispatch(0x26, 0x48, true) ||
+                    edgeTracker.ShouldDispatch(0x26, 0x48, true))
+                    throw new InvalidOperationException("Raw Input edge tracker accepted a repeat or duplicate release");
+            }
+            edgeTracker.Reset();
             Console.WriteLine("Vibe Flow input bridge self-test passed.");
             return 0;
         }
@@ -393,9 +887,9 @@ internal static class VoxDeckInputBridge
         return null;
     }
 
-    private static void QueueMapping(ShortcutMapping mapping, bool keyUp)
+    private static void QueueMapping(ShortcutMapping mapping, bool keyUp, string source)
     {
-        try { mappingQueue.Add(new MappingEvent { mapping = mapping, keyUp = keyUp }); }
+        try { mappingQueue.Add(new MappingEvent { mapping = mapping, keyUp = keyUp, source = source }); }
         catch (InvalidOperationException) { }
     }
 
@@ -405,16 +899,33 @@ internal static class VoxDeckInputBridge
         catch (InvalidOperationException) { }
     }
 
+    private static void QueueTaskSwitcherCommand(string command, ShortcutMapping mapping, string source)
+    {
+        try { mappingQueue.Add(new MappingEvent { command = command, mapping = mapping, source = source }); }
+        catch (InvalidOperationException) { }
+    }
+
     private static void ProcessMappingQueue()
     {
         foreach (MappingEvent item in mappingQueue.GetConsumingEnumerable())
         {
-            if (!string.IsNullOrWhiteSpace(item.command)) HandleTaskSwitcherCommand(item.command);
-            else HandleMapping(item.mapping, item.keyUp);
+            if (!string.IsNullOrWhiteSpace(item.command))
+            {
+                bool success = HandleTaskSwitcherCommand(item.command);
+                if (item.mapping != null)
+                    RecordActionExecution(item.mapping, "单击", item.mapping.shortcut, success, item.source);
+            }
+            else if (!string.IsNullOrWhiteSpace(item.testToken))
+            {
+                bool success = ExecuteMappingAction(item.mapping, item.testAction, "测试", "ui_test");
+                WriteCustomButtonTestResult(item.testToken, item.testAction, success,
+                    success ? "动作已由按键桥接执行" : "动作未执行，请检查应用路径或动作配置");
+            }
+            else HandleMapping(item.mapping, item.keyUp, item.source);
         }
     }
 
-    private static void HandleTaskSwitcherToggle(bool isDown, bool isUp)
+    private static void HandleTaskSwitcherToggle(bool isDown, bool isUp, ShortcutMapping mapping, string source)
     {
         lock (taskSwitcherLock)
         {
@@ -429,12 +940,12 @@ internal static class VoxDeckInputBridge
             if (taskSwitcherActive)
             {
                 taskSwitcherActive = false;
-                QueueTaskSwitcherCommand("cancel");
+                QueueTaskSwitcherCommand("cancel", mapping, source);
             }
             else
             {
                 taskSwitcherActive = true;
-                QueueTaskSwitcherCommand("open");
+                QueueTaskSwitcherCommand("open", mapping, source);
             }
         }
     }
@@ -462,6 +973,43 @@ internal static class VoxDeckInputBridge
         }
     }
 
+    private static bool ObserveNativeTaskSwitcherNavigation(int virtualKey, bool isDown, bool isUp)
+    {
+        lock (taskSwitcherLock)
+        {
+            if (!taskSwitcherActive) return false;
+            string command = TaskSwitcherCommandForKey(virtualKey);
+            if (command == null) return false;
+            if (isUp)
+            {
+                taskSwitcherKeysDown.Remove(virtualKey);
+                return true;
+            }
+            if (!isDown || taskSwitcherKeysDown.Contains(virtualKey)) return true;
+            taskSwitcherKeysDown.Add(virtualKey);
+            if (command == "confirm" || command == "cancel")
+            {
+                taskSwitcherActive = false;
+                if (taskSwitcherTimer != null)
+                {
+                    taskSwitcherTimer.Dispose();
+                    taskSwitcherTimer = null;
+                }
+                taskSwitcherKeysDown.Clear();
+            }
+            Log("Task View navigation observed source=raw_input delivery=native command=" + command);
+            return true;
+        }
+    }
+
+    private static bool IsTaskSwitcherNavigationCandidate(int virtualKey)
+    {
+        lock (taskSwitcherLock)
+        {
+            return taskSwitcherActive && TaskSwitcherCommandForKey(virtualKey) != null;
+        }
+    }
+
     private static string TaskSwitcherCommandForKey(int virtualKey)
     {
         if (virtualKey == 0x25) return "left";
@@ -473,12 +1021,12 @@ internal static class VoxDeckInputBridge
         return null;
     }
 
-    private static void HandleMapping(ShortcutMapping mapping, bool keyUp)
+    private static void HandleMapping(ShortcutMapping mapping, bool keyUp, string source)
     {
         string requestedMode = (mapping.mode ?? "tap").ToLowerInvariant();
         if (requestedMode == "shortlong")
         {
-            HandleShortLongMapping(mapping, keyUp);
+            HandleShortLongMapping(mapping, keyUp, source);
             return;
         }
         lock (stateLock)
@@ -516,28 +1064,33 @@ internal static class VoxDeckInputBridge
                 {
                     if (IsRepeatableHoldAction(mapping.shortcut))
                     {
-                        TapShortcut(mapping);
+                        bool success = TapShortcut(mapping);
+                        RecordActionExecution(mapping, "按住", mapping.shortcut, success, source);
                         StartHoldRepeat(name, mapping);
                         shortcutDown[name] = false;
                     }
                     else
                     {
-                        SendShortcut(mapping, false);
+                        bool success = SendShortcut(mapping, false);
+                        RecordActionExecution(mapping, "按下", mapping.shortcut, success, source);
                         shortcutDown[name] = true;
                     }
                     BridgeForm.SetStatusText(mapping.labelOrName() + " 按下 -> " + mapping.shortcut);
                 }
                 else if (IsAiLauncherAction(mapping.shortcut))
                 {
-                    LaunchAiTarget(mapping.shortcut);
+                    bool success = LaunchAiTarget(mapping.shortcut);
+                    RecordActionExecution(mapping, "单击", mapping.shortcut, success, source);
                 }
                 else if (IsCustomAction(mapping.shortcut))
                 {
-                    HandleCustomAction(mapping);
+                    bool success = HandleCustomAction(mapping);
+                    RecordActionExecution(mapping, "单击", mapping.shortcut, success, source);
                 }
                 else
                 {
-                    TapShortcut(mapping);
+                    bool success = TapShortcut(mapping);
+                    RecordActionExecution(mapping, "单击", mapping.shortcut, success, source);
                     BridgeForm.SetStatusText(mapping.labelOrName() + " 轻触 -> " + mapping.shortcut);
                 }
                 return;
@@ -564,7 +1117,7 @@ internal static class VoxDeckInputBridge
         }
     }
 
-    private static void HandleShortLongMapping(ShortcutMapping mapping, bool keyUp)
+    private static void HandleShortLongMapping(ShortcutMapping mapping, bool keyUp, string source)
     {
         string name = mapping.name ?? mapping.vk ?? "unknown";
         string action = null;
@@ -589,7 +1142,9 @@ internal static class VoxDeckInputBridge
                 int generation = state.Begin();
                 DisposeGestureTimer(name);
                 int threshold = mapping.longPressMs > 0 ? mapping.longPressMs : DEFAULT_LONG_PRESS_MS;
-                var request = new GestureTimerRequest { Name = name, Generation = generation, Mapping = mapping };
+                var request = new GestureTimerRequest {
+                    Name = name, Generation = generation, Mapping = mapping, Source = source
+                };
                 gestureTimers[name] = new System.Threading.Timer(FireLongGesture, request, threshold, Timeout.Infinite);
                 Log("Key " + mapping.labelOrName() + " DOWN gesture=shortlong threshold_ms=" + threshold);
                 BridgeForm.SetStatusText(mapping.labelOrName() + " 已按下");
@@ -612,7 +1167,7 @@ internal static class VoxDeckInputBridge
                 phase = "短按";
             }
         }
-        if (action != null) ExecuteMappingAction(mapping, action, phase);
+        if (action != null) ExecuteMappingAction(mapping, action, phase, source);
     }
 
     private static void FireLongGesture(object stateValue)
@@ -627,7 +1182,7 @@ internal static class VoxDeckInputBridge
                 fire = state.TryFireLong(request.Generation);
             DisposeGestureTimer(request.Name);
         }
-        if (fire) ExecuteMappingAction(request.Mapping, request.Mapping.longShortcut, "长按");
+        if (fire) ExecuteMappingAction(request.Mapping, request.Mapping.longShortcut, "长按", request.Source);
     }
 
     private static void DisposeGestureTimer(string name)
@@ -693,7 +1248,7 @@ internal static class VoxDeckInputBridge
         }
     }
 
-    private static void ExecuteMappingAction(ShortcutMapping source, string action, string phase)
+    private static bool ExecuteMappingAction(ShortcutMapping source, string action, string phase, string actionSource)
     {
         string normalized = (action ?? "").Trim();
         if (normalized.Length == 0 || normalized.Equals("none", StringComparison.OrdinalIgnoreCase) ||
@@ -701,7 +1256,8 @@ internal static class VoxDeckInputBridge
         {
             Log("Gesture action skipped label=" + source.labelOrName() + " phase=" + phase + " action=disabled");
             BridgeForm.SetStatusText(source.labelOrName() + " " + phase + "未设置");
-            return;
+            RecordActionExecution(source, phase, normalized, false, actionSource);
+            return false;
         }
 
         var mapping = new ShortcutMapping
@@ -710,16 +1266,23 @@ internal static class VoxDeckInputBridge
             label = source.label,
             shortcut = normalized
         };
+        bool success;
         if (normalized.Equals("task-switcher", StringComparison.OrdinalIgnoreCase))
+        {
             QueueTaskSwitcherCommand("open");
+            success = true;
+        }
         else if (IsAiLauncherAction(normalized))
-            LaunchAiTarget(normalized);
+            success = LaunchAiTarget(normalized);
         else if (IsCustomAction(normalized))
-            HandleCustomAction(mapping);
+            success = HandleCustomAction(mapping);
         else
-            TapShortcut(mapping);
-        Log("Gesture action executed label=" + source.labelOrName() + " phase=" + phase + " action=" + normalized);
+            success = TapShortcut(mapping);
+        Log("Gesture action executed label=" + source.labelOrName() + " phase=" + phase + " action=" + normalized +
+            " success=" + success);
+        RecordActionExecution(source, phase, normalized, success, actionSource);
         BridgeForm.SetStatusText(source.labelOrName() + " " + phase + " -> " + normalized);
+        return success;
     }
 
     private static void SignalVoiceKeyPressed()
@@ -728,7 +1291,7 @@ internal static class VoxDeckInputBridge
         try
         {
             delivered = voiceKeyPressedEvent != null && voiceKeyPressedEvent.Set();
-            Log("Voice key signal delivered=" + delivered + " source=keyboard_hook");
+            Log("Voice key signal delivered=" + delivered + " source=bridge_transition");
         }
         catch (Exception ex) { Log("Voice key signal failed: " + ex.Message); }
         SignalVoiceWakeRequested(delivered ? "capture_signal_delivered" : "capture_not_ready");
@@ -770,6 +1333,16 @@ internal static class VoxDeckInputBridge
                         " scan=0x" + scan.ToString("X2"));
                     return;
                 }
+                double sinceReleaseMs = lastVoiceReleaseUtc == DateTime.MinValue
+                    ? double.MaxValue
+                    : (DateTime.UtcNow - lastVoiceReleaseUtc).TotalMilliseconds;
+                if (sinceReleaseMs < VOICE_RESTART_GUARD_MS)
+                {
+                    Log("Voice key restart DOWN ignored source=" + source +
+                        " elapsed_ms=" + Math.Max(0, (int)sinceReleaseMs) +
+                        " guard_ms=" + VOICE_RESTART_GUARD_MS);
+                    return;
+                }
                 SetVoiceKeyHeld(true);
                 Log("Key 录音键 DOWN vk=0x" + vk.ToString("X2") + " scan=0x" + scan.ToString("X2") +
                     " source=" + source);
@@ -784,6 +1357,7 @@ internal static class VoxDeckInputBridge
                 return;
             }
             SetVoiceKeyHeld(false);
+            lastVoiceReleaseUtc = DateTime.UtcNow;
             Log("Key 录音键 UP vk=0x" + vk.ToString("X2") + " scan=0x" + scan.ToString("X2") +
                 " source=" + source);
         }
@@ -850,20 +1424,21 @@ internal static class VoxDeckInputBridge
         return false;
     }
 
-    private static void TapShortcut(ShortcutMapping mapping)
+    private static bool TapShortcut(ShortcutMapping mapping)
     {
-        SendShortcut(mapping, false);
+        bool down = SendShortcut(mapping, false);
         Thread.Sleep(100);
-        SendShortcut(mapping, true);
+        bool up = SendShortcut(mapping, true);
+        return down && up;
     }
 
-    private static void SendShortcut(ShortcutMapping mapping, bool keyUp)
+    private static bool SendShortcut(ShortcutMapping mapping, bool keyUp)
     {
         List<int> keys = ParseShortcut(mapping.shortcut);
         if (keys.Count == 0)
         {
             Log("Shortcut empty for " + mapping.labelOrName());
-            return;
+            return false;
         }
 
         if (keyUp)
@@ -879,7 +1454,9 @@ internal static class VoxDeckInputBridge
 
         uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         int error = sent == inputs.Length ? 0 : Marshal.GetLastWin32Error();
+        bool complete = sent == inputs.Length;
         Log("SendShortcut " + (keyUp ? "UP " : "DOWN ") + mapping.labelOrName() + " " + mapping.shortcut + " " + ModeName() + " sent=" + sent + " error=" + error);
+        return complete;
     }
 
     private static bool IsAiLauncherAction(string action)
@@ -902,7 +1479,7 @@ internal static class VoxDeckInputBridge
             normalized.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static void HandleCustomAction(ShortcutMapping mapping)
+    private static bool HandleCustomAction(ShortcutMapping mapping)
     {
         string action = (mapping.shortcut ?? "").Trim();
         string label = mapping.labelOrName();
@@ -911,26 +1488,36 @@ internal static class VoxDeckInputBridge
             if (action.StartsWith("open-exe:", StringComparison.OrdinalIgnoreCase))
             {
                 string executable = action.Substring("open-exe:".Length).Trim();
+                string processName = "";
+                try { processName = Path.GetFileNameWithoutExtension(executable); } catch { }
+                string focusedProcess;
+                bool existingWindowFound = false;
+                if (IsSafeProcessName(processName) &&
+                    TryFocusClientWindow(new string[] { processName }, out focusedProcess, out existingWindowFound))
+                {
+                    Log("Custom app action focused label=" + label + " process=" + focusedProcess +
+                        " configured_path_exists=" + File.Exists(executable));
+                    BridgeForm.SetStatusText(label + " 已切换");
+                    return true;
+                }
+                if (existingWindowFound)
+                {
+                    Log("Custom app action rejected label=" + label + " reason=existing_window_activation_failed");
+                    BridgeForm.SetStatusText(label + " 窗口切换失败");
+                    return false;
+                }
                 if (!Path.IsPathRooted(executable) ||
                     !executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
                     !File.Exists(executable))
                 {
                     Log("Custom app action rejected label=" + label + " reason=invalid_executable");
                     BridgeForm.SetStatusText(label + " 应用不存在");
-                    return;
-                }
-                string processName = Path.GetFileNameWithoutExtension(executable);
-                string focusedProcess;
-                if (TryFocusClientWindow(new string[] { processName }, out focusedProcess))
-                {
-                    Log("Custom app action focused label=" + label + " process=" + focusedProcess);
-                    BridgeForm.SetStatusText(label + " 已切换");
-                    return;
+                    return false;
                 }
                 Process.Start(new ProcessStartInfo { FileName = executable, UseShellExecute = true });
                 Log("Custom app action started label=" + label + " path=" + executable);
                 BridgeForm.SetStatusText(label + " 已启动");
-                return;
+                return true;
             }
 
             if (action.StartsWith("open-url:", StringComparison.OrdinalIgnoreCase))
@@ -942,12 +1529,12 @@ internal static class VoxDeckInputBridge
                 {
                     Log("Custom URL action rejected label=" + label + " reason=invalid_url");
                     BridgeForm.SetStatusText(label + " 地址无效");
-                    return;
+                    return false;
                 }
                 Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
                 Log("Custom URL action opened label=" + label + " scheme=" + uri.Scheme);
                 BridgeForm.SetStatusText(label + " 已打开");
-                return;
+                return true;
             }
 
             if (action.StartsWith("open-app:", StringComparison.OrdinalIgnoreCase))
@@ -956,18 +1543,27 @@ internal static class VoxDeckInputBridge
                 string processName = parts.Length > 0 ? DecodeActionPart(parts[0]) : "";
                 string executable = parts.Length > 1 ? DecodeActionPart(parts[1]) : "";
                 string appLabel = parts.Length > 2 ? DecodeActionPart(parts[2]) : label;
+                string fallbackAppId = parts.Length > 3 ? DecodeActionPart(parts[3]) : "";
                 if (!IsSafeProcessName(processName))
                 {
                     Log("Configured app action rejected label=" + label + " reason=invalid_process");
                     BridgeForm.SetStatusText(label + " 应用配置无效");
-                    return;
+                    return false;
                 }
                 string focusedProcess;
-                if (TryFocusClientWindow(new string[] { processName }, out focusedProcess))
+                bool existingWindowFound = false;
+                if (TryFocusClientWindow(new string[] { processName }, out focusedProcess, out existingWindowFound))
                 {
                     Log("Configured app action focused label=" + label + " process=" + focusedProcess);
                     BridgeForm.SetStatusText("已切换到 " + appLabel);
-                    return;
+                    return true;
+                }
+                if (existingWindowFound)
+                {
+                    Log("Configured app action rejected label=" + label +
+                        " reason=existing_window_activation_failed process=" + processName);
+                    BridgeForm.SetStatusText(appLabel + " 窗口切换失败");
+                    return false;
                 }
                 if (!string.IsNullOrWhiteSpace(executable) && Path.IsPathRooted(executable) &&
                     executable.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(executable))
@@ -975,11 +1571,21 @@ internal static class VoxDeckInputBridge
                     Process.Start(new ProcessStartInfo { FileName = executable, UseShellExecute = true });
                     Log("Configured app action started label=" + label + " process=" + processName);
                     BridgeForm.SetStatusText("正在启动 " + appLabel);
-                    return;
+                    return true;
                 }
-                Log("Configured app action unavailable label=" + label + " process=" + processName);
+                string launchMode;
+                if (TryLaunchStartApp(fallbackAppId, out launchMode))
+                {
+                    Log("Configured app action fallback_started label=" + label + " process=" + processName +
+                        " mode=" + launchMode);
+                    BridgeForm.SetStatusText("正在启动 " + appLabel);
+                    return true;
+                }
+                Log("Configured app action unavailable label=" + label + " process=" + processName +
+                    " executable_exists=" + File.Exists(executable) +
+                    " fallback_configured=" + !string.IsNullOrWhiteSpace(fallbackAppId));
                 BridgeForm.SetStatusText(appLabel + " 当前未运行");
-                return;
+                return false;
             }
 
             if (action.StartsWith("start-app:", StringComparison.OrdinalIgnoreCase))
@@ -991,17 +1597,18 @@ internal static class VoxDeckInputBridge
                 {
                     Log("Start app action rejected label=" + label + " reason=invalid_app_id");
                     BridgeForm.SetStatusText(label + " 应用配置无效");
-                    return;
+                    return false;
                 }
-                Process.Start(new ProcessStartInfo
+                string launchMode;
+                if (!TryLaunchStartApp(appId, out launchMode))
                 {
-                    FileName = "explorer.exe",
-                    Arguments = "shell:AppsFolder\\" + appId,
-                    UseShellExecute = true
-                });
-                Log("Start app action opened label=" + label);
+                    Log("Start app action rejected label=" + label + " reason=unsupported_target");
+                    BridgeForm.SetStatusText(label + " 应用入口无效");
+                    return false;
+                }
+                Log("Start app action opened label=" + label + " mode=" + launchMode);
                 BridgeForm.SetStatusText("正在打开 " + appLabel);
-                return;
+                return true;
             }
 
             string shortcut = action.Substring("shortcut:".Length).Trim();
@@ -1009,7 +1616,7 @@ internal static class VoxDeckInputBridge
             {
                 Log("Custom shortcut action rejected label=" + label + " reason=empty");
                 BridgeForm.SetStatusText(label + " 快捷键为空");
-                return;
+                return false;
             }
             ShortcutMapping customShortcut = new ShortcutMapping
             {
@@ -1017,14 +1624,16 @@ internal static class VoxDeckInputBridge
                 label = label,
                 shortcut = shortcut
             };
-            TapShortcut(customShortcut);
-            Log("Custom shortcut action sent label=" + label + " shortcut=" + shortcut);
+            bool sent = TapShortcut(customShortcut);
+            Log("Custom shortcut action sent label=" + label + " shortcut=" + shortcut + " success=" + sent);
             BridgeForm.SetStatusText(label + " 轻触 -> " + shortcut);
+            return sent;
         }
         catch (Exception ex)
         {
             Log("Custom action failed label=" + label + " error=" + ex.Message);
             BridgeForm.SetStatusText(label + " 执行失败");
+            return false;
         }
     }
 
@@ -1051,7 +1660,37 @@ internal static class VoxDeckInputBridge
         return true;
     }
 
-    private static void LaunchAiTarget(string action)
+    private static bool TryLaunchStartApp(string appId, out string mode)
+    {
+        mode = "";
+        if (!IsSafeStartAppId(appId)) return false;
+        string value = appId.Trim();
+        Uri uri;
+        if (Uri.TryCreate(value, UriKind.Absolute, out uri) &&
+            (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            Process.Start(new ProcessStartInfo { FileName = uri.AbsoluteUri, UseShellExecute = true });
+            mode = "url";
+            return true;
+        }
+        if (Path.IsPathRooted(value))
+        {
+            if (!File.Exists(value)) return false;
+            Process.Start(new ProcessStartInfo { FileName = value, UseShellExecute = true });
+            mode = "executable";
+            return true;
+        }
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "explorer.exe",
+            Arguments = "shell:AppsFolder\\" + value,
+            UseShellExecute = true
+        });
+        mode = "start_app_id";
+        return true;
+    }
+
+    private static bool LaunchAiTarget(string action)
     {
         string normalized = (action ?? "").Trim().ToLowerInvariant();
         string provider = normalized.Substring(normalized.IndexOf(':') + 1);
@@ -1119,33 +1758,51 @@ internal static class VoxDeckInputBridge
         try
         {
             string focusedProcess;
-            if (TryFocusClientWindow(processNames, out focusedProcess))
+            bool existingWindowFound;
+            if (TryFocusClientWindow(processNames, out focusedProcess, out existingWindowFound))
             {
                 BridgeForm.SetStatusText("已切换到 " + label);
                 Log("Client launcher focused target=" + provider + " process=" + focusedProcess);
-                return;
+                return true;
+            }
+            if (existingWindowFound)
+            {
+                BridgeForm.SetStatusText(label + " 窗口切换失败");
+                Log("Client launcher unavailable target=" + provider +
+                    " reason=existing_window_activation_failed");
+                return false;
             }
 
             if (TryLaunchInstalledStartApp(startAppNames) || TryLaunchExecutable(executableNames))
             {
                 BridgeForm.SetStatusText("正在启动 " + label);
                 Log("Client launcher started target=" + provider);
-                return;
+                return true;
             }
 
             BridgeForm.SetStatusText("未找到 " + label + " 客户端");
             Log("Client launcher unavailable target=" + provider);
+            return false;
         }
         catch (Exception ex)
         {
             BridgeForm.SetStatusText(label + " 打开失败");
             Log("Client launcher failed target=" + provider + " error=" + ex.Message);
+            return false;
         }
     }
 
     private static bool TryFocusClientWindow(string[] processNames, out string focusedProcess)
     {
+        bool ignoredWindowFound;
+        return TryFocusClientWindow(processNames, out focusedProcess, out ignoredWindowFound);
+    }
+
+    private static bool TryFocusClientWindow(string[] processNames, out string focusedProcess,
+        out bool existingWindowFound)
+    {
         focusedProcess = "";
+        existingWindowFound = false;
         foreach (string processName in processNames)
         {
             Process[] processes = Process.GetProcessesByName(processName);
@@ -1156,16 +1813,72 @@ internal static class VoxDeckInputBridge
                     process.Refresh();
                     IntPtr window = process.MainWindowHandle;
                     if (window == IntPtr.Zero) continue;
-                    ShowWindowAsync(window, 9);
-                    SwitchToThisWindow(window, true);
-                    BringWindowToTop(window);
-                    SetForegroundWindow(window);
+                    existingWindowFound = true;
+                    string activationMode;
+                    if (!TryActivateWindow(window, out activationMode))
+                    {
+                        Log("Client window activation failed handle=" + window + " process=" + process.ProcessName);
+                        continue;
+                    }
                     focusedProcess = process.ProcessName;
-                    Log("Client window activation handle=" + window + " foreground=" + (GetForegroundWindow() == window));
+                    Log("Client window activation handle=" + window + " foreground=true mode=" + activationMode);
                     return true;
                 }
             }
             finally { foreach (Process process in processes) process.Dispose(); }
+        }
+        return false;
+    }
+
+    private static bool TryActivateWindow(IntPtr window, out string mode)
+    {
+        mode = "";
+        if (window == IntPtr.Zero) return false;
+        ShowWindowAsync(window, 9);
+        BringWindowToTop(window);
+        SwitchToThisWindow(window, true);
+        SetForegroundWindow(window);
+        Thread.Sleep(80);
+        if (GetForegroundWindow() == window)
+        {
+            mode = "direct";
+            return true;
+        }
+
+        IntPtr foreground = GetForegroundWindow();
+        uint foregroundThread = foreground == IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, IntPtr.Zero);
+        uint targetThread = GetWindowThreadProcessId(window, IntPtr.Zero);
+        uint currentThread = GetCurrentThreadId();
+        bool attachedForeground = false;
+        bool attachedTarget = false;
+        try
+        {
+            if (foregroundThread != 0 && foregroundThread != currentThread)
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+            if (targetThread != 0 && targetThread != currentThread)
+                attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+            BringWindowToTop(window);
+            SetForegroundWindow(window);
+            SetFocus(window);
+        }
+        finally
+        {
+            if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+            if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
+        }
+        Thread.Sleep(100);
+        if (GetForegroundWindow() == window)
+        {
+            mode = "attached_input";
+            return true;
+        }
+
+        SwitchToThisWindow(window, true);
+        Thread.Sleep(100);
+        if (GetForegroundWindow() == window)
+        {
+            mode = "switch_window";
+            return true;
         }
         return false;
     }
@@ -1207,7 +1920,7 @@ internal static class VoxDeckInputBridge
         return false;
     }
 
-    private static void TapVirtualKey(int virtualKey, string label)
+    private static bool TapVirtualKey(int virtualKey, string label)
     {
         INPUT[] down = new INPUT[] { KeyInput(virtualKey, false, IsExtendedKey(virtualKey)) };
         INPUT[] up = new INPUT[] { KeyInput(virtualKey, true, IsExtendedKey(virtualKey)) };
@@ -1216,6 +1929,7 @@ internal static class VoxDeckInputBridge
         uint sentUp = SendInput(1, up, Marshal.SizeOf(typeof(INPUT)));
         Log("Virtual key " + label + " sent=" + sentDown + "/" + sentUp);
         BridgeForm.SetStatusText(label);
+        return sentDown == 1 && sentUp == 1;
     }
 
     private static void SetVirtualKeyState(int virtualKey, bool keyUp)
@@ -1224,27 +1938,28 @@ internal static class VoxDeckInputBridge
         SendInput(1, input, Marshal.SizeOf(typeof(INPUT)));
     }
 
-    private static void HandleTaskSwitcherCommand(string command)
+    private static bool HandleTaskSwitcherCommand(string command)
     {
         if (command == "open")
         {
-            TapKeyChord(0x5B, 0x09, "任务视图已打开");
+            bool opened = TapKeyChord(0x5B, 0x09, "任务视图已打开");
             ArmTaskSwitcherTimeout();
-            return;
+            return opened;
         }
         if (command == "left" || command == "up" || command == "right" || command == "down")
         {
             int key = command == "left" ? 0x25 : command == "up" ? 0x26 : command == "right" ? 0x27 : 0x28;
-            TapVirtualKey(key, "任务视图选择" + command);
+            bool moved = TapVirtualKey(key, "任务视图选择" + command);
             ArmTaskSwitcherTimeout();
-            return;
+            return moved;
         }
-        TapVirtualKey(command == "confirm" ? 0x0D : 0x1B,
+        bool completed = TapVirtualKey(command == "confirm" ? 0x0D : 0x1B,
             command == "confirm" ? "进入所选程序" : "关闭任务视图");
         CloseTaskSwitcherState(command == "confirm" ? "已切换程序" : "已关闭任务视图");
+        return completed;
     }
 
-    private static void TapKeyChord(int modifier, int key, string label)
+    private static bool TapKeyChord(int modifier, int key, string label)
     {
         INPUT[] inputs = new INPUT[]
         {
@@ -1256,6 +1971,7 @@ internal static class VoxDeckInputBridge
         uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
         Log("Key chord " + label + " sent=" + sent + "/" + inputs.Length);
         BridgeForm.SetStatusText(label);
+        return sent == inputs.Length;
     }
 
     private static void ArmTaskSwitcherTimeout()
@@ -1303,6 +2019,7 @@ internal static class VoxDeckInputBridge
 
     private static void HandleRawInput(IntPtr hRawInput)
     {
+        ReloadConfigIfChanged();
         uint size = 0;
         GetRawInputData(hRawInput, RID_INPUT, IntPtr.Zero, ref size, (uint)Marshal.SizeOf(typeof(RAWINPUTHEADER)));
         if (size == 0) return;
@@ -1314,42 +2031,68 @@ internal static class VoxDeckInputBridge
             if (read != size) return;
             RAWINPUTHEADER header = (RAWINPUTHEADER)Marshal.PtrToStructure(buffer, typeof(RAWINPUTHEADER));
             string deviceName = GetRawDeviceName(header.hDevice);
-            if (!IsRc003Device(deviceName)) return;
+            IntPtr data = IntPtr.Add(buffer, Marshal.SizeOf(typeof(RAWINPUTHEADER)));
+            if (!IsRc003Device(deviceName))
+            {
+                if (header.dwType == RIM_TYPEKEYBOARD)
+                {
+                    RAWKEYBOARD ignored = (RAWKEYBOARD)Marshal.PtrToStructure(data, typeof(RAWKEYBOARD));
+                    if (IsDiagnosticCandidate(ignored.VKey))
+                    {
+                        string fingerprint = ignored.VKey.ToString("X2") + "|" + (deviceName ?? "");
+                        if (ignoredRawCandidateFingerprints.Add(fingerprint))
+                            Log("RAW KEY DEVICE MISMATCH vk=0x" + ignored.VKey.ToString("X2") +
+                                " scan=0x" + ignored.MakeCode.ToString("X2") +
+                                " type=" + header.dwType + " name=" + (deviceName ?? ""));
+                    }
+                }
+                return;
+            }
             MarkRemoteInput(header.dwType == RIM_TYPEKEYBOARD ? "keyboard" : "consumer");
 
-            IntPtr data = IntPtr.Add(buffer, Marshal.SizeOf(typeof(RAWINPUTHEADER)));
             if (header.dwType == RIM_TYPEKEYBOARD)
             {
                 RAWKEYBOARD keyboard = (RAWKEYBOARD)Marshal.PtrToStructure(data, typeof(RAWKEYBOARD));
                 bool keyUp = IsRawKeyUp(keyboard.Message);
-                // The low-level keyboard hook remains the single authoritative
-                // fallback, while the device-scoped RC003 path is authoritative
-                // whenever Windows only exposes the reconnected HID handle.
-                ShortcutMapping voice = FindMapping(keyboard.VKey, keyboard.MakeCode);
-                if (voice == null && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
+                if (IsRc003FilterHealthy())
+                {
+                    // The signed per-device filter owns RC003 keyboard packets.
+                    // Raw Input remains registered for reconnect diagnostics and
+                    // consumer-control reports, but must not execute this edge.
+                    return;
+                }
+                // Raw Input is the only user-mode API in this process that carries
+                // the originating device handle. Execute RC003 actions here. The
+                // low-level hook only suppresses the matching legacy event or
+                // replays an unconfirmed physical-keyboard event unchanged.
+                ShortcutMapping mapping = FindRc003FilterMapping(keyboard.VKey, keyboard.MakeCode);
+                if (mapping == null && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
                 {
                     ShortcutMapping fallbackVoice = FindVoiceMapping();
                     if (fallbackVoice != null && fallbackVoice.enabled)
                     {
-                        voice = fallbackVoice;
+                        mapping = fallbackVoice;
                         Log("Voice raw VK fallback vk=0x" + keyboard.VKey.ToString("X2") +
                             " scan=0x" + keyboard.MakeCode.ToString("X2"));
                     }
                 }
-                if (voice != null && voice.enabled &&
-                    (voice.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase))
+                bool isVoice = mapping != null && mapping.enabled &&
+                    (mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase);
+                if (isVoice)
                 {
                     HandleVoicePhysicalTransition(!keyUp, "raw_input", keyboard.VKey, keyboard.MakeCode);
                 }
                 // The microphone key is managed by the voice state machine. It
                 // must never be consumed by the optional custom-key learner,
                 // including after a stale learning request survives a restart.
-                if (!keyUp && (voice == null ||
-                    !(voice.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase)))
+                if (!keyUp && !isVoice)
                     TryCaptureKeyboardButton(keyboard.VKey, keyboard.MakeCode);
+                bool actionRouted = RouteAuthoritativeRawKeyboard(mapping,
+                    keyboard.VKey, keyboard.MakeCode, keyUp);
                 Log("RC003 RAW KEY " + (keyUp ? "UP" : "DOWN") +
                     " vk=0x" + keyboard.VKey.ToString("X2") + " scan=0x" + keyboard.MakeCode.ToString("X2") +
-                    " flags=0x" + keyboard.Flags.ToString("X2"));
+                    " flags=0x" + keyboard.Flags.ToString("X2") +
+                    " action_routed=" + actionRouted);
 
                 return;
             }
@@ -1618,27 +2361,38 @@ internal static class VoxDeckInputBridge
     {
         try
         {
+            BridgeConfig loaded;
             if (!File.Exists(ConfigPath))
             {
-                config = BridgeConfig.Default();
+                loaded = BridgeConfig.Default();
+                config = loaded;
                 SaveDefaultConfig();
             }
             else
             {
                 string json = File.ReadAllText(ConfigPath);
-                config = new JavaScriptSerializer().Deserialize<BridgeConfig>(json) ?? BridgeConfig.Default();
+                loaded = new JavaScriptSerializer().Deserialize<BridgeConfig>(json) ?? BridgeConfig.Default();
+                config = loaded;
             }
+            config.inputRoutingMode = NormalizeInputRoutingMode(config.inputRoutingMode);
             if (File.Exists(ConfigPath))
             {
                 configLastWriteUtc = File.GetLastWriteTimeUtc(ConfigPath);
             }
+            configLoadedAtUtc = DateTime.UtcNow;
+            configLoadError = "";
             int count = config.mappings == null ? 0 : config.mappings.Length;
-            Log("Config loaded mappings=" + count);
+            Log("Config loaded version=" + config.version + " revision=" + (config.revision ?? "") +
+                " mappings=" + count + " routing=" + NormalizeInputRoutingMode(config.inputRoutingMode));
+            RefreshRc003FilterPolicy();
             BridgeForm.SetStatusText("配置已加载：" + count + " 项映射");
         }
         catch (Exception ex)
         {
             config = BridgeConfig.Default();
+            configLoadedAtUtc = DateTime.UtcNow;
+            configLoadError = ex.Message;
+            RefreshRc003FilterPolicy();
             Log("Config load failed: " + ex.Message);
             BridgeForm.SetStatusText("配置读取失败，已使用默认映射");
         }
@@ -1653,34 +2407,44 @@ internal static class VoxDeckInputBridge
 
     private static void ReloadConfigIfChanged()
     {
+        ReloadConfig(false, "file_timestamp");
+    }
+
+    private static bool ReloadConfig(bool force, string reason)
+    {
         try
         {
             if (!File.Exists(ConfigPath))
             {
-                return;
+                return false;
             }
 
             DateTime lastWrite = File.GetLastWriteTimeUtc(ConfigPath);
-            if (lastWrite <= configLastWriteUtc)
+            if (!force && lastWrite <= configLastWriteUtc)
             {
-                return;
+                return false;
             }
 
             lock (stateLock)
             {
                 lastWrite = File.GetLastWriteTimeUtc(ConfigPath);
-                if (lastWrite <= configLastWriteUtc)
+                if (!force && lastWrite <= configLastWriteUtc)
                 {
-                    return;
+                    return false;
                 }
                 ReleaseAllShortcuts();
+                rawKeyboardEdgeTracker.Reset();
                 LoadConfig();
-                Log("Config hot reloaded");
+                Log("Config hot reloaded reason=" + (reason ?? "unknown") +
+                    " revision=" + (config == null ? "" : config.revision ?? ""));
             }
+            return true;
         }
         catch (Exception ex)
         {
             Log("Config hot reload failed: " + ex.Message);
+            configLoadError = ex.Message;
+            return false;
         }
     }
 
@@ -1796,6 +2560,7 @@ internal static class VoxDeckInputBridge
 
     private static void HandleHidUsages(int usagePage, ushort[] usages, HashSet<int> activeUsages)
     {
+        ReloadConfigIfChanged();
         var current = new HashSet<int>();
         if (usages != null)
         {
@@ -1810,7 +2575,7 @@ internal static class VoxDeckInputBridge
                 if (mapping != null && mapping.enabled)
                 {
                     activeUsages.Add(value);
-                    HandleMapping(mapping, false);
+                    HandleMapping(mapping, false, "raw_hid");
                 }
             }
         }
@@ -1821,7 +2586,7 @@ internal static class VoxDeckInputBridge
         {
             if (current.Contains(value)) continue;
             ShortcutMapping mapping = FindHidMapping(usagePage, value);
-            if (mapping != null && mapping.enabled) HandleMapping(mapping, true);
+            if (mapping != null && mapping.enabled) HandleMapping(mapping, true, "raw_hid");
             activeUsages.Remove(value);
         }
     }
@@ -1968,32 +2733,124 @@ internal static class VoxDeckInputBridge
             if (target == null || !target.enabled)
             {
                 Log("Button action test ignored slot=" + request.slot + " reason=not_configured");
+                WriteCustomButtonTestResult(request.token, request.action, false, "按键尚未配置有效动作");
                 return;
             }
-            QueueMapping(target, false);
-            QueueMapping(target, true);
+            mappingQueue.Add(new MappingEvent
+            {
+                mapping = target,
+                testToken = request.token,
+                testAction = target.shortcut
+            });
             Log("Button action test queued name=" + target.name + " action=" + target.shortcut);
-            BridgeForm.SetStatusText("已测试 " + target.labelOrName());
+            BridgeForm.SetStatusText("正在测试 " + target.labelOrName());
         }
         catch (Exception ex) { Log("Custom button test failed: " + ex.Message); }
+    }
+
+    private static void WriteCustomButtonTestResult(string token, string action, bool success, string message)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return;
+        try
+        {
+            var result = new Dictionary<string, object>();
+            result["token"] = token;
+            result["action"] = action ?? "";
+            result["success"] = success;
+            result["message"] = message ?? "";
+            result["completed_at"] = DateTime.UtcNow.ToString("o");
+            string temp = CustomTestResultPath + ".tmp";
+            File.WriteAllText(temp, new JavaScriptSerializer().Serialize(result), Encoding.UTF8);
+            if (File.Exists(CustomTestResultPath)) File.Delete(CustomTestResultPath);
+            File.Move(temp, CustomTestResultPath);
+            Log("Button action test completed success=" + success + " action=" + (action ?? ""));
+        }
+        catch (Exception ex) { Log("Button action test result failed: " + ex.Message); }
+    }
+
+    private static void RecordActionExecution(ShortcutMapping mapping, string trigger,
+        string action, bool success, string source)
+    {
+        BridgeConfig snapshot = config;
+        var receipt = new ActionExecutionReceipt
+        {
+            Sequence = Interlocked.Increment(ref actionReceiptSequence),
+            TimestampUtc = DateTime.UtcNow,
+            Button = mapping == null ? "" : mapping.name ?? "",
+            Label = mapping == null ? "按键" : mapping.labelOrName(),
+            Trigger = trigger ?? "单击",
+            Action = action ?? "",
+            Source = source ?? "unknown",
+            ProfileId = snapshot == null ? "" : snapshot.activeShortcutProfileId ?? "",
+            ProfileName = snapshot == null ? "" : snapshot.activeShortcutProfileName ?? "",
+            ConfigRevision = snapshot == null ? "" : snapshot.revision ?? "",
+            Success = success
+        };
+        lock (actionReceiptLock) lastExecutionReceipt = receipt;
+        Log("Action receipt sequence=" + receipt.Sequence + " button=" + receipt.Label +
+            " trigger=" + receipt.Trigger + " action=" + receipt.Action +
+            " profile=" + receipt.ProfileId + " success=" + receipt.Success +
+            " source=" + receipt.Source + " revision=" + receipt.ConfigRevision);
+        WriteHealth("running");
     }
 
     private static void WriteHealth(string state)
     {
         try
         {
-            string lastInput = lastRemoteInputUtc == DateTime.MinValue ? "" : lastRemoteInputUtc.ToString("o");
-            string lastHookInput = lastHookInputUtc == DateTime.MinValue ? "" : lastHookInputUtc.ToString("o");
-            string json = "{\"updated_at\":\"" + DateTime.UtcNow.ToString("o") +
-                "\",\"pid\":" + Process.GetCurrentProcess().Id +
-                ",\"state\":\"" + state + "\",\"hook_installed\":" +
-                (hookHandle != IntPtr.Zero ? "true" : "false") +
-                ",\"raw_input_registered\":" + (rawInputRegistered ? "true" : "false") +
-                ",\"raw_input_device_present\":" + (HasRc003RawInputDevice() ? "true" : "false") +
-                ",\"last_input_at\":\"" + lastInput + "\",\"last_input_kind\":\"" +
-                (lastRemoteInputKind ?? "") + "\",\"last_hook_input_at\":\"" + lastHookInput +
-                "\",\"last_hook_input_vk\":" + lastHookInputVk +
-                ",\"last_hook_input_scan\":" + lastHookInputScan + "}";
+            BridgeConfig snapshot = config;
+            bool devicePresent = HasRc003RawInputDevice();
+            var health = new Dictionary<string, object>();
+            health["updated_at"] = DateTime.UtcNow.ToString("o");
+            health["pid"] = Process.GetCurrentProcess().Id;
+            health["state"] = state;
+            health["install_root"] = Path.GetFullPath(Root);
+            health["hook_installed"] = hookHandle != IntPtr.Zero;
+            health["raw_input_registered"] = rawInputRegistered;
+            health["raw_input_device_present"] = devicePresent;
+            health["raw_input_device_state"] = devicePresent ? "ready" : "waiting";
+            health["last_input_at"] = lastRemoteInputUtc == DateTime.MinValue ? "" : lastRemoteInputUtc.ToString("o");
+            health["last_input_kind"] = lastRemoteInputKind ?? "";
+            health["last_hook_input_at"] = lastHookInputUtc == DateTime.MinValue ? "" : lastHookInputUtc.ToString("o");
+            health["last_hook_input_vk"] = lastHookInputVk;
+            health["last_hook_input_scan"] = lastHookInputScan;
+            health["config_version"] = snapshot == null ? 0 : snapshot.version;
+            health["config_revision"] = snapshot == null ? "" : snapshot.revision ?? "";
+            health["config_loaded_at"] = configLoadedAtUtc == DateTime.MinValue ? "" : configLoadedAtUtc.ToString("o");
+            health["config_mapping_count"] = snapshot == null || snapshot.mappings == null ? 0 : snapshot.mappings.Length;
+            health["input_routing_mode"] = snapshot == null
+                ? "strict" : NormalizeInputRoutingMode(snapshot.inputRoutingMode);
+            bool filterHealthy = IsRc003FilterHealthy();
+            health["routing_authority"] = filterHealthy ? "device_filter" : "raw_input";
+            health["routing_isolation"] = filterHealthy ? "exact_device" : "native_passthrough";
+            health["raw_remote_edges"] = Interlocked.Read(ref rawRemoteEdgeCount);
+            health["raw_action_edges"] = Interlocked.Read(ref rawActionEdgeCount);
+            health["filter_action_edges"] = Interlocked.Read(ref filterActionEdgeCount);
+            health["hook_candidate_passthroughs"] = Interlocked.Read(ref hookCandidatePassthroughCount);
+            health["last_raw_action_at"] = lastRawActionUtc == DateTime.MinValue ? "" : lastRawActionUtc.ToString("o");
+            health["last_raw_action"] = lastRawAction ?? "";
+            health["last_action_source"] = lastActionSource ?? "";
+            ActionExecutionReceipt receipt;
+            lock (actionReceiptLock) receipt = lastExecutionReceipt;
+            health["last_execution_sequence"] = receipt == null ? 0L : receipt.Sequence;
+            health["last_execution_at"] = receipt == null ? "" : receipt.TimestampUtc.ToString("o");
+            health["last_execution_button"] = receipt == null ? "" : receipt.Button;
+            health["last_execution_label"] = receipt == null ? "" : receipt.Label;
+            health["last_execution_trigger"] = receipt == null ? "" : receipt.Trigger;
+            health["last_execution_action"] = receipt == null ? "" : receipt.Action;
+            health["last_execution_source"] = receipt == null ? "" : receipt.Source;
+            health["last_execution_profile_id"] = receipt == null ? "" : receipt.ProfileId;
+            health["last_execution_profile_name"] = receipt == null ? "" : receipt.ProfileName;
+            health["last_execution_revision"] = receipt == null ? "" : receipt.ConfigRevision;
+            health["last_execution_success"] = receipt != null && receipt.Success;
+            Rc003FilterClient filterClient = rc003FilterClient;
+            health["rc003_filter_available"] = filterClient != null;
+            health["rc003_filter_healthy"] = filterClient != null && filterClient.IsHealthy;
+            health["rc003_filter_state"] = filterClient == null ? "not_started" : filterClient.State;
+            health["rc003_filter_attached_devices"] = filterClient == null ? 0 : filterClient.AttachedDeviceCount;
+            health["rc003_filter_dropped_events"] = filterClient == null ? 0L : filterClient.DroppedEventCount;
+            health["config_error"] = configLoadError ?? "";
+            string json = new JavaScriptSerializer().Serialize(health);
             // Keep readers from observing an empty or half-written heartbeat.
             string tempPath = HealthPath + ".tmp";
             File.WriteAllText(tempPath, json, Encoding.UTF8);
@@ -2205,6 +3062,7 @@ internal static class VoxDeckInputBridge
                 }
                 consumerUsagesDown.Clear();
                 keyboardUsagesDown.Clear();
+                rawKeyboardEdgeTracker.Reset();
                 long changeType = m.WParam.ToInt64();
                 if (changeType == 2 && Volatile.Read(ref voiceKeyHeldState) == 1)
                     HandleVoicePhysicalTransition(false, "raw_device_removed", 0, 0);
@@ -2334,22 +3192,419 @@ internal static class VoxDeckInputBridge
         return null;
     }
 
+    private sealed class Rc003FilterKeyEvent
+    {
+        public ulong Sequence;
+        public ushort MakeCode;
+        public ushort Flags;
+        public ushort UnitId;
+        public int Generation;
+        public bool Suppressed;
+    }
+
+    private static class Rc003FilterProtocol
+    {
+        public const uint Magic = 0x43524656U;
+        public const uint ApiVersion = 1U;
+        public const int ScanCodeCount = 256;
+        public const int InfoSize = 40;
+        public const int PolicySize = 272;
+        public const int EventSize = 32;
+        public const int EventBatchHeaderSize = 24;
+        public const ushort KeyBreak = 0x0001;
+        public const ushort KeyE0 = 0x0002;
+        public const ushort KeyE1 = 0x0004;
+
+        public const uint IoctlGetInfo = 0x80006400U;
+        public const uint IoctlSetPolicy = 0x8000A404U;
+        public const uint IoctlHeartbeat = 0x8000A408U;
+        public const uint IoctlReadEvents = 0x8000640CU;
+        public const uint IoctlDisarm = 0x8000A410U;
+
+        public static byte[] BuildPolicy(byte[] suppressionMask)
+        {
+            byte[] policy = new byte[PolicySize];
+            WriteUInt32(policy, 0, Magic);
+            WriteUInt32(policy, 4, ApiVersion);
+            WriteUInt32(policy, 8, PolicySize);
+            WriteUInt32(policy, 12, 1U);
+            if (suppressionMask != null)
+                Buffer.BlockCopy(suppressionMask, 0, policy, 16,
+                    Math.Min(ScanCodeCount, suppressionMask.Length));
+            return policy;
+        }
+
+        public static void ParseInfo(byte[] buffer, int bytesReturned,
+            out int attachedDeviceCount, out long droppedEventCount)
+        {
+            if (buffer == null || bytesReturned < InfoSize || buffer.Length < InfoSize)
+                throw new InvalidDataException("RC003 filter returned a short info structure");
+            if (ReadUInt32(buffer, 0) != Magic || ReadUInt32(buffer, 4) != ApiVersion ||
+                ReadUInt32(buffer, 8) != InfoSize)
+                throw new InvalidDataException("RC003 filter info protocol mismatch");
+            attachedDeviceCount = checked((int)ReadUInt32(buffer, 12));
+            droppedEventCount = checked((long)ReadUInt64(buffer, 32));
+        }
+
+        public static List<Rc003FilterKeyEvent> ParseEvents(byte[] buffer, int bytesReturned,
+            int generation, byte[] suppressionMask, out long droppedEventCount)
+        {
+            if (buffer == null || bytesReturned < EventBatchHeaderSize ||
+                buffer.Length < bytesReturned)
+                throw new InvalidDataException("RC003 filter returned a short event batch");
+            if (ReadUInt32(buffer, 0) != Magic || ReadUInt32(buffer, 4) != ApiVersion ||
+                ReadUInt32(buffer, 8) != EventBatchHeaderSize)
+                throw new InvalidDataException("RC003 filter event protocol mismatch");
+
+            uint eventCount = ReadUInt32(buffer, 12);
+            droppedEventCount = checked((long)ReadUInt64(buffer, 16));
+            long required = EventBatchHeaderSize + ((long)eventCount * EventSize);
+            if (required > bytesReturned)
+                throw new InvalidDataException("RC003 filter event batch length mismatch");
+
+            var events = new List<Rc003FilterKeyEvent>(checked((int)eventCount));
+            for (int index = 0; index < eventCount; index++)
+            {
+                int offset = EventBatchHeaderSize + (index * EventSize);
+                if (ReadUInt32(buffer, offset) != Magic || ReadUInt32(buffer, offset + 4) != EventSize)
+                    throw new InvalidDataException("RC003 filter event structure mismatch");
+                ushort makeCode = ReadUInt16(buffer, offset + 24);
+                events.Add(new Rc003FilterKeyEvent
+                {
+                    Sequence = ReadUInt64(buffer, offset + 8),
+                    MakeCode = makeCode,
+                    Flags = ReadUInt16(buffer, offset + 26),
+                    UnitId = ReadUInt16(buffer, offset + 28),
+                    Generation = generation,
+                    Suppressed = suppressionMask != null && makeCode < suppressionMask.Length &&
+                        suppressionMask[makeCode] != 0
+                });
+            }
+            return events;
+        }
+
+        private static ushort ReadUInt16(byte[] buffer, int offset)
+        {
+            return BitConverter.ToUInt16(buffer, offset);
+        }
+
+        private static uint ReadUInt32(byte[] buffer, int offset)
+        {
+            return BitConverter.ToUInt32(buffer, offset);
+        }
+
+        private static ulong ReadUInt64(byte[] buffer, int offset)
+        {
+            return BitConverter.ToUInt64(buffer, offset);
+        }
+
+        private static void WriteUInt32(byte[] buffer, int offset, uint value)
+        {
+            byte[] encoded = BitConverter.GetBytes(value);
+            Buffer.BlockCopy(encoded, 0, buffer, offset, encoded.Length);
+        }
+    }
+
+    private sealed class Rc003FilterClient : IDisposable
+    {
+        private const string DevicePath = "\\\\.\\VibeFlowRc003Filter";
+        private const uint GenericRead = 0x80000000U;
+        private const uint GenericWrite = 0x40000000U;
+        private const uint OpenExisting = 3U;
+        private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+        private readonly Action<Rc003FilterKeyEvent> eventCallback;
+        private readonly Action<bool, string> healthCallback;
+        private readonly object policyLock = new object();
+        private readonly object stateTextLock = new object();
+        private readonly AutoResetEvent wakeEvent = new AutoResetEvent(false);
+        private readonly ManualResetEvent stopEvent = new ManualResetEvent(false);
+        private readonly BlockingCollection<Rc003FilterKeyEvent> dispatchQueue =
+            new BlockingCollection<Rc003FilterKeyEvent>(256);
+        private readonly byte[] eventReadBuffer = new byte[
+            Rc003FilterProtocol.EventBatchHeaderSize + (Rc003FilterProtocol.EventSize * 64)];
+
+        private Thread ioThread;
+        private Thread dispatchThread;
+        private IntPtr deviceHandle = InvalidHandleValue;
+        private byte[] requestedMask = new byte[Rc003FilterProtocol.ScanCodeCount];
+        private byte[] activeMask = new byte[Rc003FilterProtocol.ScanCodeCount];
+        private int requestedGeneration = 1;
+        private int activeGeneration;
+        private int healthy;
+        private int attachedDeviceCount;
+        private long droppedEventCount;
+        private string state = "not_started";
+        private string lastNotifiedState = "";
+        private int lastHeartbeatTick;
+
+        public Rc003FilterClient(Action<Rc003FilterKeyEvent> onEvent,
+            Action<bool, string> onHealthChanged)
+        {
+            eventCallback = onEvent;
+            healthCallback = onHealthChanged;
+        }
+
+        public bool IsHealthy { get { return Volatile.Read(ref healthy) == 1; } }
+        public int AttachedDeviceCount { get { return Volatile.Read(ref attachedDeviceCount); } }
+        public long DroppedEventCount { get { return Interlocked.Read(ref droppedEventCount); } }
+        public string State
+        {
+            get { lock (stateTextLock) return state; }
+        }
+
+        public void Start()
+        {
+            if (ioThread != null) return;
+            dispatchThread = new Thread(DispatchLoop);
+            dispatchThread.IsBackground = true;
+            dispatchThread.Name = "Vibe Flow RC003 filter dispatch";
+            dispatchThread.Start();
+
+            ioThread = new Thread(IoLoop);
+            ioThread.IsBackground = true;
+            ioThread.Name = "Vibe Flow RC003 filter heartbeat";
+            ioThread.Start();
+        }
+
+        public void UpdatePolicy(byte[] suppressionMask)
+        {
+            byte[] normalized = new byte[Rc003FilterProtocol.ScanCodeCount];
+            if (suppressionMask != null)
+                Buffer.BlockCopy(suppressionMask, 0, normalized, 0,
+                    Math.Min(normalized.Length, suppressionMask.Length));
+            lock (policyLock)
+            {
+                requestedMask = normalized;
+                requestedGeneration++;
+                if (requestedGeneration <= 0) requestedGeneration = 1;
+                // Invalidate queued events immediately. Until the I/O thread
+                // arms the new generation, dropping an edge is safer than
+                // executing it against a configuration that no longer owns
+                // that policy.
+                Volatile.Write(ref activeGeneration, 0);
+            }
+            wakeEvent.Set();
+        }
+
+        public bool IsGenerationActive(int generation)
+        {
+            return generation > 0 && IsHealthy && generation == Volatile.Read(ref activeGeneration);
+        }
+
+        private void IoLoop()
+        {
+            while (!stopEvent.WaitOne(0))
+            {
+                try
+                {
+                    if (!HasOpenHandle()) OpenAndValidate();
+                    ApplyPendingPolicy();
+                    if (unchecked((uint)(Environment.TickCount - lastHeartbeatTick)) >= 250U)
+                    {
+                        InvokeIoControl(Rc003FilterProtocol.IoctlHeartbeat, null, null);
+                        lastHeartbeatTick = Environment.TickCount;
+                    }
+                    ReadAvailableEvents();
+                    wakeEvent.WaitOne(10);
+                }
+                catch (Exception ex)
+                {
+                    bool hadOpenDevice = HasOpenHandle();
+                    TryDisarm();
+                    CloseDeviceHandle();
+                    SetHealth(false, "fallback:" + ex.Message);
+                    // A resume-time heartbeat timeout is recoverable and
+                    // should re-arm quickly. A missing driver uses a slower
+                    // retry to avoid needless background wakeups.
+                    wakeEvent.WaitOne(hadOpenDevice ? 100 : 750);
+                }
+            }
+
+            TryDisarm();
+            CloseDeviceHandle();
+            SetHealth(false, "stopped");
+        }
+
+        private void DispatchLoop()
+        {
+            foreach (Rc003FilterKeyEvent input in dispatchQueue.GetConsumingEnumerable())
+            {
+                if (!IsGenerationActive(input.Generation)) continue;
+                try
+                {
+                    if (eventCallback != null) eventCallback(input);
+                }
+                catch (Exception ex) { Log("RC003 filter dispatch failed: " + ex.Message); }
+            }
+        }
+
+        private void OpenAndValidate()
+        {
+            IntPtr opened = CreateFile(DevicePath, GenericRead | GenericWrite, 0,
+                IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
+            if (opened == InvalidHandleValue)
+                throw new IOException("open_failed_win32_" + Marshal.GetLastWin32Error());
+            deviceHandle = opened;
+
+            byte[] info = new byte[Rc003FilterProtocol.InfoSize];
+            int bytesReturned = InvokeIoControl(Rc003FilterProtocol.IoctlGetInfo, null, info);
+            int attached;
+            long dropped;
+            Rc003FilterProtocol.ParseInfo(info, bytesReturned, out attached, out dropped);
+            if (attached < 1) throw new IOException("filter_loaded_without_rc003_device");
+            Volatile.Write(ref attachedDeviceCount, attached);
+            Interlocked.Exchange(ref droppedEventCount, dropped);
+            Volatile.Write(ref activeGeneration, 0);
+            lastHeartbeatTick = Environment.TickCount;
+        }
+
+        private void ApplyPendingPolicy()
+        {
+            int generation;
+            byte[] mask;
+            lock (policyLock)
+            {
+                generation = requestedGeneration;
+                if (generation == Volatile.Read(ref activeGeneration)) return;
+                mask = (byte[])requestedMask.Clone();
+            }
+
+            byte[] policy = Rc003FilterProtocol.BuildPolicy(mask);
+            InvokeIoControl(Rc003FilterProtocol.IoctlSetPolicy, policy, null);
+            lock (policyLock)
+            {
+                if (generation != requestedGeneration)
+                {
+                    Volatile.Write(ref activeGeneration, 0);
+                    return;
+                }
+                activeMask = mask;
+                Volatile.Write(ref activeGeneration, generation);
+            }
+            lastHeartbeatTick = Environment.TickCount;
+            SetHealth(true, "ready:generation_" + generation);
+        }
+
+        private void ReadAvailableEvents()
+        {
+            int bytesReturned = InvokeIoControl(Rc003FilterProtocol.IoctlReadEvents, null, eventReadBuffer);
+            int generation = Volatile.Read(ref activeGeneration);
+            long dropped;
+            List<Rc003FilterKeyEvent> events = Rc003FilterProtocol.ParseEvents(
+                eventReadBuffer, bytesReturned, generation, activeMask, out dropped);
+            long previousDropped = Interlocked.Exchange(ref droppedEventCount, dropped);
+            if (dropped > previousDropped)
+                Log("RC003 filter queue dropped events total=" + dropped);
+            foreach (Rc003FilterKeyEvent input in events)
+            {
+                if (!dispatchQueue.TryAdd(input))
+                    throw new IOException("user_mode_event_queue_full");
+            }
+        }
+
+        private int InvokeIoControl(uint controlCode, byte[] input, byte[] output)
+        {
+            if (!HasOpenHandle()) throw new IOException("filter_handle_closed");
+            int bytesReturned;
+            bool success = DeviceIoControl(deviceHandle, controlCode,
+                input, input == null ? 0 : input.Length,
+                output, output == null ? 0 : output.Length,
+                out bytesReturned, IntPtr.Zero);
+            if (!success)
+                throw new IOException("ioctl_0x" + controlCode.ToString("X8") +
+                    "_failed_win32_" + Marshal.GetLastWin32Error());
+            return bytesReturned;
+        }
+
+        private void TryDisarm()
+        {
+            if (!HasOpenHandle()) return;
+            try { InvokeIoControl(Rc003FilterProtocol.IoctlDisarm, null, null); }
+            catch { }
+        }
+
+        private bool HasOpenHandle()
+        {
+            return deviceHandle != IntPtr.Zero && deviceHandle != InvalidHandleValue;
+        }
+
+        private void CloseDeviceHandle()
+        {
+            IntPtr current = deviceHandle;
+            deviceHandle = InvalidHandleValue;
+            if (current != IntPtr.Zero && current != InvalidHandleValue) CloseHandle(current);
+            Volatile.Write(ref activeGeneration, 0);
+            Volatile.Write(ref attachedDeviceCount, 0);
+        }
+
+        private void SetHealth(bool value, string detail)
+        {
+            Interlocked.Exchange(ref healthy, value ? 1 : 0);
+            string normalized = value ? "ready" : (detail ?? "unavailable");
+            bool notify;
+            lock (stateTextLock)
+            {
+                state = normalized;
+                notify = !string.Equals(lastNotifiedState, normalized, StringComparison.Ordinal);
+                if (notify) lastNotifiedState = normalized;
+            }
+            if (notify && healthCallback != null)
+            {
+                try { healthCallback(value, normalized); }
+                catch (Exception ex) { Log("RC003 filter health callback failed: " + ex.Message); }
+            }
+        }
+
+        public void Dispose()
+        {
+            stopEvent.Set();
+            wakeEvent.Set();
+            bool ioStopped = ioThread == null || !ioThread.IsAlive || ioThread.Join(2000);
+            ioThread = null;
+
+            Volatile.Write(ref activeGeneration, 0);
+            dispatchQueue.CompleteAdding();
+            if (dispatchThread != null && dispatchThread.IsAlive) dispatchThread.Join(2000);
+            dispatchThread = null;
+            if (!ioStopped)
+            {
+                // Leave synchronization objects alive for the blocked worker;
+                // process teardown will close them and the kernel heartbeat
+                // independently guarantees fail-open suppression.
+                Log("RC003 filter I/O thread did not stop within 2000 ms; fail-open timeout remains active");
+                return;
+            }
+            dispatchQueue.Dispose();
+            wakeEvent.Dispose();
+            stopEvent.Dispose();
+        }
+    }
+
     public sealed class BridgeConfig
     {
         public int version { get; set; }
+        public string revision { get; set; }
         public string notes { get; set; }
+        public string inputRoutingMode { get; set; }
+        public string activeShortcutProfileId { get; set; }
+        public string activeShortcutProfileName { get; set; }
         public ShortcutMapping[] mappings { get; set; }
 
         public static BridgeConfig Default()
         {
             return new BridgeConfig
             {
-                version = 1,
+                version = 6,
+                revision = "default",
                 notes = "Default VoxDeck RC003 mapping.",
+                inputRoutingMode = "strict",
+                activeShortcutProfileId = "general",
+                activeShortcutProfileName = "通用导航",
                 mappings = new ShortcutMapping[]
                 {
                     new ShortcutMapping { name = "voice", label = "录音键", vk = "F5", scan = "0x3F", enabled = true, suppress = true, mode = "suppress", shortcut = "" },
-                    new ShortcutMapping { name = "home", label = "Home 键", vk = "Home", scan = "0x47", enabled = true, suppress = true, mode = "tap", shortcut = "win+d" },
+                    new ShortcutMapping { name = "home", label = "Home 键", vk = "Home", scan = "0x47", enabled = true, suppress = true, mode = "shortlong", shortShortcut = "win+d", longShortcut = "none", longPressMs = 650 },
                     new ShortcutMapping { name = "tv", label = "TV 键", vk = "Oemtilde", scan = "0x29", enabled = true, suppress = true, mode = "tap", shortcut = "task-switcher" },
                     new ShortcutMapping { name = "menu", label = "功能键", vk = "Apps", scan = "0x5D", enabled = true, suppress = true, mode = "shortlong", shortShortcut = "ctrl+c", longShortcut = "ctrl+v", longPressMs = 650 },
                     new ShortcutMapping { name = "ok", label = "确认键", vk = "Enter", scan = "0x1C", enabled = false, suppress = false, mode = "passthrough", shortcut = "enter" },
@@ -2360,6 +3615,11 @@ internal static class VoxDeckInputBridge
                 }
             };
         }
+    }
+
+    private static string NormalizeInputRoutingMode(string value)
+    {
+        return "strict";
     }
 
     public sealed class ShortcutMapping
@@ -2389,7 +3649,10 @@ internal static class VoxDeckInputBridge
     {
         public ShortcutMapping mapping;
         public bool keyUp;
+        public string source;
         public string command;
+        public string testToken;
+        public string testAction;
     }
 
     private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -2466,6 +3729,25 @@ internal static class VoxDeckInputBridge
     {
         public uint type;
         public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public UIntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+        public uint lPrivate;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int x;
+        public int y;
     }
 
     [StructLayout(LayoutKind.Explicit)]
@@ -2555,11 +3837,50 @@ internal static class VoxDeckInputBridge
         }
     }
 
+    private sealed class RawKeyboardEdgeTracker
+    {
+        private readonly object sync = new object();
+        private readonly HashSet<string> keysDown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public bool ShouldDispatch(int virtualKey, int scanCode, bool keyUp)
+        {
+            string identity = scanCode > 0
+                ? "scan:" + scanCode.ToString("X4")
+                : "vk:" + virtualKey.ToString("X4");
+            lock (sync)
+            {
+                if (keyUp) return keysDown.Remove(identity);
+                return keysDown.Add(identity);
+            }
+        }
+
+        public void Reset()
+        {
+            lock (sync) keysDown.Clear();
+        }
+    }
+
     private sealed class GestureTimerRequest
     {
         public string Name;
         public int Generation;
         public ShortcutMapping Mapping;
+        public string Source;
+    }
+
+    private sealed class ActionExecutionReceipt
+    {
+        public long Sequence;
+        public DateTime TimestampUtc;
+        public string Button = "";
+        public string Label = "";
+        public string Trigger = "";
+        public string Action = "";
+        public string Source = "";
+        public string ProfileId = "";
+        public string ProfileName = "";
+        public string ConfigRevision = "";
+        public bool Success;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -2609,6 +3930,39 @@ internal static class VoxDeckInputBridge
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern IntPtr GetModuleHandle(string lpModuleName);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateFile(string fileName, uint desiredAccess, uint shareMode,
+        IntPtr securityAttributes, uint creationDisposition, uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeviceIoControl(IntPtr device, uint controlCode,
+        [In] byte[] inputBuffer, int inputBufferSize,
+        [Out] byte[] outputBuffer, int outputBufferSize,
+        out int bytesReturned, IntPtr overlapped);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostThreadMessage(uint threadId, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern int GetMessage(out MSG message, IntPtr window, uint minimumMessage, uint maximumMessage);
+
+    [DllImport("user32.dll")]
+    private static extern bool PeekMessage(out MSG message, IntPtr window, uint minimumMessage, uint maximumMessage,
+        uint removeMessage);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage([In] ref MSG message);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage([In] ref MSG message);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
@@ -2623,6 +3977,15 @@ internal static class VoxDeckInputBridge
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attachThread, uint attachToThread, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetFocus(IntPtr window);
 
     [DllImport("user32.dll")]
     private static extern void SwitchToThisWindow(IntPtr window, bool altTab);

@@ -1,0 +1,7 @@
+self-hosted-runner:
+  labels:
+    - vibe-flow-driver-lab
+
+config-variables: null
+
+paths:

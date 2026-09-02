@@ -2,6 +2,17 @@
 
 把小米 RC003 / MI RC 蓝牙语音遥控器变成 Windows 语音输入与快捷控制器：**聚焦输入框，按住录音键说话，松开结束，再按确认键发送。**
 
+## v1.3.0 候选版
+
+当前分支正在验证 v1.3：录音内核和语音参数保持 v1.2.1 原样，重点升级可靠快捷键、五项首次设置、本机 APP/网页启动、配置备份恢复、隐私化诊断，以及浅色/深色/跟随 Windows 三种主题。
+
+> [!WARNING]
+> v1.3 尚未完成 RC003 100 次按键、蓝牙重连、睡眠唤醒和 Windows 重启门禁，因此暂不提供正式安装包。日常使用请继续下载下方 v1.2.1。
+
+[v1.3 图文教程](docs/V1_3_USER_GUIDE_ZH.md) · [候选版说明与验收](docs/V1_3_PREVIEW_ZH.md) · [产品审计](docs/PRODUCT_AUDIT_2026-09-01_ZH.md)
+
+![言灵 v1.3 首页](docs/images/01-overview.png)
+
 ## v1.2.1 用户友好稳定版
 
 **Windows 10/11 x64 · 默认白天模式 · 稳定性优先**
@@ -25,9 +36,7 @@
 
 [快速开始](QUICK_START_ZH.md) · [v1.2.1 图文教程](docs/V1_2_1_TUTORIAL_ZH.md) · [完整教程](docs/USER_GUIDE_ZH.md) · [版本下载](docs/VERSION_ARCHIVE_ZH.md) · [更新说明](docs/RELEASE_NOTES_ZH.md)
 
-![言灵 v1.2.1 首页](docs/images/01-overview.png)
-
-## 本版变化
+## v1.2.1 变化
 
 | 变化 | 结果 |
 | --- | --- |
@@ -77,7 +86,7 @@ RC003 microphone -> Bluetooth ATVV -> Vibe Flow
 
 | 工具 | 推荐起点 | 说明 |
 | --- | --- | --- |
-| 微信输入法 | `Ctrl + Win` · 单击切换 | 默认稳定档案；可继续使用微信 AI 整理。 |
+| 微信输入法 | `Ctrl + Win` · 单击切换 | 默认稳定档案；AI 整理由微信输入法内部所选模式决定。 |
 | Typeless | 常见为 `Right Alt` | 以客户端实际全局快捷键为准。 |
 | 豆包输入法 | 客户端全局语音快捷键 | 两边必须完全一致。 |
 | Windows 语音输入 | `Win + H` | 系统自带兼容选项。 |

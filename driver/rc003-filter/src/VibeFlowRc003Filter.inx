@@ -1,0 +1,65 @@
+[Version]
+Signature="$Windows NT$"
+Provider=%ProviderName%
+Class=Keyboard
+ClassGUID={4D36E96B-E325-11CE-BFC1-08002BE10318}
+DriverVer=09/01/2026,1.3.0.0
+CatalogFile=VibeFlowRc003Filter.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir=13
+
+[SourceDisksNames]
+1=%DiskName%,,,
+
+[SourceDisksFiles]
+VibeFlowRc003Filter.sys=1
+
+[Manufacturer]
+%ManufacturerName%=Models,NTamd64.10.0...19041
+
+[Models.NTamd64.10.0...19041]
+%DeviceDescription%=Rc003Filter_Install,HID\{00001812-0000-1000-8000-00805F9B34FB}_Dev_VID&012717_PID&32B8_REV&00A4
+
+[Rc003Filter_Install.NT]
+Include=keyboard.inf
+Needs=STANDARD_Inst
+CopyFiles=Rc003Filter_CopyFiles
+
+[Rc003Filter_CopyFiles]
+VibeFlowRc003Filter.sys
+
+[Rc003Filter_Install.NT.Services]
+Include=keyboard.inf
+Needs=STANDARD_Inst.Services
+AddService=VibeFlowRc003Filter,,Rc003Filter_Service
+
+[Rc003Filter_Service]
+DisplayName=%ServiceDescription%
+ServiceType=1
+StartType=3
+ErrorControl=0
+ServiceBinary=%13%\VibeFlowRc003Filter.sys
+
+[Rc003Filter_Install.NT.HW]
+Include=keyboard.inf
+Needs=STANDARD_Inst.HW
+AddReg=Rc003Filter_UpperFilter
+
+[Rc003Filter_UpperFilter]
+; FLG_ADDREG_APPEND preserves every existing per-device upper filter.
+HKR,,UpperFilters,0x00010008,"VibeFlowRc003Filter"
+
+[Rc003Filter_Install.NT.Wdf]
+KmdfService=VibeFlowRc003Filter,Rc003Filter_Wdf
+
+[Rc003Filter_Wdf]
+KmdfLibraryVersion=$KMDFVERSION$
+
+[Strings]
+ProviderName="Vibe Flow Project"
+ManufacturerName="Vibe Flow Project"
+DeviceDescription="Vibe Flow RC003 device-specific input filter"
+ServiceDescription="Vibe Flow RC003 input filter"
+DiskName="Vibe Flow RC003 driver package"

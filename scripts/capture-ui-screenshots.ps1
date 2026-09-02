@@ -1,6 +1,8 @@
 param(
     [string]$OutputDirectory = (Join-Path (Split-Path -Parent $PSScriptRoot) "docs\images"),
     [int]$ProcessId = 0,
+    [ValidateSet("Current", "Light", "Dark", "System")]
+    [string]$Theme = "Current",
     [switch]$CaptureFullOnboarding,
     [switch]$AllowUnhealthyDiagnostics
 )
@@ -321,6 +323,9 @@ $dictationLabel = ConvertFrom-CodePoints @(0x8BED, 0x97F3)
 $shortcutsLabel = ConvertFrom-CodePoints @(0x5FEB, 0x6377, 0x952E)
 $selfCheckLabel = ConvertFrom-CodePoints @(0x81EA, 0x68C0)
 $settingsLabel = ConvertFrom-CodePoints @(0x8BBE, 0x7F6E)
+$lightThemeLabel = ConvertFrom-CodePoints @(0x767D, 0x5929, 0x6A21, 0x5F0F)
+$darkThemeLabel = ConvertFrom-CodePoints @(0x591C, 0x95F4, 0x6A21, 0x5F0F)
+$systemThemeLabel = ConvertFrom-CodePoints @(0x8DDF, 0x968F, 0x20, 0x57, 0x69, 0x6E, 0x64, 0x6F, 0x77, 0x73)
 $screenshotActionLabel = ConvertFrom-CodePoints @(0x7CFB, 0x7EDF, 0x20, 0xB7, 0x20, 0x533A, 0x57DF, 0x622A, 0x56FE)
 $setupLabel = ConvertFrom-CodePoints @(0x6253, 0x5F00, 0x5165, 0x95E8, 0x6307, 0x5357)
 $welcomePrefix = ConvertFrom-CodePoints @(0x9996, 0x6B21, 0x8BBE, 0x7F6E)
@@ -333,11 +338,16 @@ $pages = @(
     @{ Button = $settingsLabel; File = "05-settings.png" }
 )
 
+if ($Theme -ne "Current") {
+    Invoke-Button $main $settingsLabel
+    Invoke-Button $main $(if ($Theme -eq "Dark") { $darkThemeLabel } elseif ($Theme -eq "System") { $systemThemeLabel } else { $lightThemeLabel })
+    Start-Sleep -Milliseconds 450
+}
+
 foreach ($page in $pages) {
     Invoke-Button $main $page.Button
     if ($page.File -eq "03-shortcuts.png") {
-        $shortcutCombo = Find-TopmostComboBox $main
-        Set-ComboSelectionByText $shortcutCombo $screenshotActionLabel
+        Start-Sleep -Milliseconds 250
     }
     if ($page.File -eq "04-diagnostics.png" -and -not $AllowUnhealthyDiagnostics -and
         -not (Test-ChildText $main $healthySelfCheckText)) {
@@ -370,10 +380,8 @@ if ($CaptureFullOnboarding) {
 Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
 if ($CaptureFullOnboarding) {
     $stepFiles = @(
-        "00-setup-01-intro.png", "00-setup-02-bluetooth.png", "00-setup-03-pairing.png",
-        "00-setup-04-keys.png", "00-setup-05-microphone.png", "00-setup-06-vb-cable.png",
-        "00-setup-07-provider.png", "00-setup-08-dictation.png", "00-setup-09-buttons.png",
-        "00-setup-10-startup.png", "00-setup-11-summary.png"
+        "00-setup-01-device.png", "00-setup-02-remote.png", "00-setup-03-audio.png",
+        "00-setup-04-dictation.png", "00-setup-05-ready.png"
     )
     Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[0])
     for ($step = 1; $step -lt $stepFiles.Count; $step++) {

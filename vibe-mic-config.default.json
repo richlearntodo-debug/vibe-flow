@@ -1,12 +1,12 @@
 {
-  "schemaVersion": 25,
+  "schemaVersion": 31,
   "stableVoiceProfileVersion": 11,
   "captureSeconds": 0,
   "gain": 1.0,
   "autoLevel": true,
   "voiceMode": "hold",
   "setupCompleted": false,
-  "onboardingVersion": 8,
+  "onboardingVersion": 9,
   "onboardingStep": 0,
   "resumeSetupAfterRestart": false,
   "theme": "light",
@@ -23,10 +23,13 @@
   "soundFeedbackEnabled": true,
   "autoCheckUpdates": true,
   "drainMs": 180,
-  "mappingPreset": "coding",
+  "inputRoutingMode": "strict",
+  "mappingPreset": "general",
   "mappings": {
     "确认键": "enter",
     "Home": "win+d",
+    "Home:short": "win+d",
+    "Home:long": "none",
     "TV": "task-switcher",
     "功能键": "ctrl+c",
     "功能键:short": "ctrl+c",
@@ -35,5 +38,84 @@
     "下键": "down",
     "左键": "left",
     "右键": "right"
-  }
+  },
+  "activeShortcutProfileId": "general",
+  "shortcutProfiles": [
+    {
+      "id": "general",
+      "name": "通用导航",
+      "preset": "general",
+      "mappings": {
+        "确认键": "enter",
+        "Home": "win+d",
+        "Home:short": "win+d",
+        "Home:long": "none",
+        "TV": "task-switcher",
+        "功能键": "ctrl+c",
+        "功能键:short": "ctrl+c",
+        "功能键:long": "ctrl+v",
+        "上键": "up",
+        "下键": "down",
+        "左键": "left",
+        "右键": "right"
+      }
+    },
+    {
+      "id": "vibe-coding",
+      "name": "Vibe Coding",
+      "preset": "vibe-coding",
+      "mappings": {
+        "确认键": "enter",
+        "Home": "win+d",
+        "Home:short": "win+d",
+        "Home:long": "launch-client:cursor",
+        "TV": "task-switcher",
+        "功能键": "ctrl+c",
+        "功能键:short": "ctrl+c",
+        "功能键:long": "ctrl+v",
+        "上键": "ctrl+z",
+        "下键": "ctrl+shift+z",
+        "左键": "ctrl+c",
+        "右键": "ctrl+v"
+      }
+    },
+    {
+      "id": "browser-ai",
+      "name": "浏览器 AI",
+      "preset": "browser-ai",
+      "mappings": {
+        "确认键": "enter",
+        "Home": "win+d",
+        "Home:short": "win+d",
+        "Home:long": "launch-client:chatgpt",
+        "TV": "task-switcher",
+        "功能键": "ctrl+c",
+        "功能键:short": "ctrl+c",
+        "功能键:long": "ctrl+v",
+        "上键": "pageup",
+        "下键": "pagedown",
+        "左键": "browserback",
+        "右键": "tab"
+      }
+    },
+    {
+      "id": "terminal-agent",
+      "name": "Terminal Agent",
+      "preset": "terminal-agent",
+      "mappings": {
+        "确认键": "enter",
+        "Home": "launch-client:terminal",
+        "Home:short": "launch-client:terminal",
+        "Home:long": "launch-client:codex",
+        "TV": "task-switcher",
+        "功能键": "ctrl+c",
+        "功能键:short": "ctrl+c",
+        "功能键:long": "ctrl+v",
+        "上键": "up",
+        "下键": "down",
+        "左键": "left",
+        "右键": "right"
+      }
+    }
+  ]
 }

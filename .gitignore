@@ -2,7 +2,9 @@
 remote-voice-session/
 remote-voice-session-smoke/
 artifacts/
+tmp/
 *.log
+*.bak
 input-bridge-log.txt
 vibe-mic-config.json
 voxdeck-shortcuts.json
@@ -23,6 +25,7 @@ obj/
 .vs/
 *.user
 *.suo
+driver/rc003-filter/src/x64/
 
 # Legacy prototypes and local review captures
 app.js
@@ -53,6 +56,9 @@ scripts/VoxDeck*.cs
 !scripts/VoxDeckInputBridge.cs
 scripts/*.ps1
 !scripts/capture-ui-screenshots.ps1
+!scripts/Install-VBCable.ps1
+!scripts/Get-StableCaptureBinary.ps1
+!scripts/Measure-HardwareAcceptance.ps1
 scripts/decode-atvv-audio.js
 *.png
 !vibe-flow-logo.png

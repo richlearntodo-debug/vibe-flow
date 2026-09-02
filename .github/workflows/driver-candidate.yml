@@ -1,0 +1,134 @@
+name: RC003 Driver Lab candidate
+
+on:
+  push:
+    branches:
+      - feature/v1.3-custom-key-mapping
+    paths:
+      - .github/workflows/driver-candidate.yml
+      - driver/rc003-filter/**
+      - scripts/VoxDeckInputBridge.cs
+      - scripts/validate.js
+      - package.json
+  workflow_dispatch:
+    inputs:
+      test_only_acknowledged:
+        description: Build a non-release cloud compile candidate
+        required: true
+        type: boolean
+        default: false
+      run_driver_lab:
+        description: Also run on the isolated physical Driver Lab computer
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-compile:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Enforce non-release acknowledgement
+        shell: powershell
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          TEST_ONLY_ACKNOWLEDGED: ${{ inputs.test_only_acknowledged }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq "push") {
+            if ($env:GITHUB_REF_NAME -ne "feature/v1.3-custom-key-mapping") {
+              throw "Automatic cloud compile is restricted to the V1.3 candidate branch."
+            }
+          } elseif ($env:GITHUB_EVENT_NAME -eq "workflow_dispatch") {
+            if ($env:TEST_ONLY_ACKNOWLEDGED -ne "true") {
+              throw "The non-release cloud compile acknowledgement was not accepted."
+            }
+          } else {
+            throw "Unsupported workflow trigger: $env:GITHUB_EVENT_NAME"
+          }
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          vs-version: '[17.0,18.0)'
+          msbuild-architecture: x64
+
+      - name: Validate source safety gates
+        run: npm test
+
+      - name: Compile without installing or signing
+        id: cloud-candidate
+        shell: powershell
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP "vibe-flow-driver-cloud-compile"
+          .\driver\rc003-filter\New-DriverCandidate.ps1 `
+            -Configuration Release `
+            -Platform x64 `
+            -OutputRoot $outputRoot
+
+      - name: Upload one-day cloud compile evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: VibeFlow-RC003-CloudCompile-${{ github.run_id }}
+          path: ${{ steps.cloud-candidate.outputs.candidate_directory }}
+          if-no-files-found: error
+          retention-days: 1
+
+  build-driver-candidate:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_driver_lab }}
+    needs: cloud-compile
+    runs-on: [self-hosted, Windows, X64, vibe-flow-driver-lab]
+    environment: driver-lab
+    timeout-minutes: 45
+    steps:
+      - name: Enforce Driver Lab boundary
+        shell: powershell
+        env:
+          TEST_ONLY_ACKNOWLEDGED: ${{ inputs.test_only_acknowledged }}
+        run: |
+          if ($env:TEST_ONLY_ACKNOWLEDGED -ne "true") {
+            throw "The non-release Driver Lab acknowledgement was not accepted."
+          }
+          if ($env:VIBE_FLOW_DRIVER_LAB -ne "1") {
+            throw "This runner is not marked as an isolated Vibe Flow Driver Lab computer."
+          }
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: microsoft/setup-msbuild@v3
+        with:
+          vs-version: '[17.0,18.0)'
+          msbuild-architecture: x64
+
+      - name: Validate source safety gates
+        run: npm test
+
+      - name: Build non-release driver candidate
+        id: candidate
+        shell: powershell
+        run: |
+          $outputRoot = Join-Path $env:RUNNER_TEMP "vibe-flow-driver-candidate"
+          .\driver\rc003-filter\New-DriverCandidate.ps1 `
+            -Configuration Release `
+            -Platform x64 `
+            -OutputRoot $outputRoot
+
+      - name: Upload short-lived Driver Lab artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: VibeFlow-RC003-DriverLab-${{ github.run_id }}
+          path: ${{ steps.candidate.outputs.candidate_directory }}
+          if-no-files-found: error
+          retention-days: 3

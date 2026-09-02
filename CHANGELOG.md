@@ -1,5 +1,59 @@
 # Changelog
 
+## 1.4.0 preview - 2026-09-02
+
+- Kept the exact validated `v1.0.3` recording kernel, stable voice profile v11,
+  WeChat `Ctrl+Win` toggle, and the approximately 60-second RC003 hardware
+  boundary unchanged.
+- Added manually selected shortcut Profiles for General navigation, Vibe
+  Coding, Browser AI, and Terminal Agent workflows. Profiles contain shortcut
+  mappings only and cannot modify microphone, audio routing, or transcription
+  settings.
+- Preserved every V1.3 user's active mapping as `My Shortcuts` during Profile
+  migration instead of replacing it with an official template.
+- Added Profile create, rename, delete, import, and export operations. Imported
+  Profiles use a versioned, validated format and do not carry voice settings.
+- Added an execution receipt from the device-scoped bridge to the home page,
+  including the physical button, trigger, resolved action, active Profile,
+  configuration revision, source, time, and real success or failure result.
+- Changed Task View feedback to report the real `SendInput` result rather than
+  treating a queued request as proof of execution.
+- Isolated UI smoke tests from the real keyboard bridge so visual and resource
+  tests cannot start hardware services or touch the user's production state.
+- Rebuilt the local application picker around running windows, Windows
+  AppsFolder, Start Menu shortcuts, App Paths, and valid installed-app registry
+  entries. The picker now shows product names and resolves both EXE and packaged
+  application icons while keeping manual EXE browsing as a fallback.
+- Replaced Browser AI's physical-Left `Alt+Left` injection with the dedicated
+  Windows Browser Back key. Existing schema-30 Left mappings are migrated so the
+  physical Left key can no longer collide with the synthetic navigation action.
+- Advanced application configuration to schema 31 and bridge configuration to
+  schema 6. This remains an isolated hardware candidate until physical RC003,
+  keyboard-conflict, reconnect, persistence, and high-DPI gates pass.
+
+## 1.3.0 preview - 2026-09-01
+
+- Kept the exact validated `v1.0.3` recording kernel and all stable voice parameters unchanged.
+- Replaced the 11-step onboarding with five persisted user tasks covering the device, real RC003 input, VB-CABLE, a real provider dictation, and startup behavior.
+- Replaced the failed Hook-to-Raw confirmation design after real hardware logs proved that suppressing an event in `WH_KEYBOARD_LL` prevents this Windows Bluetooth stack from delivering the corresponding `WM_INPUT` packet. UI action tests had bypassed that route and therefore produced false positives.
+- Made device-scoped Raw Input the sole user-mode authority for non-voice actions. The device-blind Hook now passes those candidates through, so matching keys on an ordinary keyboard are never remapped and RC003 actions actually reach the executor.
+- Kept the exact-device signed filter as an optional zero-side-effect path. Without it, V1.3 uses an explicit native-passthrough fallback: configured actions execute, ordinary keyboards remain unchanged, and the remote's original key effect may also occur.
+- Added routing telemetry and self-check evidence for authority, isolation mode, RC003 edges, executed action edges, last action, Hook passthroughs, and optional filter state. The UI no longer treats process health or a direct action test as proof that the hardware route worked.
+- Expanded the graphical shortcut page to the eight verified controls: four directions, Center, Home, TV, and Function short/long.
+- Added actions for installed/running applications, HTTPS pages, editing, system, media, screenshots, and custom keyboard shortcuts.
+- Made local application launch use a three-stage resolver: focus a running process, launch a valid EXE, then fall back to a Windows Start AppID.
+- Fixed running APP activation so success is reported only after the target window is truly foreground; added an attached-input fallback for Windows focus restrictions.
+- Prevented a failed foreground activation from falling through to EXE launch and creating a duplicate APP instance.
+- Fixed hardware-candidate packaging so the pinned Capture binary is always named `VibeMicAtvvCapture.exe`, matching the Host runtime contract in a clean extraction.
+- Retired Power from generated runtime mappings. Upgrades move an existing Power APP/URL action to an unused Home long press instead of silently losing it.
+- Added General, Vibe Coding, and Media presets using only verified single actions.
+- Added configuration import and latest-backup recovery while forcing the frozen stable voice profile during migration.
+- Added privacy redaction for diagnostic exports, including user paths, device identities, addresses, URLs, and application targets.
+- Added Light, Dark, and Follow Windows themes with live system-theme refresh.
+- Enabled Per-Monitor V2 DPI awareness, 96-DPI design scaling, and working-area clamping so high Windows scaling uses real layout scaling instead of bitmap virtualization.
+- Preserved all existing defaults. Power, Back, and independent Volume remain unavailable because this Windows/RC003 combination has not produced stable reports for them.
+- Advanced app configuration to schema 29, onboarding to version 9, and bridge configuration to schema 5. The unsafe experimental compatibility route is retired and historical settings normalize to strict mode. A device-specific, heartbeat-guarded RC003 filter is under development for conflict-free mappings, but is excluded from user packages until WDK, signing, Secure Boot, and hardware gates pass. The preview remains isolated from the published `v1.2.1` release pending physical hardware acceptance.
+
 ## 1.2.1 user-friendly stable release - 2026-08-28
 
 - Replaced the recording implementation with the exact `v1.0.3` capture kernel,

@@ -9,6 +9,7 @@ $installerPath = Join-Path $releaseRoot "VibeFlow-Setup.exe"
 $checksumPath = Join-Path $releaseRoot "SHA256SUMS.txt"
 $releaseBodySource = Join-Path $root "docs\GITHUB_RELEASE_BODY_ZH.md"
 $releaseBodyPath = Join-Path $releaseRoot ("RELEASE_BODY_v" + $releaseVersion + ".md")
+$stableCapturePath = Join-Path ([IO.Path]::GetTempPath()) "VibeFlow-StableCapture-v1.2.1.exe"
 $signingThumbprint = if ($env:VIBE_FLOW_SIGN_THUMBPRINT) { $env:VIBE_FLOW_SIGN_THUMBPRINT.Trim() } else { "" }
 $signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } else { "" }
 $timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
@@ -65,12 +66,22 @@ else {
 
 & cmd.exe /c (Join-Path $root "BUILD_INPUT_BRIDGE.cmd")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& cmd.exe /c (Join-Path $root "BUILD_VIBE_MIC_CAPTURE.cmd")
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & cmd.exe /c (Join-Path $root "BUILD_VIBE_MIC.cmd")
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$stableCapturePath = & (Join-Path $root "scripts\Get-StableCaptureBinary.ps1") -Destination $stableCapturePath
+if (-not (Test-Path -LiteralPath $stableCapturePath)) { throw "Pinned stable capture resolution failed." }
 
-@("VibeMic.exe", "VibeMicAtvvCapture.exe", "VoxDeckInputBridge.exe") |
+foreach ($test in @(
+    @("VibeMic.exe", "--self-test"),
+    @("VoxDeckInputBridge.exe", "--self-test")
+)) {
+    & (Join-Path $root $test[0]) $test[1]
+    if ($LASTEXITCODE -ne 0) { throw "Self-test failed: $($test[0])" }
+}
+& $stableCapturePath --self-test
+if ($LASTEXITCODE -ne 0) { throw "Self-test failed: verified VibeMicAtvvCapture.exe" }
+
+@("VibeMic.exe", "VoxDeckInputBridge.exe") |
     ForEach-Object { Invoke-VibeFlowCodeSign (Join-Path $root $_) }
 
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
@@ -83,7 +94,7 @@ if (Test-Path $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force }
 New-Item -ItemType Directory -Path $packageDir | Out-Null
 
 Copy-Item (Join-Path $root "VibeMic.exe") (Join-Path $packageDir "VibeFlow.exe")
-Copy-Item (Join-Path $root "VibeMicAtvvCapture.exe") $packageDir
+Copy-Item -LiteralPath $stableCapturePath -Destination (Join-Path $packageDir "VibeMicAtvvCapture.exe")
 Copy-Item (Join-Path $root "NAudio.Core.dll") $packageDir
 Copy-Item (Join-Path $root "NAudio.Wasapi.dll") $packageDir
 Copy-Item (Join-Path $root "VoxDeckInputBridge.exe") $packageDir
@@ -105,6 +116,7 @@ $packageImages = Join-Path $packageDocs "images"
 New-Item -ItemType Directory -Force -Path $packageImages | Out-Null
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\V1_2_1_TUTORIAL_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\V1_3_USER_GUIDE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\VERSION_ARCHIVE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CONTINUOUS_DICTATION_ZH.md") $packageDocs

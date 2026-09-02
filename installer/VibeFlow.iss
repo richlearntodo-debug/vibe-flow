@@ -1,5 +1,5 @@
 #define MyAppName "言灵 Vibe Flow Remote"
-#define MyAppVersion "1.2.1"
+#define MyAppVersion "1.4.0"
 #define MyAppPublisher "Vibe Flow Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
@@ -13,7 +13,7 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases/latest
-VersionInfoVersion=1.2.1.0
+VersionInfoVersion=1.4.0.0
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
@@ -53,7 +53,7 @@ Source: "..\release\Vibe-Flow-Windows-x64\*"; DestDir: "{app}"; Flags: ignorever
 
 [Icons]
 Name: "{group}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\使用教程"; Filename: "https://github.com/richlearntodo-debug/vibe-flow/blob/main/docs/USER_GUIDE_ZH.md"
+Name: "{group}\使用教程"; Filename: "https://github.com/richlearntodo-debug/vibe-flow/blob/main/docs/V1_3_USER_GUIDE_ZH.md"
 Name: "{group}\卸载言灵"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
@@ -121,13 +121,48 @@ begin
   end;
 end;
 
+function UserDataDirectory: String;
+begin
+  Result := ExpandConstant('{localappdata}\Vibe Flow Remote\UserData');
+end;
+
+function UserConfigPath: String;
+begin
+  Result := UserDataDirectory + '\vibe-mic-config.json';
+end;
+
+procedure MigrateLegacyUserConfig;
+var
+  LegacyConfig: String;
+  LegacyBackup: String;
+  TargetConfig: String;
+  TargetBackup: String;
+begin
+  LegacyConfig := ExpandConstant('{app}\vibe-mic-config.json');
+  LegacyBackup := ExpandConstant('{app}\vibe-mic-config.json.bak');
+  TargetConfig := UserConfigPath;
+  TargetBackup := TargetConfig + '.bak';
+  ForceDirectories(UserDataDirectory);
+  if not FileExists(TargetConfig) then
+  begin
+    if FileExists(LegacyConfig) then
+      CopyFile(LegacyConfig, TargetConfig, True)
+    else if FileExists(LegacyBackup) then
+      CopyFile(LegacyBackup, TargetConfig, True);
+  end;
+  if FileExists(LegacyBackup) and not FileExists(TargetBackup) then
+    CopyFile(LegacyBackup, TargetBackup, True);
+end;
+
 function ConfigRequestsStartup: Boolean;
 var
   ConfigPath: String;
   ConfigText: AnsiString;
 begin
   Result := False;
-  ConfigPath := ExpandConstant('{app}\vibe-mic-config.json');
+  ConfigPath := UserConfigPath;
+  if not FileExists(ConfigPath) then
+    ConfigPath := ExpandConstant('{app}\vibe-mic-config.json');
   if not FileExists(ConfigPath) then
     Exit;
   try
@@ -155,7 +190,10 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
+  begin
+    MigrateLegacyUserConfig;
     RestoreConfiguredStartupRegistration;
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
