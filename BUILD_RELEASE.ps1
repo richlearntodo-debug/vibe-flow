@@ -135,6 +135,9 @@ Copy-Item (Join-Path $root "docs\VERSION_ARCHIVE_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_NOTES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\FEATURES_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\COMPATIBILITY_MATRIX_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\ISSUE_2_REGRESSION_ZH.md") $packageDocs
+Copy-Item (Join-Path $root "docs\RELEASE_QUALITY_GATE_ZH.md") $packageDocs
 $currentGuideImages = @(
     "00-first-run.png",
     "00-setup-01-device.png",

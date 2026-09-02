@@ -38,6 +38,16 @@ jobs:
         env:
           VIBE_FLOW_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: .\BUILD_RELEASE.ps1
+      - name: Test clean install and uninstall
+        shell: powershell
+        run: |
+          $previous = Join-Path $env:RUNNER_TEMP "VibeFlow-Setup-v1.2.1.exe"
+          Invoke-WebRequest `
+            -Uri "https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/VibeFlow-Setup.exe" `
+            -OutFile $previous
+          .\scripts\Test-ReleaseLifecycle.ps1 `
+            -InstallerPath .\release\VibeFlow-Setup.exe `
+            -PreviousInstallerPath $previous
       - name: Remove signing certificate
         if: always()
         shell: powershell

@@ -79,8 +79,14 @@ const requiredFiles = [
   "docs/images/vibe-flow-community.png",
   ".github/actionlint.yaml",
   ".github/ISSUE_TEMPLATE/bug_report.yml",
+  ".github/ISSUE_TEMPLATE/feature_request.yml",
+  ".github/ISSUE_TEMPLATE/config.yml",
   ".github/workflows/driver-candidate.yml",
   ".github/workflows/validate.yml",
+  "docs/COMPATIBILITY_MATRIX_ZH.md",
+  "docs/ISSUE_2_REGRESSION_ZH.md",
+  "docs/RELEASE_QUALITY_GATE_ZH.md",
+  "scripts/Test-ReleaseLifecycle.ps1",
 ];
 
 function read(file) {
@@ -143,6 +149,12 @@ const v14PreviewGuide = read("docs/V1_4_PREVIEW_ZH.md");
 const v15PreviewGuide = read("docs/V1_5_PREVIEW_ZH.md");
 const v13HardwareAcceptance = read("docs/V1_3_HARDWARE_ACCEPTANCE_ZH.md");
 const rc003DriverLabGuide = read("docs/RC003_DRIVER_LAB_ZH.md");
+const compatibilityMatrix = read("docs/COMPATIBILITY_MATRIX_ZH.md");
+const issue2Regression = read("docs/ISSUE_2_REGRESSION_ZH.md");
+const releaseQualityGate = read("docs/RELEASE_QUALITY_GATE_ZH.md");
+const issueTemplateConfig = read(".github/ISSUE_TEMPLATE/config.yml");
+const featureRequestTemplate = read(".github/ISSUE_TEMPLATE/feature_request.yml");
+const lifecycleTest = read("scripts/Test-ReleaseLifecycle.ps1");
 const gitignore = read(".gitignore");
 const rc003FilterPublic = read("driver/rc003-filter/src/public.h");
 const rc003FilterHeader = read("driver/rc003-filter/src/rc003_filter.h");
@@ -185,6 +197,25 @@ assert(includesAll(app, [
   'OnboardingStepCount = 5',
 ]), "Application identity or V1.5 release configuration metadata is inconsistent");
 assert(packageJson.version === "1.5.0", "package.json version is not aligned with the release app");
+assert(includesAll(readme, [
+  "最新正式版 · V1.5.0", "V1.5 的程序、安装器、Release、更新检测和文档版本均为 `1.5.0`",
+  "Capture 文件显示 `1.2.1.0` 是刻意冻结的稳定语音组件",
+]), "The homepage does not clearly distinguish the V1.5 product from the frozen Capture component");
+assert(includesAll(compatibilityMatrix, [
+  "Windows 10 / 11 x64", "RC003", "微信输入法", "Typeless", "开机 / 返回 / 独立音量", "不支持",
+]), "The public compatibility matrix is incomplete");
+assert(includesAll(issue2Regression, [
+  "真实音频覆盖 0.1%", "MIC_EXTEND 2 次", "V1.5", "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683",
+]), "Issue #2 does not have a verifiable regression conclusion");
+assert(includesAll(releaseQualityGate, [
+  "干净的 GitHub Windows runner", "Windows 睡眠/唤醒", "100 次录音按下/松开", "不能由云端替代",
+]), "The release quality gate omits clean-install or physical recovery coverage");
+assert(issueTemplateConfig.includes("blank_issues_enabled: true") &&
+  includesAll(featureRequestTemplate, ["功能建议", "使用场景", "设备与环境"]),
+  "GitHub feedback remains restricted or lacks a structured feature form");
+assert(includesAll(lifecycleTest, [
+  "PreviousInstallerPath", "upgrade-preservation.marker", "VibeMicAtvvCapture.exe", "unins000.exe",
+]), "The clean Windows release lifecycle test is incomplete");
 assert(capture.includes('AssemblyFileVersion("1.2.1.0")') && bridge.includes('AssemblyFileVersion("1.5.0.0")'),
   "The stable capture or release bridge binary version is inconsistent");
 assert(includesAll(app, [

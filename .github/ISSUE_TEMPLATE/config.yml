@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用教程与自助排查
+    url: https://github.com/richlearntodo-debug/vibe-flow/blob/main/docs/V1_5_USER_GUIDE_ZH.md
+    about: 配对、VB-CABLE、输入法和首次使用问题，请先按教程和应用内自检处理。
+  - name: 兼容性矩阵
+    url: https://github.com/richlearntodo-debug/vibe-flow/blob/main/docs/COMPATIBILITY_MATRIX_ZH.md
+    about: 提交设备问题前，请先确认遥控器、Windows、蓝牙和语音工具的验证状态。

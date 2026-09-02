@@ -19,6 +19,10 @@
 
 [V1.5 零基础图文教程](docs/V1_5_USER_GUIDE_ZH.md) · [完整功能看板](docs/FEATURES_ZH.md) · [V1.4 + V1.5 更新说明](docs/RELEASE_NOTES_ZH.md) · [所有版本下载](docs/VERSION_ARCHIVE_ZH.md)
 
+**发布可信度：** [版本身份与冻结参数](VIBE_MIC_VERSION.md) · [兼容性矩阵](docs/COMPATIBILITY_MATRIX_ZH.md) · [正式版质量门禁](docs/RELEASE_QUALITY_GATE_ZH.md) · [Issue #2 回归结论](docs/ISSUE_2_REGRESSION_ZH.md) · [代码签名策略](docs/CODE_SIGNING_ZH.md)
+
+> V1.5 的程序、安装器、Release、更新检测和文档版本均为 `1.5.0`。Capture 文件显示 `1.2.1.0` 是刻意冻结的稳定语音组件，不是混装旧版；其 SHA-256 在构建和 CI 中强制校验。
+
 ## 功能展示看板
 
 | 核心场景 | V1.5 支持能力 | 用户得到什么 |

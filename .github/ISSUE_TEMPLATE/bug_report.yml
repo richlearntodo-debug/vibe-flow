@@ -16,6 +16,22 @@ body:
       placeholder: 1.5.0
     validations:
       required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows 与蓝牙环境
+      description: 请填写 Windows 版本、系统架构和蓝牙适配器型号；不知道适配器时可写“未知”。
+      placeholder: Windows 11 24H2 x64 / Intel AX210
+    validations:
+      required: true
+  - type: input
+    id: remote
+    attributes:
+      label: 遥控器型号
+      description: 请填写设备名称或型号，例如 RC003 / MI RC。
+      placeholder: RC003 / MI RC
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:

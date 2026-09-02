@@ -58,7 +58,7 @@ Name: "{group}\卸载言灵"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "启动言灵 Vibe Flow Remote"; Flags: nowait postinstall
+Filename: "{app}\{#MyAppExeName}"; Description: "启动言灵 Vibe Flow Remote"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 Type: files; Name: "{app}\vibe-mic-config.json"

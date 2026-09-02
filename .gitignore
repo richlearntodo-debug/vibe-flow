@@ -59,6 +59,7 @@ scripts/*.ps1
 !scripts/Install-VBCable.ps1
 !scripts/Get-StableCaptureBinary.ps1
 !scripts/Measure-HardwareAcceptance.ps1
+!scripts/Test-ReleaseLifecycle.ps1
 scripts/decode-atvv-audio.js
 *.png
 !vibe-flow-logo.png

@@ -16,6 +16,8 @@ For hardware changes, include the remote model, Windows version, Bluetooth name,
 
 Never attach recordings, typed text, Bluetooth addresses, complete HID paths, or diagnostics containing private speech. Redact local paths and identifiers before opening an issue.
 
+Use the structured Bug or Feature Issue Form whenever possible. Blank issues remain enabled so GitHub users are not blocked when a form does not fit. Hardware compatibility reports should follow `docs/COMPATIBILITY_MATRIX_ZH.md`; release candidates must follow `docs/RELEASE_QUALITY_GATE_ZH.md`.
+
 To refresh the six documentation screenshots, start a local Vibe Flow build and
 run:
 

@@ -1,0 +1,54 @@
+name: 功能建议
+description: 建议新的快捷动作、设备适配或使用体验改进
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢建议。请先查看功能看板和兼容矩阵，确认该能力尚未支持。为了保护稳定语音链路，涉及录音状态机、音频参数或自动续录的建议会先进入研究与真机验证，不会直接并入正式版。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 建议类型
+      options:
+        - 遥控器按键与快捷动作
+        - 应用与网页控制
+        - Profiles 与工作流
+        - 设备或输入法兼容
+        - 首次设置与自检
+        - 界面与无障碍
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 请描述你在什么情况下遇到什么阻碍，不要只写功能名称。
+      placeholder: 当我在 Cursor 中进行代码审查时，我希望……，这样可以……
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 请说明实体按键、触发方式和期望结果；如有替代方案也请一并说明。
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 设备与环境
+      description: 涉及硬件时，请填写遥控器型号、Windows 版本和蓝牙适配器；不涉及可填“不适用”。
+      placeholder: RC003 / Windows 11 24H2 / Intel AX210
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: 提交确认
+      options:
+        - label: 我已查看功能看板与兼容矩阵，并确认这不是已有功能或已知硬件限制。
+          required: true
+        - label: 我没有在内容中上传录音、转译文字、蓝牙地址或其他隐私信息。
+          required: true
