@@ -1,5 +1,14 @@
 # 言灵 · Vibe Flow Remote
 
+<p align="center">
+  <img src="docs/images/vibe-flow-community.png" alt="言灵 Vibe Flow V1.5 功能介绍与用户社群二维码，微信扫码加入" width="100%">
+</p>
+
+<p align="center">
+  <strong>微信直接扫码加入 Vibe Flow 用户社群</strong><br>
+  获取安装配置帮助、使用技巧、版本更新与问题反馈支持
+</p>
+
 **把小米 RC003 / MI RC 蓝牙遥控器变成 Windows 上的语音输入与 AI 工作流控制器。**
 
 聚焦输入框，按住录音键说话，松开完成转译；再用遥控器打开应用、执行快捷键、截图或切换工作流。V1.5 优先保证核心链路稳定，不要求用户学习复杂手势。
@@ -37,16 +46,6 @@
 [查看完整功能、按键能力与边界说明](docs/FEATURES_ZH.md)
 
 ![V1.5 首页与连接状态](docs/images/01-overview.png)
-
-## 加入 Vibe Flow 用户社区
-
-在社群中获取**配置答疑、设备兼容反馈、版本更新通知和 Vibe Coding 工作流分享**。遇到配对、VB-CABLE、语音工具或不同遥控器固件问题时，也可以带上自检诊断包一起排查。
-
-<p align="center">
-  <img src="docs/images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
-</p>
-
-> 扫码加入后，建议备注“Vibe Flow + 遥控器型号”。反馈问题时请附上“自检”页面导出的诊断包；日志不会包含录音或转译文字。
 
 ## V1.5 重点更新
 
