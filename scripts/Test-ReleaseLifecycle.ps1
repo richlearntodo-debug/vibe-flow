@@ -15,10 +15,29 @@ $sandbox = Join-Path $temporaryRoot ("vibe-flow-lifecycle-" + [Guid]::NewGuid().
 $installDir = Join-Path $sandbox "app"
 $upgradeMarker = Join-Path $installDir "upgrade-preservation.marker"
 
-function Invoke-CheckedProcess([string]$FilePath, [string[]]$Arguments) {
-    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -Wait -PassThru -WindowStyle Hidden
+function Invoke-CheckedProcess([string]$FilePath, [string[]]$Arguments, [int]$TimeoutSeconds = 120) {
+    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru -WindowStyle Hidden
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        $process.Kill()
+        throw "$FilePath did not exit within $TimeoutSeconds seconds."
+    }
     if ($process.ExitCode -ne 0) {
         throw "$FilePath exited with code $($process.ExitCode)."
+    }
+}
+
+function Stop-InstalledProcesses([string]$Directory) {
+    $normalizedDirectory = [IO.Path]::GetFullPath($Directory).TrimEnd('\') + '\'
+    Get-Process -ErrorAction SilentlyContinue | ForEach-Object {
+        try {
+            $processPath = $_.Path
+            if ($processPath -and $processPath.StartsWith($normalizedDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+                Stop-Process -Id $_.Id -Force -ErrorAction Stop
+            }
+        }
+        catch {
+            if ($_.Exception.Message -notlike "*exited*") { throw }
+        }
     }
 }
 
@@ -30,7 +49,7 @@ try {
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
             "/DIR=$installDir"
         )
-        Get-Process -Name "VibeFlow" -ErrorAction SilentlyContinue | Stop-Process -Force
+        Stop-InstalledProcesses $installDir
         if (-not (Test-Path -LiteralPath (Join-Path $installDir "VibeFlow.exe"))) {
             throw "Previous release did not install correctly."
         }
@@ -61,6 +80,7 @@ try {
         throw "Installed Capture hash does not match the frozen voice baseline."
     }
 
+    Stop-InstalledProcesses $installDir
     Invoke-CheckedProcess (Join-Path $installDir "unins000.exe") @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART")
     if (Test-Path -LiteralPath (Join-Path $installDir "VibeFlow.exe")) {
         throw "Uninstall left the application executable behind."

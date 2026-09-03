@@ -215,6 +215,7 @@ assert(issueTemplateConfig.includes("blank_issues_enabled: true") &&
   "GitHub feedback remains restricted or lacks a structured feature form");
 assert(includesAll(lifecycleTest, [
   "PreviousInstallerPath", "upgrade-preservation.marker", "VibeMicAtvvCapture.exe", "unins000.exe",
+  "WaitForExit($TimeoutSeconds * 1000)", "Stop-InstalledProcesses $installDir",
 ]), "The clean Windows release lifecycle test is incomplete");
 assert(capture.includes('AssemblyFileVersion("1.2.1.0")') && bridge.includes('AssemblyFileVersion("1.5.0.0")'),
   "The stable capture or release bridge binary version is inconsistent");
