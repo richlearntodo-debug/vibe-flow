@@ -1393,7 +1393,10 @@ assert(includesAll(bridge, [
 ]), "RC003 source isolation or its deterministic regression tests are incomplete");
 assert(includesAll(app, [
   "Retired compatibility routing was not normalized to strict",
-  "设备识别：只有带 RC003 身份的事件可以执行遥控器动作",
+  // The card's statement follows the actual state now: it used to assert device-level isolation unconditionally,
+  // right next to a badge and a note saying that isolation was not there.
+  "尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）",
+  "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作",
   "Raw Input 安全直通", "设备级精确隔离",
 ]) && !app.includes("compatibility.CheckedChanged"),
   "The known keyboard-hijacking compatibility mode is still user-selectable");
@@ -1953,7 +1956,16 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The workflow list names applications, so it has to name applications this machine has. It is composed from
+// The settings page's key-source card used to assert device-level isolation unconditionally — a checked box
+// reading "只有带 RC003 身份的事件可以执行遥控器动作" — while the badge and the note in the same card said the
+// opposite ("言灵不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
+// four parts of that card agree. A checked box promising what the same card denies is worse than saying nothing.
+assert(includesAll(app, [
+  '"尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）"',
+  '"设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"',
+  "exactDeviceIsolation, new Point(32, 62));",
+]) && !app.includes('"设备识别：只有带 RC003 身份的事件可以执行遥控器动作"'),
+  "The key-source card promises device-level isolation regardless of the actual state again");// The workflow list names applications, so it has to name applications this machine has. It is composed from
 // configured bindings, which outlive an uninstall and include the shipped defaults: measured on this machine,
 // fourteen bindings resolved to four rows once the list was filtered. The catalogue behind the filter is cached
 // because the 工作流 page is rebuilt on every navigation and the scan walks both start-menu roots and the shell

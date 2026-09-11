@@ -10466,8 +10466,15 @@ deck.Hide();
         var routingCard = NewCard(new Point(34, 476), new Size(960, 172));
         routingCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         routingCard.Controls.Add(SectionTitle("按键来源保护", "\uE7BA", new Point(28, 22)));
-        var sourceProtection = StyledCheck("设备识别：只有带 RC003 身份的事件可以执行遥控器动作",
-            true, new Point(32, 62));
+        // The bold line and the checkbox state follow the actual isolation state, because they used to assert
+        // device-level isolation unconditionally while the badge and the note beside them said it was not there:
+        // the checkbox was drawn checked and read "只有带 RC003 身份的事件可以执行遥控器动作" even when the note
+        // underneath read "言灵不会拦截来源未知的键". A checked box that promises something the same card denies
+        // is worse than no statement at all.
+        var sourceProtection = StyledCheck(exactDeviceIsolation
+            ? "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"
+            : "尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）",
+            exactDeviceIsolation, new Point(32, 62));
         sourceProtection.Size = new Size(620, 40);
         sourceProtection.AutoCheck = false;
         sourceProtection.TabStop = false;
