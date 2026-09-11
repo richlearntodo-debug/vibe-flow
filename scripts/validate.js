@@ -1148,7 +1148,27 @@ assert(includesAll(app, [
   'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
-]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, second instalment: the home page's own words.
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, third instalment: the self-check page, which carried the most text of the six.
+//
+// "当前状态：" opened every row's status line — ten times the same label, saying nothing the row did not already frame.
+// The group prefix repeated too ("核心环境 · …", "语音链路 · …"), so it is now 核心 and 语音. Three statuses were
+// rewritten in ordinary words: the process sentence, the CABLE Output sentence (which ran to two lines) and the stable
+// profile, which now reads 语音参数已应用（v11） instead of 稳定语音档案 v11 已应用. The input-method row dropped a
+// trailing clause about the input context that the detail view still carries, and the hotkey is rendered by
+// MappingShortcutDisplay like every other shortcut, which is why it reads Ctrl + Win rather than ctrl + win.
+assert(includesAll(app, [
+  'var actual = NewLabel(item.Actual, 8.0f, FontStyle.Bold, item.State == "fail" ? coral : ink);',
+  'return "核心";',
+  'return "语音";',
+  'return "场景";',
+  'if (groupedCheck.Group != "核心" || groupedCheck.ErrorCode != "VF-COMPONENTS")',
+  '"运行中的捕获组件不是当前状态机" : "有重复或来源不明的进程",',
+  'CABLE Output 被当作线路设备，部分语音工具看不到它',
+  '语音参数已应用（v" + StableVoiceProfileVersion + "）',
+  'MappingShortcutDisplay(config.inputMethodHotkey) + " · "',
+  '点「详情」看正确状态、原因与下一步',
+]) && !app.includes('"当前状态：" + item.Actual') && !app.includes('inputMethodHotkey.Replace("+", " + ")'),
+  "The self-check page's copy went back to the repeated labels, the old group names or the lowercase hotkey");// The copy pass, second instalment: the home page's own words.
 //
 // The page said the same thing three times over — a hero subtitle, a "按住说话 · 松开结束 · 用户确认发送" hint and a
 // three-step card — and the hint's last clause described an internal notion rather than telling the user anything. The
@@ -2279,7 +2299,9 @@ assert(includesAll(app, [
   "private Button NewLinkButton(string text, Point location)",
   "foreach (SelfCheckItem checkItem in report.Items) checksHeight += SelfCheckRowHeight(checkItem);",
   "checkRowTop += SelfCheckRowHeight(report.Items[i]);",
-  "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步",
+  // The subtitle lost its first clause in the copy pass: the rows already state their own verdict, so the page only
+  // has to say where the rest of it is.
+  "点「详情」看正确状态、原因与下一步",
 ]) && !app.includes("NewLinkLabel"),
   "Self-check rows are four-line blocks again, or their toggle is not reachable");// The theme choice is a segmented control, not three commands. The current choice used to be a solid accent button
 // — identical to the button you would press to make it the current choice — so it read as "press me" while it was
@@ -2369,7 +2391,8 @@ assert(includesAll(app, [
   'AddPageTitle("语音", "遥控器负责收音；转写与整理能力由所选工具设置");',
   // The self-check subtitle changed with the collapsible rows: its detail is behind the 详情 toggle now, so the
   // subtitle no longer promises all four lines up front.
-  'AddPageTitle("自检", "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步");',
+  // The subtitle lost its first clause in the copy pass; the rows state their own verdict.
+  'AddPageTitle("自检", "点「详情」看正确状态、原因与下一步");',
   'AddPageTitle("设置", "让言灵按你的习惯在后台运行");',
   '(verified || saved) ? "✓" : (i + 1).ToString()',
   'saved ? "\\r\\n进度已保存" : ""',

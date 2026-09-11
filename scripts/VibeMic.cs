@@ -3248,7 +3248,7 @@ deck.Hide();
                 Convert.ToBoolean(deckRecordingGuard.Invoke(null, new object[] { false, "ready" })))
                 throw new InvalidOperationException("Context Deck can activate during the voice-key startup window");
             var groupedCheck = new SelfCheckItem("components", "核心组件", "fail", "缺少组件", "重新安装", "reinstall");
-            if (groupedCheck.Group != "核心环境" || groupedCheck.ErrorCode != "VF-COMPONENTS")
+            if (groupedCheck.Group != "核心" || groupedCheck.ErrorCode != "VF-COMPONENTS")
                 throw new InvalidOperationException("Self-check item lacks a stable group or error code");
 
             VibeMicConfig defaults = VibeMicConfig.Default();
@@ -10264,7 +10264,7 @@ deck.Hide();
     }
     private void BuildDevicePage()
     {
-        AddPageTitle("自检", "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步");
+        AddPageTitle("自检", "点「详情」看正确状态、原因与下一步");
         SelfCheckReport report = BuildSelfCheckReport();
         // The per-application workflow used to be a card here as well, and with thirteen bound applications it put
         // thirteen four-line blocks — 需要配置 / 缺少工作流 / VF-WORKFLOW-* — above the system checks, on a page whose
@@ -16643,7 +16643,7 @@ deck.Hide();
             "主程序、语音捕获、按键桥接和 WASAPI 运行库版本一致，且只运行一个捕获会话",
             componentsReady ? "组件完整，稳定录音内核 v1.0.3 / 状态机 v11 已就绪" :
                 !filesReady ? "安装目录缺少必要组件" : !versionsReady ? componentError : !runtimeReady ?
-                "运行中的捕获组件不是当前状态机" : "检测到重复进程、其他安装目录进程或无法确认来源的进程",
+                "运行中的捕获组件不是当前状态机" : "有重复或来源不明的进程",
             componentsReady ? "未发现组件缺失或版本争用" : !processTopologyReady ?
                 "捕获进程：当前目录 " + captureTopology.CurrentRootCount + " / 其他目录 " + captureTopology.ForeignCount +
                 "；按键桥接：当前目录 " + bridgeTopology.CurrentRootCount + " / 其他目录 " + bridgeTopology.ForeignCount :
@@ -16819,7 +16819,7 @@ deck.Hide();
             !cableReady && triggerOnly ? "免驱动模式正在运行：未检测到 VB-CABLE，遥控器按键直接唤起语音工具" :
                 !cableReady ? "缺少 " + (!cableInput && !cableOutput ? "CABLE Input 和 CABLE Output" : !cableInput ? "CABLE Input" : "CABLE Output") :
                 cableLevelLow ? "CABLE Output 音量偏低或被静音，语音输入法会收到过小的声音" + cableLevelText :
-                cableNeedsMicrophoneShape ? "CABLE Output 当前被 Windows 标记为线路设备，只列出麦克风的语音工具看不到它" :
+                cableNeedsMicrophoneShape ? "CABLE Output 被当作线路设备，部分语音工具看不到它" :
                 cableIsMicrophoneShape ? "CABLE Output 已标记为麦克风，语音输入法的麦克风列表可以看到它" + cableLevelText :
                 "CABLE Input 与 CABLE Output 均已启用" + cableLevelText + CaptureSessionEvidence(),
             !cableReady && triggerOnly ? "免驱动模式用电脑麦克风采集声音，不使用虚拟声卡" :
@@ -16843,7 +16843,7 @@ deck.Hide();
         report.Items.Add(new SelfCheckItem("profile", "已验证稳定语音参数",
             stableProfile ? "pass" : "warning",
             "1.0×、清晰增强、180 ms 排空、CABLE Input、自动路由和按住模式保持发布基线",
-            stableProfile ? "稳定语音档案 v" + StableVoiceProfileVersion + " 已应用" : "当前音频参数已偏离稳定基线",
+            stableProfile ? "语音参数已应用（v" + StableVoiceProfileVersion + "）" : "音频参数已偏离稳定基线",
             stableProfile ? "未发现异常" : "高级参数被修改，可能影响灵敏度、延迟或路由恢复",
             stableProfile ? "无需操作" : "一键恢复已反复验证的稳定参数",
             stableProfile ? "" : "恢复稳定参数", stableProfile ? "" : "restore-profile"));
@@ -16857,7 +16857,7 @@ deck.Hide();
             providerState,
             "所选工具已安装或运行，言灵快捷键与工具中的全局快捷键完全一致",
             !validHotkey ? "快捷键格式无效" : providerRunning ? ProviderDisplayName(provider) + " 已就绪 · " +
-                config.inputMethodHotkey.Replace("+", " + ") + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") +
+                MappingShortcutDisplay(config.inputMethodHotkey) + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") +
                 ActiveInputEngineSelfCheckNote() :
                 "未检测到运行中的 " + ProviderDisplayName(provider),
             !validHotkey ? "无法可靠启动和结束语音工具" : providerRunning ?
@@ -16923,7 +16923,7 @@ deck.Hide();
         if (report.FailedCount > 0)
         {
             report.Headline = "发现 " + report.FailedCount + " 项错误";
-            report.Detail = "从第一项错误开始修复；返回言灵后会自动复检，不读取你的转译文字。";
+            report.Detail = "从第一项开始修复；返回言灵会自动复检，不读取你的转译文字。";
         }
         else if (report.CheckingCount > 0)
         {
@@ -17027,7 +17027,7 @@ deck.Hide();
         string providerDetail = !validHotkey ? "快捷键格式无效，无法启动转写" :
             customProvider ? "自定义工具无法自动识别，请确认客户端已启动且快捷键一致" :
             !providerTimingReady ? ProviderDisplayName(provider) + " 的启动等待已偏离推荐值，请恢复所选工具配置" :
-            providerRunning ? ProviderDisplayName(provider) + " 已运行 · " + config.inputMethodHotkey.Replace("+", " + ") + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") :
+            providerRunning ? ProviderDisplayName(provider) + " 已运行 · " + MappingShortcutDisplay(config.inputMethodHotkey) + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") :
             "未检测到 " + ProviderDisplayName(provider) + " 客户端，请先启动或检查工具设置";
         report.Items.Add(new SelfCheckItem("provider", "转写工具与快捷键", providerState, providerDetail,
             providerState == "pass" ? "" : "检查配置", providerState == "pass" ? "" : "provider"));
@@ -17218,7 +17218,7 @@ deck.Hide();
         state.Location = new Point(564, expanded ? 5 : 6);
         state.Size = new Size(126, 24);
         state.TextAlign = ContentAlignment.MiddleRight;
-        var actual = NewLabel("当前状态：" + item.Actual, 8.0f, FontStyle.Bold, item.State == "fail" ? coral : ink);
+        var actual = NewLabel(item.Actual, 8.0f, FontStyle.Bold, item.State == "fail" ? coral : ink);
         actual.Location = new Point(50, expanded ? 48 : 31);
         actual.Size = new Size(expanded ? 690 : 520, 19);
         actual.AutoEllipsis = true;
@@ -18950,7 +18950,7 @@ deck.Hide();
     private string ActiveInputEngineSelfCheckNote()
     {
         if (activeInputEngine == null || !activeInputEngine.Known) return "";
-        return " · 言灵所在输入法上下文：" + activeInputEngine.DisplayName +
+        return "" +
             (ActiveInputEngineBlocksConfiguredProvider() ? "（与默认语音工具不同，仅作排查参考）" : "（与配置一致）");
     }
 
@@ -19745,7 +19745,7 @@ deck.Hide();
     private static string ProviderShortcutDescription(string provider)
     {
         string trigger = DefaultTriggerForProvider(provider) == "hold" ? "按住触发" : "单击切换";
-        return DefaultHotkeyForProvider(provider).Replace("+", " + ") + " · " + trigger;
+        return MappingShortcutDisplay(DefaultHotkeyForProvider(provider)) + " · " + trigger;
     }
 
     private static void PopulateTriggerModeOptions(ComboBox target, string provider)
@@ -24307,10 +24307,10 @@ deck.Hide();
         {
             if (id != null && id.StartsWith("workflow-", StringComparison.OrdinalIgnoreCase)) return "应用";
             if (id == "components" || id == "bluetooth" || id == "remote" || id == "keys" || id == "startup")
-                return "核心环境";
+                return "核心";
             if (id == "microphone" || id == "cable" || id == "profile" || id == "provider" || id == "session")
-                return "语音链路";
-            return "V2.0 场景能力";
+                return "语音";
+            return "场景";
         }
     }
 
