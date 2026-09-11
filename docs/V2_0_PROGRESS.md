@@ -2337,7 +2337,7 @@ Host self-test 覆盖 clean/existing/missing/malformed/backup/future schema、�
 ### 仍未做
 
 - 宏的图形编辑入口**已补**（见上）；后续若要「宏内嵌条件/分支」或「把宏导出分享」仍未做——当前一个宏就是一串无条件、按序、失败即停的动作。
-- 未新增宏编辑器的文档截图：`docs/images` 的图片清单同时钉在 `BUILD_RELEASE.ps1`、`BUILD_HARDWARE_CANDIDATE.ps1`、`validate.js`（4 处）与三份文档里，新增一张图要同步改 7 处以上；本轮只更新了真正变化的那一页（`03-shortcuts.png`），其余截图仍然准确。
+- ~~未新增宏编辑器的文档截图~~：**此项已失效** —— 宏的图形编辑入口连同宏功能本身在后续一轮被整体移除（`validate.js` 现在有一条「`ShowGestureMacroEditor` 必须不存在」的反向门禁），所以没有可截的界面。当时记录的约束仍然成立：`docs/images` 的图片清单同时钉在 `BUILD_RELEASE.ps1`、`BUILD_HARDWARE_CANDIDATE.ps1`、`validate.js`（4 处）与三份文档里，**新增**一张图要同步改 7 处以上；**重拍**已有图片不需要改清单（本轮重拍 `03-shortcuts.png` 就是走的这条路）。
 - 上一节的「旧对话框收尾」（6 条读 `FocusTargetDialog.cs` 的断言改指 `FavoriteAppsPanel` 后删文件）与个人化资产未动。
 - 真机 RC003 三层手势验收、DPI 矩阵、安装生命周期仍未验证。
 - **已知空档**：短/长层归属 Profile、双击/宏归属全局 store，因此同一次双击在任何 Profile 下都相同；若日后要求「每 Profile 各自一份双击/宏」，需要把 `gesture-layers.json` 升成按 Profile 分节（现有 schema 1 可加字段迁移）。
@@ -3091,3 +3091,93 @@ final:               hud present = False
 **3）`win+d` 与双击同键冲突（未修，待定）**
 
 `Home 短按 = win+d`（显示桌面）+ `Home 双击 = 启动应用` 的组合很难用：双击一旦失败就变成两次显示桌面，而第一下把桌面显示出来之后，用户自然会隔一两秒再按第二下（实测两次相隔 **2235 ms**），于是**永远凑不成双击**。这是用户原有的全局设置。可选的修法：Home 短按换成无害动作（如 `escape`），或去掉 Home 的双击层。
+
+## 2026-09-11 补齐缺口：出厂手势、USB 还原、前台输入布局、以及一个真缺陷
+
+用户要求「把缺失的部分补上，除非是之前明确说不用做的」。因此本轮做的是**实现**，不是验证：四条已实现并逐条给出证据，另外顺手抓到一个会让「用语片段」整个功能失效的真缺陷。
+
+### 缺陷（最重要，先修）：切一次 Profile 就会把用语片段表清空
+
+**现象**：把一条片段绑到动作上（`snippet:<id>`）后，真机派发被拒：`Snippet action rejected label=… reason=unknown_snippet`，宿主侧 `voxdeck-shortcuts.json` 里明明有 `snippets: [...]`，`revision` 也和桥接加载的一致。**可复现，两次都失败**。
+
+**根因**：`ActivateSmartProfile()` 用**手写字段拷贝**构造切换后的配置：
+
+```csharp
+var next = new BridgeConfig { version = …, revision = …, notes = …, inputRoutingMode = …,
+    activeShortcutProfileId = …, activeShortcutProfileName = …, smartProfilesEnabled = …,
+    smartProfileLocked = …, fallbackShortcutProfileId = …, profiles = source.profiles,
+    mappings = target.mappings };   // ← snippets 没有拷贝
+```
+
+Smart Profiles 默认开启，所以**开机第一次前台匹配就会切换 Profile**（日志：`Smart Profile switched profile=browser-ai state=matched foreground=chrome`），切换后 `config.snippets` 变成 `null`，于是任何片段动作都被判成未知 id。**这不是边缘场景，而是默认路径**：装了 V2 且开着智能切换的用户，片段功能 100% 不可用。
+
+**为什么测试没抓到**：桥接 self-test 的片段夹具是**内存里直接赋值** `config = snippetFixtureConfig`，从不经过 Profile 投影；而 Profile 切换的 self-test 只检查 mappings。两条路径各自都测了，中间那一步没有。
+
+**修复**：把投影提成有名字的纯函数 `ProjectActiveProfile(source, target)`，`snippets` 连同其余字段一起搬运；self-test **逐字段**核对投影结果（version / revision / notes / routing / smart 开关 / fallback / profiles / mappings / snippets / 两个 active 字段），所以以后加配置字段忘了搬运会直接红。另加一条 JSON 往返断言：片段表是**以 JSON 形式**随映射文档到达桥接的，之前的夹具全部绕过 JSON，这一条把「文档形状读不回来」也钉住。
+
+**真机复验（端到端，注入真的发生了）**：用一个自建的一次性探针程序当靶子（它在**确实拿到前台焦点之后**才写测试请求，避免把测试文本打进别的窗口），桥接把片段逐字符输入：
+
+```
+owns_foreground=1 foreground_process=Probe box_focused=1 dispatched=1
+chars=16 text=[VIBEFLOW-7391-中文]
+bridge={"action":"snippet:snip-probe7391","success":true,...}
+```
+
+16 个字符（含两个中文字）**逐字落到焦点控件**，而桥接日志只写 `Snippet action label=snippet probe characters=16 typed=True`——**正文从未进日志**，隐私边界成立。测试用的片段与探针程序已全部删除，`snippets.json` 回到「原本不存在」的状态。
+
+### 1）出厂不再是一张空白手势表（最大的「没做」）
+
+**问题**：`GestureBindingStore.Load()` 在没有 `gesture-layers.json` 时返回空表，代码里**没有任何 seed 路径**。新装用户打开快捷键页，8 个键的「长按 / 双击」全是「未配置」——三层手势这个卖点**开箱等于不存在**，必须自己一格一格配。
+
+**实现**：新增 `GestureBindingStore.DefaultDocument()`（纯函数，7 个键、13 个动作），宿主在启动时 `EnsureGestureLayerDefaults()` 写入，**唯一条件是文件不存在**：
+
+| 键 | 长按 | 双击 |
+| --- | --- | --- |
+| 上 | `pageup` | `ctrl+x`（剪切） |
+| 下 | `pagedown` | `ctrl+a`（全选） |
+| 左 | `browserback` | `ctrl+z`（撤销） |
+| 右 | `ctrl+shift+z` | `ctrl+s`（保存） |
+| 确认 | `volumemute` | `mediaplaypause` |
+| 功能 | —（长按归 Profile 映射表） | `volumeup` |
+| TV | `launch-client:chatgpt` | `volumedown` |
+
+**Home 刻意不写**：它的短按是「显示桌面」，而双击的第一下会执行短按，桌面先弹出来之后第二下就凑不成双击（真机实测第二下晚了 2235 ms）。写进去等于出厂就带一个用不出来的绑定。
+
+**边界**：只写一次。用户改过 → 文件存在 → 不再触碰；用户清空全部层 → 文件仍在（空表）→ 不会「复活」；`snippets.json`/`gesture-layers.json` 这类用户数据一律先备份再动（本轮备份在 `%TEMP%\vibe-config-backup\`）。
+
+**真机验证**（真实走了「没有表」这条路）：把用户自己的表挪走 → 启动 → 生成的 `gesture-layers.json` 恰好 7 条、Home 缺席、宿主日志 `GESTURE DEFAULTS seeded=true keys=7 file=gesture-layers.json reason=absent`；桥接文档里 `up/down/left/right/ok/tv` 都带上了 `doubleShortcut`，`mode` 变 `shortlong`——**推荐表真的走到了派发侧**，不是只写了个文件。随后把用户自己的 8 条表原样恢复。
+
+**踩到并修掉的坑**：第一次把 `EnsureGestureLayerDefaults()` 放在构造函数靠前的位置，那时 `hostLogPath` 还是空串 → `File.AppendAllText("")` 抛异常且被 `catch {}` 吞掉，**文件写成了、日志没写**。已把调用移到 `hostLogPath` 赋值之后，并把「调用必须在 hostLogPath 之后」写成门禁（断言源码里两者的 `indexOf` 顺序），因为这个日志是一台机器收到推荐的唯一记录。
+
+### 2）USB 选择性挂起：补上「还原」入口（动作早就有，UI 从来没有发过它）
+
+`restore-usb-suspend` 的分支一直在 `HandleSelfCheckAction` 里，但**没有任何界面会产生这个动作**——`validate.js` 里也只有 `repair-usb-suspend`。现在自检「Windows 蓝牙」项在已禁用时给出「还原 USB 选择性挂起」。
+
+**并且是诚实的还原**：新增 `UsbSuspendWasAppliedByApp()`，读脚本自己写的 `%LOCALAPPDATA%\Vibe Flow Remote\usb-suspend\state.json`，只有 `state=applied` 且 `ac_after=0`（**本次禁用是本应用应用的**）才显示还原入口。理由是：AC 值等于 0 也可能是公司镜像或用户自己调过，那种情况下劝他「还原」等于悄悄改他的电源策略。
+
+### 3）前台窗口线程的输入布局（原来明确写着「未实现」）
+
+原文档写着：「判断**前台应用**的输入法需要按目标窗口线程查询（例如 `AttachThreadInput` + `GetKeyboardLayout`，或对前台窗口所在线程做 TSF 查询），本轮未做」。
+
+现在做了前一半，并且**如实说明只做得了前一半**：新增 `InputMethodDetector.ReadForegroundLayout(IntPtr window)`——附加到前台窗口线程的输入队列（用完解附），读该线程的键盘布局，取低 16 位当语言 id，`DescribeLanguage()` 用 `CultureInfo` 渲染成 `zh-CN` 这类标签（运行时不认识的 id 退回十六进制）。日志里和原来那条并列：
+
+```
+INPUT ENGINE ACTIVE engine=… scope=thread … foreground_thread=… foreground_language=zh-CN same_layout=True
+```
+
+**另一半（跨进程读 TSF 活跃配置文件）在用户态做不到**：TSF 的活跃 profile 是按线程的，读不到别的进程里那个线程的 profile。所以这里报告的是**布局**（语言 + IME 设备句柄），文案里从不声称「前台应用的输入法」。它的诊断价值在于对比：`same_layout=False` 时，「面板没出来」就有了一个可查的解释。`ReadForegroundLayout` 永不抛异常、永不返回 null——它挂在语音路径的日志上，不能因为一个诊断把链路带崩。
+
+### 4）出厂默认 Profile 与用户实测方案的关系（未改，如实记录）
+
+出厂 `StarterProfileMappings()` 与用户机器上那套（已逐槽真机验证过的那套）**不是同一套**，有 10 个槽位不同。本轮**没有**把出厂默认改成用户那套，理由：用户那套是围绕他自己已有的全局手势层设计的（方向/确认/TV 的长按双击被他占了 `pageup`/`ctrl+z`/`browserback` 等），新用户没有那些全局层，照搬反而浪费位置；而且出厂那套是**有意的**（浏览器左键用专用 `browserback`，比用户那套的 `shift+tab` 更「浏览器」），并且有一处被门禁钉住。要改就要连门禁一起改，且属于产品决策，所以留给用户定。
+
+### 本轮改动文件
+
+`scripts/features/GestureBindingStore.cs`（新增 `DefaultDocument()`）、`scripts/features/InputMethodDetector.cs`（新增 `ForegroundInputLayout` / `ReadForegroundLayout` / `DescribeLanguage`）、`scripts/VoxDeckInputBridge.cs`（`ProjectActiveProfile` + 三条新 self-test）、`scripts/VibeMic.cs`（seeding、USB 还原入口与 `UsbSuspendWasAppliedByApp`、前台布局日志、新增 self-test 断言）、`scripts/validate.js`（5 条新门禁）、`docs/V2_0_USER_GUIDE_ZH.md`（双击窗口文案从写死的 0.32 秒改为跟随系统；补推荐手势说明）、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`（USB 可还原）、`docs/images/03-shortcuts*.png`（重拍，画面里现在是推荐手势而不是一排「未配置」）。
+
+### 仍未做（与本轮无关，如实列出）
+
+- 每 Profile 一份双击/宏 —— 当初定为全局设计（store 是全局单条），要改需把 `gesture-layers.json` 升成按 Profile 分节 + 迁移。
+- 宏（含条件/分支/导出）—— 宏已作为产品决定整体移除，不恢复。
+- 出厂默认 Profile 对齐到用户实测方案 —— 见上，属产品决策。
+- 真机/授权类：RC003 设备级过滤器、DPI 矩阵、安装升级卸载生命周期、VB-CABLE 复测、第三方输入法真实落点、经典 UWP 学习、免驱动模式真机、代码签名。

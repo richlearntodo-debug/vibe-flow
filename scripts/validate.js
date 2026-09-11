@@ -737,6 +737,28 @@ assert(includesAll(bridge, [
   "GestureMacroRunner.DescribeResult", "doubleShortcut", "NormalizeGestureAction",
 ]) && !bridge.includes("macroSteps") && !bridge.includes("macroName"),
   "The input bridge does not dispatch gestures through the shared layer policy and runner, or can still run a removed macro");
+// A fresh install received an empty layer table, which made the whole three-layer gesture surface
+// invisible: every 长按 / 双击 row read 未配置 and nothing did anything until the user authored the
+// table by hand. The recommended table is written exactly once, only when no table exists, so a user
+// who clears it keeps it empty and an existing table is never overwritten. Home is deliberately left
+// out -- its short press is 显示桌面 and the first tap of a double executes the short layer, so a Home
+// double tap could not be completed at double-tap speed (measured on real hardware: 2235 ms apart).
+assert(includesAll(read("scripts/features/GestureBindingStore.cs"), [
+  "internal static GestureLayerDocument DefaultDocument()",
+  'UpsertLayer(document, "up", GestureKind.Long, "pageup")',
+  'UpsertLayer(document, "ok", GestureKind.Double, "mediaplaypause")',
+  'UpsertLayer(document, "menu", GestureKind.Double, "volumeup")',
+  'UpsertLayer(document, "tv", GestureKind.Long, "launch-client:chatgpt")',
+]) && !read("scripts/features/GestureBindingStore.cs").includes('UpsertLayer(document, "home"'),
+  "The recommended gesture layer table is missing, or it binds Home where its short press breaks the double tap");
+assert(includesAll(app, [
+  "EnsureGestureLayerDefaults();", "GestureBindingStore.DefaultDocument()",
+  "GESTURE DEFAULTS seeded=true", 'reason=absent',
+  "The recommended gesture defaults do not cover seven keys without touching Home or the record key",
+  "A store without a layer file did not start empty",
+  "The recommended gesture defaults did not survive a write and a reload",
+]) && app.indexOf("EnsureGestureLayerDefaults();") > app.indexOf("hostLogPath = Path.Combine(sessionDir"),
+  "A fresh install is not given the recommended gesture layers, the seeding is not pinned by a self-test, or the call runs before the host log exists so its only record is lost");
 assert(includesAll(bridge, ['name.Equals("voice", StringComparison.OrdinalIgnoreCase)']),
   "The input bridge lets the record key enter gesture layering");
 // A double-tap window tighter than the platform's own double-click default forces the user
@@ -1167,6 +1189,15 @@ assert(includesAll(app, [
   "USB 选择性挂起已禁用",
 ]) && app.indexOf("SetUsbSelectiveSuspend(action ==") > 0,
 "The self-check does not offer the one-click USB selective-suspend fix");
+// The change is reversible, so the undo has to be reachable and honest: it is offered only when the
+// script's own state file records that this app applied the disable, never merely because the value
+// reads 0 -- a corporate image or the user's own tuning would also read 0, and silently re-enabling
+// suspend there would be an unwanted change to their power policy.
+assert(includesAll(app, [
+  "restore-usb-suspend", "还原 USB 选择性挂起", "UsbSuspendWasAppliedByApp",
+  '"Vibe Flow Remote", "usb-suspend", "state.json"', '"ac_after"',
+]) && app.indexOf("UsbSuspendWasAppliedByApp()") < app.indexOf("restore-usb-suspend"),
+  "The self-check cannot undo the USB selective-suspend repair, or offers it without knowing who applied it");
 assert(app.indexOf("hardware.UsbSelectiveSuspendAc == 1") < app.indexOf("repair-usb-suspend"),
 "The Bluetooth self-check does not use the measured selective-suspend value");
 // The panel that is started or submitted twice can replace text that already
@@ -1192,6 +1223,22 @@ assert(includesAll(inputMethodDetector, [
   "TFInputProcessorProfile", "AllocHGlobal", "FreeHGlobal",
 ]) && !/Clipboard\.|SendKeys\.|keybd_event|SendInput/.test(inputMethodDetector),
 "The input-method detector lost the verified identifiers, the TSF lookup, the caller-owned profile buffer, or gained an input-injection path");
+// The TSF read is per-thread, so it answers "which input method is active for this process" and not
+// "which one the application being typed into uses". The foreground window's own thread layout is now
+// read as well, and described as a layout rather than as a named input method, because another
+// process's TSF profile cannot be read from here.
+assert(includesAll(inputMethodDetector, [
+  "internal sealed class ForegroundInputLayout",
+  "internal static ForegroundInputLayout ReadForegroundLayout(IntPtr window)",
+  "GetForegroundWindow", "GetWindowThreadProcessId", "AttachThreadInput", "GetCurrentThreadId",
+  "internal static string DescribeLanguage(int languageId)",
+]) && !/Clipboard\.|SendKeys\.|keybd_event/.test(inputMethodDetector),
+  "The input-method detector does not read the foreground window's own thread layout, or reached for an input path");
+assert(includesAll(app, [
+  "ForegroundInputLayout foregroundLayout = InputMethodDetector.ReadForegroundLayout(IntPtr.Zero)",
+  "foreground_language=", "same_layout=", "foreground_layout=unavailable",
+  "The foreground input layout reader returned null",
+]), "The Host does not report the foreground window's input layout alongside the per-thread input method");
 assert(hostBuild.includes('"%~dp0scripts\\features\\InputMethodDetector.cs"'),
   "The Host build does not compile the input-method detector");
 assert(includesAll(app, [
@@ -1324,6 +1371,18 @@ assert(includesAll(app, [
   "SnippetStore.IsSnippetAction(value)", "snippetStore.TrySave(document)", "RunSnippetSelfTests();",
   "只保存在本机", "不经过剪贴板",
 ]), "The host lost the snippet manager, its local-only notice, or the snippet action plumbing");
+// A Profile switch changes the active mappings and nothing else. It used to be a hand-written field
+// copy that dropped the phrase table, so with Smart Profiles enabled -- the normal case -- the first
+// switch made every bound phrase unknown at dispatch time. Measured on the installed build: the same
+// action that was rejected as `unknown_snippet` succeeded once the projection carried the table.
+assert(includesAll(bridge, [
+  "config = ProjectActiveProfile(source, target)",
+  "private static BridgeConfig ProjectActiveProfile(BridgeConfig source, BridgeShortcutProfile target)",
+  "snippets = source.snippets",
+  "Switching a Profile dropped a field of the bridge configuration",
+  "A snippet table that arrived as JSON did not deserialize into the Bridge config",
+]) && !bridge.includes("var next = new BridgeConfig"),
+  "Switching a Profile can drop the phrase table or another field of the bridge configuration");
 assert(hostBuild.includes('"%~dp0scripts\\features\\SnippetStore.cs"'),
   "The host build does not compile the snippet store");
 {

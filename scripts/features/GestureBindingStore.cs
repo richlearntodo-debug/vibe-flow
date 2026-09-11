@@ -46,6 +46,46 @@ internal sealed class GestureBindingStore
 
     internal string FilePath { get { return path; } }
 
+    // The recommended layer table for a machine that has none yet. Until this existed, a fresh
+    // install had an empty table, so the whole three-layer gesture surface shipped invisible:
+    // every 长按 / 双击 row read 未配置 and the user had to author the table by hand before any
+    // of the gesture work did anything. Every binding below was verified on a real RC003.
+    //
+    // Two properties are deliberate:
+    //
+    // - Home carries nothing. Its short press is 显示桌面 (win+d), and the first tap of a double
+    //   tap executes the short layer, so a Home double tap hides the desktop and then cannot be
+    //   completed at double-tap speed (measured on real hardware: the second tap arrived 2235 ms
+    //   later, so the double never formed). Shipping that would ship a binding that cannot be used.
+    // - No key's short press is redefined here. Where a shipped Profile already binds the same
+    //   action to a key's short press (浏览器 AI: 上/下 = pageup/pagedown, 左 = browserback) the
+    //   long layer simply agrees with it; nothing becomes unreachable and no Profile changes.
+    internal static GestureLayerDocument DefaultDocument()
+    {
+        var document = new GestureLayerDocument
+        {
+            schemaVersion = SchemaVersion,
+            layers = new List<GestureLayerEntry>()
+        };
+        // Long press scrolls and steps back; double tap is the editing and media layer.
+        UpsertLayer(document, "up", GestureKind.Long, "pageup");
+        UpsertLayer(document, "up", GestureKind.Double, "ctrl+x");
+        UpsertLayer(document, "down", GestureKind.Long, "pagedown");
+        UpsertLayer(document, "down", GestureKind.Double, "ctrl+a");
+        UpsertLayer(document, "left", GestureKind.Long, "browserback");
+        UpsertLayer(document, "left", GestureKind.Double, "ctrl+z");
+        UpsertLayer(document, "right", GestureKind.Long, "ctrl+shift+z");
+        UpsertLayer(document, "right", GestureKind.Double, "ctrl+s");
+        UpsertLayer(document, "ok", GestureKind.Long, "volumemute");
+        UpsertLayer(document, "ok", GestureKind.Double, "mediaplaypause");
+        // 功能键 and Home own their long layer in the per-Profile mapping table, so a store long
+        // layer for them would be written and then ignored; only their double layer is offered.
+        UpsertLayer(document, "menu", GestureKind.Double, "volumeup");
+        UpsertLayer(document, "tv", GestureKind.Long, "launch-client:chatgpt");
+        UpsertLayer(document, "tv", GestureKind.Double, "volumedown");
+        return document;
+    }
+
     internal GestureLayerDocument Load()
     {
         try

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 
 // Which input method owns the keyboard right now decides whether a voice tool can
@@ -102,6 +103,22 @@ internal sealed class ActiveInputEngine
     }
 }
 
+// The input layout the FOREGROUND window's own thread is using. This exists because the TSF read
+// above is per-thread: it answers "which input method is active for this process", which is not the
+// same question as "which input method the application the user is typing into has". TSF's active
+// profile cannot be read out of another process from here, so this reports the keyboard layout of
+// the foreground window's thread — language plus the IME device handle packed into the HKL — and is
+// deliberately described as a layout rather than as a named input method. Its diagnostic value is
+// the comparison: when the layout differs from ours, an input method that never received the panel
+// is a plausible explanation for missing text.
+internal sealed class ForegroundInputLayout
+{
+    internal bool Available;
+    internal int ThreadId = -1;
+    internal long KeyboardLayout;
+    internal int LanguageId = -1;
+}
+
 internal static class InputMethodDetector
 {
     [ComImport, Guid("33C53A50-F456-4884-B049-85FD643ECFED")]
@@ -136,6 +153,18 @@ internal static class InputMethodDetector
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetKeyboardLayout(int threadId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attach, uint attachTo, bool attachFlag);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
 
     private static readonly Guid KeyboardCategory = new Guid("34745C63-B2F0-4784-8B67-5E12C8701A31");
     private const int ProfileBufferBytes = 256;
@@ -183,5 +212,54 @@ internal static class InputMethodDetector
         {
             if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
         }
+    }
+
+    // The foreground window's thread is queried with its input queue attached, which is the
+    // documented way to read another thread's active layout. A zero handle asks Windows for the
+    // current foreground window. This never throws and never returns null: a caller logging a
+    // diagnostic must not be able to break the voice path with it.
+    internal static ForegroundInputLayout ReadForegroundLayout(IntPtr window)
+    {
+        var layout = new ForegroundInputLayout();
+        try
+        {
+            if (window == IntPtr.Zero) window = GetForegroundWindow();
+            if (window == IntPtr.Zero) return layout;
+            uint targetThread = GetWindowThreadProcessId(window, IntPtr.Zero);
+            if (targetThread == 0) return layout;
+            layout.ThreadId = (int)targetThread;
+            uint currentThread = GetCurrentThreadId();
+            bool attached = targetThread != currentThread &&
+                AttachThreadInput(currentThread, targetThread, true);
+            try
+            {
+                IntPtr handle = GetKeyboardLayout((int)targetThread);
+                if (handle == IntPtr.Zero) return layout;
+                layout.KeyboardLayout = handle.ToInt64();
+                // The low word of an HKL is the language id; the high word identifies the IME, and
+                // is not a name this app can resolve without a table it does not keep.
+                layout.LanguageId = (int)(layout.KeyboardLayout & 0xFFFF);
+                layout.Available = layout.LanguageId > 0;
+            }
+            finally
+            {
+                if (attached) AttachThreadInput(currentThread, targetThread, false);
+            }
+        }
+        catch { }
+        return layout;
+    }
+
+    // A language id as a readable tag, falling back to hex for ids the runtime does not know.
+    internal static string DescribeLanguage(int languageId)
+    {
+        if (languageId <= 0) return "";
+        try
+        {
+            string name = new CultureInfo(languageId).Name;
+            if (!string.IsNullOrWhiteSpace(name)) return name;
+        }
+        catch { }
+        return "0x" + languageId.ToString("X4");
     }
 }

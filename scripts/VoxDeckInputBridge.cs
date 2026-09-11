@@ -893,6 +893,70 @@ internal static class VoxDeckInputBridge
                     throw new InvalidOperationException("A snippet phrase did not resolve from the shipped document");
             }
             finally { config = savedSnippetConfig; }
+            // A Profile switch must not empty the phrase table. It did: the projection dropped
+            // `snippets`, and because Smart Profiles is normally enabled the very first switch made
+            // every bound phrase unknown at dispatch time. Every field of the projection is checked
+            // here, so adding a config field without carrying it over fails loudly.
+            var profileSource = BridgeConfig.Default();
+            profileSource.revision = "revision-marker";
+            profileSource.notes = "notes-marker";
+            profileSource.inputRoutingMode = "strict";
+            profileSource.smartProfilesEnabled = true;
+            profileSource.smartProfileLocked = true;
+            profileSource.fallbackShortcutProfileId = "general";
+            profileSource.snippets = new BridgeSnippet[] {
+                new BridgeSnippet { id = "snip-json", name = "n", text = "from-json" } };
+            var profileTarget = new BridgeShortcutProfile
+            {
+                id = "browser-ai",
+                name = "浏览器 AI",
+                mappings = new ShortcutMapping[] {
+                    new ShortcutMapping { name = "tv", label = "TV", vk = "Oemtilde", scan = "0x29",
+                        enabled = true, suppress = true, mode = "tap", shortcut = "task-switcher" } }
+            };
+            profileSource.profiles = new BridgeShortcutProfile[] { profileTarget };
+            BridgeConfig projectedProfile = ProjectActiveProfile(profileSource, profileTarget);
+            if (projectedProfile == null ||
+                projectedProfile.snippets == null || projectedProfile.snippets.Length != 1 ||
+                projectedProfile.version != profileSource.version ||
+                projectedProfile.revision != profileSource.revision ||
+                projectedProfile.notes != profileSource.notes ||
+                projectedProfile.inputRoutingMode != profileSource.inputRoutingMode ||
+                projectedProfile.smartProfilesEnabled != profileSource.smartProfilesEnabled ||
+                projectedProfile.smartProfileLocked != profileSource.smartProfileLocked ||
+                projectedProfile.fallbackShortcutProfileId != profileSource.fallbackShortcutProfileId ||
+                projectedProfile.profiles != profileSource.profiles ||
+                projectedProfile.mappings != profileTarget.mappings ||
+                projectedProfile.activeShortcutProfileId != "browser-ai" ||
+                projectedProfile.activeShortcutProfileName != "浏览器 AI")
+                throw new InvalidOperationException(
+                    "Switching a Profile dropped a field of the bridge configuration");
+            try
+            {
+                config = projectedProfile;
+                if (SnippetTextFor("snip-json") != "from-json")
+                    throw new InvalidOperationException(
+                        "A bound phrase stopped resolving after a Profile switch");
+            }
+            finally { config = savedSnippetConfig; }
+            // The phrase table reaches this side as JSON inside the mapping document, so the round trip
+            // itself is exercised here. The fixture above is built in memory and therefore cannot catch a
+            // document whose shape this side does not read back — which is exactly how a bound phrase can
+            // look configured in the Host and still be rejected as unknown at dispatch time.
+            BridgeConfig jsonSnippetConfig = new JavaScriptSerializer().Deserialize<BridgeConfig>(
+                "{\"version\":7,\"snippets\":[{\"id\":\"snip-json\",\"name\":\"n\",\"text\":\"from-json\"}]}");
+            if (jsonSnippetConfig == null || jsonSnippetConfig.snippets == null ||
+                jsonSnippetConfig.snippets.Length != 1)
+                throw new InvalidOperationException(
+                    "A snippet table that arrived as JSON did not deserialize into the Bridge config");
+            try
+            {
+                config = jsonSnippetConfig;
+                if (SnippetTextFor("snip-json") != "from-json")
+                    throw new InvalidOperationException(
+                        "A snippet table that arrived as JSON could not be resolved by id");
+            }
+            finally { config = savedSnippetConfig; }
             if (VkFromName("pageup") != 0x21 || VkFromName("pagedown") != 0x22 ||
                 VkFromName("escape") != 0x1B || VkFromName("browserback") != 0xA6)
                 throw new InvalidOperationException("Required direction customization keys are unavailable");
@@ -3707,7 +3771,23 @@ internal static class VoxDeckInputBridge
     {
         if (source == null || target == null || target.mappings == null || target.mappings.Length == 0) return;
         ReleaseAllShortcuts();
-        var next = new BridgeConfig
+        config = ProjectActiveProfile(source, target);
+        RefreshRc003FilterPolicy();
+        Log("Smart Profile switched profile=" + (target.id ?? "") + " state=" + (matchState ?? "") +
+            " foreground=" + (foregroundProcess ?? ""));
+        BridgeForm.SetStatusText("Profile 切换到 " + (target.name ?? target.id ?? "未命名配置"));
+        WriteHealth("running");
+    }
+
+    // Switching a Profile changes the active mappings and nothing else. This used to be a
+    // hand-written field copy, and it silently dropped the phrase table: with Smart Profiles
+    // enabled — the normal case — the first switch emptied `snippets`, so a bound phrase was
+    // rejected as unknown at dispatch time even though the Host had shipped it correctly. The
+    // projection is therefore a named, testable function whose every field is checked in the
+    // self-test, rather than a copy that has to be remembered whenever a field is added.
+    private static BridgeConfig ProjectActiveProfile(BridgeConfig source, BridgeShortcutProfile target)
+    {
+        return new BridgeConfig
         {
             version = source.version,
             revision = source.revision,
@@ -3719,14 +3799,9 @@ internal static class VoxDeckInputBridge
             smartProfileLocked = source.smartProfileLocked,
             fallbackShortcutProfileId = source.fallbackShortcutProfileId,
             profiles = source.profiles,
-            mappings = target.mappings
+            mappings = target.mappings,
+            snippets = source.snippets
         };
-        config = next;
-        RefreshRc003FilterPolicy();
-        Log("Smart Profile switched profile=" + (target.id ?? "") + " state=" + (matchState ?? "") +
-            " foreground=" + (foregroundProcess ?? ""));
-        BridgeForm.SetStatusText("Profile 切换到 " + (target.name ?? target.id ?? "未命名配置"));
-        WriteHealth("running");
     }
 
     private static BridgeShortcutProfile FindBridgeProfile(BridgeConfig source, string id)

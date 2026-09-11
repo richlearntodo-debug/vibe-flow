@@ -422,6 +422,12 @@ internal sealed partial class VibeMicForm : Form
         brandLogoPath = Path.Combine(root, "vibe-flow-logo.png");
         hostLogPath = Path.Combine(sessionDir, "vibe-flow-host.log");
         Directory.CreateDirectory(sessionDir);
+        // A fresh install used to start with an empty layer table, which made the entire three-layer
+        // gesture surface invisible until the user authored it by hand. The recommended table is
+        // written once, and only when no table exists at all: an existing table — including one the
+        // user deliberately emptied — is never touched. This runs after hostLogPath exists, because
+        // the seeding line is the only record that a machine received these defaults.
+        EnsureGestureLayerDefaults();
         config = LoadConfig();
         if (uiSmokeMode)
         {
@@ -4137,6 +4143,74 @@ internal sealed partial class VibeMicForm : Form
                 GestureConfigKey("up", false) != "上键" || GestureConfigKey("up", true) != "" ||
                 GestureConfigKey("voice", false) != "")
                 throw new InvalidOperationException("The gesture layer table does not match the configurable physical keys");
+            // The recommended table a fresh install receives. It is the only gesture content a new
+            // user sees, so it is pinned here: every action has to be dispatchable, Home has to stay
+            // out (its short press is 显示桌面, and the first tap of a double executes the short
+            // layer, so a Home double tap could not be completed at double-tap speed — measured on
+            // real hardware), no key's short press may be redefined, a store long layer is only
+            // offered for keys whose mapping table has no long key of its own, and no two layers may
+            // carry the same action or one of them would be decorative.
+            GestureLayerDocument gestureDefaults = GestureBindingStore.DefaultDocument();
+            if (gestureDefaults == null || gestureDefaults.layers == null || gestureDefaults.layers.Count != 7 ||
+                GestureBindingStore.Find(gestureDefaults, "home") != null ||
+                GestureBindingStore.Find(gestureDefaults, "voice") != null)
+                throw new InvalidOperationException(
+                    "The recommended gesture defaults do not cover seven keys without touching Home or the record key");
+            var gestureDefaultActions = new List<string>();
+            foreach (GestureLayerEntry defaultEntry in gestureDefaults.layers)
+            {
+                if (!gestureTableKeys.Contains(defaultEntry.key))
+                    throw new InvalidOperationException(
+                        "The recommended gesture defaults bind a key that is not configurable: " + defaultEntry.key);
+                if (!string.IsNullOrEmpty(defaultEntry.shortAction))
+                    throw new InvalidOperationException(
+                        "The recommended gesture defaults redefine a short press: " + defaultEntry.key);
+                if (!string.IsNullOrEmpty(defaultEntry.longAction) &&
+                    GestureConfigKey(defaultEntry.key, true).Length != 0)
+                    throw new InvalidOperationException(
+                        "The recommended gesture defaults bind a long layer where the mapping table owns it: " +
+                        defaultEntry.key);
+                if (string.IsNullOrEmpty(defaultEntry.longAction) && string.IsNullOrEmpty(defaultEntry.doubleAction))
+                    throw new InvalidOperationException(
+                        "The recommended gesture defaults carry an empty key: " + defaultEntry.key);
+                foreach (string defaultAction in new string[] { defaultEntry.longAction, defaultEntry.doubleAction })
+                {
+                    if (string.IsNullOrEmpty(defaultAction)) continue;
+                    if (defaultAction != GestureLayerPolicy.NormalizeAction(defaultAction) ||
+                        !IsSupportedMappingAction(defaultAction) || !IsPersistableMappingAction(defaultAction))
+                        throw new InvalidOperationException(
+                            "The recommended gesture defaults offer an action the app cannot store: " + defaultAction);
+                    if (gestureDefaultActions.Contains(defaultAction))
+                        throw new InvalidOperationException(
+                            "The recommended gesture defaults repeat one action on two layers: " + defaultAction);
+                    gestureDefaultActions.Add(defaultAction);
+                }
+            }
+            // The seeded table has to survive the store it is written through, because that file is
+            // what the bridge reads; a document that only exists in memory would change nothing.
+            string gestureDefaultRoot = Path.Combine(Path.GetTempPath(),
+                "vibe-flow-gesture-defaults-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(gestureDefaultRoot);
+                var gestureDefaultStore = new GestureBindingStore(gestureDefaultRoot);
+                GestureLayerDocument reloadedDefaults = gestureDefaultStore.Load();
+                if (reloadedDefaults.layers.Count != 0)
+                    throw new InvalidOperationException("A store without a layer file did not start empty");
+                if (!gestureDefaultStore.TrySave(GestureBindingStore.DefaultDocument()))
+                    throw new InvalidOperationException("The recommended gesture defaults could not be saved");
+                reloadedDefaults = gestureDefaultStore.Load();
+                GestureLayerEntry reloadedUp = GestureBindingStore.Find(reloadedDefaults, "up");
+                if (reloadedDefaults.layers.Count != 7 || reloadedUp == null ||
+                    reloadedUp.longAction != "pageup" || reloadedUp.doubleAction != "ctrl+x")
+                    throw new InvalidOperationException(
+                        "The recommended gesture defaults did not survive a write and a reload");
+            }
+            finally
+            {
+                try { if (Directory.Exists(gestureDefaultRoot)) Directory.Delete(gestureDefaultRoot, true); }
+                catch { }
+            }
             // Which layer persists where: short is always mapping-table backed, the long layer is
             // mapping-table backed only for the keys that have a long key there, and every other layer is
             // owned by the store. This pins the routing whose absence left six 长按 rows looking editable
@@ -7667,6 +7741,27 @@ internal sealed partial class VibeMicForm : Form
     {
         if (gestureLayerStore == null) gestureLayerStore = new GestureBindingStore(userStateRoot);
         return gestureLayerStore;
+    }
+
+    // Writes the recommended layer table exactly once, on a machine that has none. The file's
+    // absence is the whole condition: a user who clears every layer keeps an empty table rather
+    // than having the defaults silently reappear, and a user who already configured layers — the
+    // author of this project included — is never overwritten.
+    private void EnsureGestureLayerDefaults()
+    {
+        try
+        {
+            GestureBindingStore store = GestureLayers();
+            if (File.Exists(store.FilePath)) return;
+            GestureLayerDocument defaults = GestureBindingStore.DefaultDocument();
+            if (!store.TrySave(defaults)) return;
+            HostLog("GESTURE DEFAULTS seeded=true keys=" + defaults.layers.Count +
+                " file=gesture-layers.json reason=absent");
+        }
+        catch (Exception ex)
+        {
+            HostLog("GESTURE DEFAULTS seeded=false error=" + SafeLogValue(ex.Message));
+        }
     }
 
     private static string GestureConfigKey(string gestureKey, bool longLayer)
@@ -15246,6 +15341,12 @@ internal sealed partial class VibeMicForm : Form
         // multi-hundred-millisecond audio stalls, so it is reported here with a fix.
         bool usbSuspendEnabled = hardware.Completed && !hardware.Failed && hardware.UsbSelectiveSuspendAc == 1;
         bool usbSuspendDisabled = hardware.Completed && !hardware.Failed && hardware.UsbSelectiveSuspendAc == 0;
+        // The undo entry is offered only when this app is the one that turned the setting off:
+        // the repair is a documented powercfg change, and "还原" on a machine where suspend was
+        // disabled by someone else (a corporate image, the user's own tuning) would silently
+        // re-enable it. The script records every application of the change, so the state file is
+        // the honest source for "we did this".
+        bool usbSuspendRestorable = usbSuspendDisabled && UsbSuspendWasAppliedByApp();
         if (usbSuspendEnabled && bluetoothState == "pass") bluetoothState = "warning";
         report.Items.Add(new SelfCheckItem("bluetooth", "Windows 蓝牙",
             bluetoothState,
@@ -15260,13 +15361,19 @@ internal sealed partial class VibeMicForm : Form
                 "未发现异常") :
                 !hardware.Completed ? "硬件探测正在后台运行，页面不会被阻塞" : hardware.Failed ? "Windows 设备查询超时或被系统策略阻止" : !hardware.BluetoothPresent ? "当前电脑可能没有蓝牙，或驱动尚未安装" :
                 hardware.BluetoothOk ? "未发现异常" : "蓝牙被禁用、驱动异常或设备管理器尚未完成初始化",
-            bluetoothState == "pass" ? "无需操作" : bluetoothState == "checking" ? "等待检测完成，结果会自动刷新" :
+            bluetoothState == "checking" ? "等待检测完成，结果会自动刷新" :
                 usbSuspendEnabled ? "一键禁用 USB 选择性挂起（保留可还原），遥控器音频不会再被空闲挂起打断" :
+                usbSuspendRestorable ? "如需恢复 Windows 默认电源策略，可在这里还原 USB 选择性挂起；还原后空闲时蓝牙适配器会再次被挂起" :
+                bluetoothState == "pass" ? "无需操作" :
                 "打开 Windows 蓝牙设置，确认开关与驱动状态后返回",
-            bluetoothState == "pass" || bluetoothState == "checking" ? "" :
-                usbSuspendEnabled ? "禁用 USB 选择性挂起" : "蓝牙设置",
-            bluetoothState == "pass" || bluetoothState == "checking" ? "" :
-                usbSuspendEnabled ? "repair-usb-suspend" : "bluetooth"));
+            bluetoothState == "checking" ? "" :
+                usbSuspendEnabled ? "禁用 USB 选择性挂起" :
+                usbSuspendRestorable ? "还原 USB 选择性挂起" :
+                bluetoothState == "pass" ? "" : "蓝牙设置",
+            bluetoothState == "checking" ? "" :
+                usbSuspendEnabled ? "repair-usb-suspend" :
+                usbSuspendRestorable ? "restore-usb-suspend" :
+                bluetoothState == "pass" ? "" : "bluetooth"));
 
         bool runtimeConnected = HasCurrentAtvvEvidence();
         bool remotePaired = hardware.RemotePresent || bridge.RawInputDevicePresent || runtimeConnected;
@@ -17353,9 +17460,18 @@ internal sealed partial class VibeMicForm : Form
         string signature = engine.EngineKey + "|" + engine.ClassId;
         if (signature == lastLoggedActiveEngine) return;
         lastLoggedActiveEngine = signature;
+        // The TSF answer is per-thread, so it is logged next to the foreground window's own layout:
+        // "we are running under X" and "the window the user is typing into is on Y" are different
+        // facts, and the disagreement between them is what explains a missing panel.
+        ForegroundInputLayout foregroundLayout = InputMethodDetector.ReadForegroundLayout(IntPtr.Zero);
         HostLog("INPUT ENGINE ACTIVE engine=" + engine.EngineKey + " known=" + engine.Known +
             " scope=thread provider=" + NormalizeProviderKey(config.inputMethod) +
-            " conflict=" + ActiveInputEngineBlocksConfiguredProvider());
+            " conflict=" + ActiveInputEngineBlocksConfiguredProvider() +
+            (foregroundLayout.Available
+                ? " foreground_thread=" + foregroundLayout.ThreadId +
+                  " foreground_language=" + InputMethodDetector.DescribeLanguage(foregroundLayout.LanguageId) +
+                  " same_layout=" + (foregroundLayout.KeyboardLayout == engine.KeyboardLayout)
+                : " foreground_layout=unavailable"));
     }
 
     private bool ActiveInputEngineBlocksConfiguredProvider()
@@ -17696,6 +17812,30 @@ internal sealed partial class VibeMicForm : Form
     {
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         return Path.Combine(localAppData, "Vibe Flow Remote", "vb-cable", "install-state.json");
+    }
+
+    // The power-settings repair is reversible, and "还原" may only be offered for a change this
+    // app made. Set-UsbSelectiveSuspend.ps1 records every attempt in its own state file, so the
+    // entry reads that record instead of inferring ownership from the current AC value — which a
+    // corporate image or the user's own tuning would also set to 0.
+    private static bool UsbSuspendWasAppliedByApp()
+    {
+        try
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string path = Path.Combine(localAppData, "Vibe Flow Remote", "usb-suspend", "state.json");
+            if (!File.Exists(path)) return false;
+            var document = new JavaScriptSerializer().DeserializeObject(
+                File.ReadAllText(path, Encoding.UTF8)) as Dictionary<string, object>;
+            if (document == null) return false;
+            object raw;
+            if (!document.TryGetValue("state", out raw)) return false;
+            if (!string.Equals((Convert.ToString(raw) ?? "").Trim(), "applied",
+                StringComparison.OrdinalIgnoreCase)) return false;
+            if (!document.TryGetValue("ac_after", out raw)) return false;
+            return Convert.ToInt32(raw) == 0;
+        }
+        catch { return false; }
     }
 
     private static bool TryReadVbCableInstallState(string path, out string state,
@@ -23577,6 +23717,22 @@ internal sealed partial class VibeMicForm : Form
             InputEngineCatalog.ActiveEngineBlocksProvider("typeless", InputEngineCatalog.DoubaoEngine) ||
             InputEngineCatalog.ActiveEngineBlocksProvider("custom", InputEngineCatalog.DoubaoEngine))
             throw new InvalidOperationException("Input engine conflict policy is wrong");
+        // The foreground window's layout is a different question from the per-thread TSF profile,
+        // and both halves of it are pinned: the language id renders as a tag for ids the runtime
+        // knows and as hex for ids it does not, and the reader answers with an object (never null,
+        // never throwing) even when there is no foreground window to ask about.
+        ForegroundInputLayout layoutWithoutWindow = InputMethodDetector.ReadForegroundLayout(IntPtr.Zero);
+        if (layoutWithoutWindow == null)
+            throw new InvalidOperationException("The foreground input layout reader returned null");
+        if (InputMethodDetector.DescribeLanguage(0x0804) != "zh-CN" ||
+            InputMethodDetector.DescribeLanguage(0x0409) != "en-US" ||
+            InputMethodDetector.DescribeLanguage(0) != "" ||
+            InputMethodDetector.DescribeLanguage(-1) != "" ||
+            InputMethodDetector.DescribeLanguage(0x7FFF).Length == 0)
+            throw new InvalidOperationException("Foreground input language formatting is wrong");
+        if (layoutWithoutWindow.Available && layoutWithoutWindow.LanguageId <= 0)
+            throw new InvalidOperationException(
+                "The foreground input layout reported an available layout without a language");
     }
 
     // A finished driver install must never claim a switch the machine cannot deliver.
