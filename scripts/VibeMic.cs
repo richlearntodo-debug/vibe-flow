@@ -7555,7 +7555,7 @@ deck.Hide();
         headerTitle.Size = new Size(220, 28);
         var headerDetail = NewLabel(exactDeviceIsolation ?
             "当前设备级隔离已启用；Profile 仅保存快捷键，不包含任何语音参数" :
-            "安全直通下遥控器原按键效果可能同时发生；Profile 不会修改语音链路", 8.6f, FontStyle.Regular, muted);
+            "安全直通下遥控器原按键效果可能同时发生；快捷键 Profile（应用专属的按键方案）不会修改语音链路", 8.6f, FontStyle.Regular, muted);
         headerDetail.Location = new Point(24, 40);
         headerDetail.Size = new Size(590, 22);
         var sourceBadge = NewLabel(exactDeviceIsolation ? "●  精确隔离" : "●  安全直通",
@@ -10627,6 +10627,37 @@ deck.Hide();
         privacyCard.Controls.Add(usageTitle);
         privacyCard.Controls.Add(usageLine);
         privacyCard.Controls.Add(usageNote);
+
+        // A glossary, because the interface uses English product terms — Profile, Smart Profiles, Browser Remote
+        // Lite, Raw Input, Live HUD, Context Deck — and until now none of them was explained anywhere in the
+        // application. The first occurrence of each is glossed in place as well; this is the one place a user can
+        // look them all up without hunting through the pages.
+        var glossaryCard = NewCard(new Point(34, 1100), new Size(960, 300));
+        glossaryCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        glossaryCard.Controls.Add(SectionTitle("术语表", "\uE8D2", new Point(28, 22)));
+        string[,] glossary =
+        {
+            { "快捷键 Profile", "某个应用专属的一套按键动作。绑定后，切到该应用会自动使用它。" },
+            { "Smart Profiles", "按当前应用自动切换键位方案；不修改录音与转写链路。" },
+            { "Browser Remote Lite", "用遥控器按键操作浏览器的轻量配置：先看差异，再应用或一键撤销。" },
+            { "Raw Input", "Windows 直接投递的原始键盘事件。「安全直通」表示尚未做逐设备隔离。" },
+            { "Live HUD", "不抢焦点的悬浮状态窗；主窗口不在前台时仍能看到录音状态。" },
+            { "Context Deck", "遥控器、Profile、目标与最近一次动作的详细面板，从托盘菜单打开。" }
+        };
+        for (int row = 0; row < glossary.GetLength(0); row++)
+        {
+            var term = NewLabel(glossary[row, 0], 9f, FontStyle.Bold, ink);
+            term.Location = new Point(32, 64 + row * 34);
+            term.Size = new Size(190, 26);
+            var meaning = NewLabel(glossary[row, 1], 9f, FontStyle.Regular, muted);
+            meaning.Location = new Point(232, 64 + row * 34);
+            meaning.Size = new Size(690, 26);
+            meaning.AutoEllipsis = true;
+            glossaryCard.Controls.Add(term);
+            glossaryCard.Controls.Add(meaning);
+        }
+        content.Controls.Add(glossaryCard);
+        content.AutoScrollMinSize = new Size(1000, 1440);
 
         content.Controls.Add(startupCard);
         content.Controls.Add(feedbackCard);
@@ -13958,7 +13989,7 @@ deck.Hide();
                         bridge.Size = new Size(520, 38);
                         var tray = StyledCheck("关闭主窗口后继续在系统托盘运行", trayChoice, new Point(8, 204));
                         tray.Size = new Size(520, 38);
-                        var smartProfiles = StyledCheck("是否启用 Smart Profiles（可选，默认关闭）",
+                        var smartProfiles = StyledCheck("是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
                             smartProfilesChoice, new Point(8, 252));
                         smartProfiles.Size = new Size(620, 38);
                         startup.CheckedChanged += delegate { startupChoice = startup.Checked; };
@@ -13985,7 +14016,7 @@ deck.Hide();
                             wizard.Close();
                             BeginInvoke(new Action(delegate { ShowPage((int)VibePageId.Workflow); }));
                         };
-                        var browser = SecondaryButton("配置 Browser Remote Lite", new Point(220, 116), new Size(218, 36));
+                        var browser = SecondaryButton("配置浏览器遥控（Browser Remote Lite）", new Point(220, 116), new Size(218, 36));
                         browser.Name = "onboardingBrowserRemoteButton";
                         browser.Click += delegate
                         {

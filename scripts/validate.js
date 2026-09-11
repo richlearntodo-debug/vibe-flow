@@ -1561,7 +1561,9 @@ assert(includesAll(onboarding, [
   "OnboardingProgressSaveResult", "OnboardingAudioEvidenceReady", "ApplySettingsChangeCore",
   "OnboardingRuntimeAckRequired", "initialStartupApplied",
   "AutoScaleMode.Dpi", "AutoScroll = true", "配置工作流",
-  "配置 Browser Remote Lite", "是否启用 Smart Profiles", "smartProfilesChoice",
+  // The two product terms a first-time user meets in this step now carry a Chinese gloss in place.
+  "配置浏览器遥控（Browser Remote Lite）", "是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
+  "smartProfilesChoice",
   "config.smartProfilesEnabled = smartProfilesChoice",
 ]), "The active onboarding flow is not the persisted five-task setup");
 assert(!onboarding.includes("testInput.TextChanged") && !onboarding.includes("testInput.Text.Trim()") &&
@@ -1958,7 +1960,17 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The workflow page has one card, not two. 常用应用 and 应用工作流 answered the same question in two stacked cards,
+// The interface uses English product terms, and until now none of them was explained anywhere in the application.
+// Each first occurrence carries a Chinese gloss and the settings page carries the glossary, so a new user can look
+// them up in one place instead of hunting through six pages.
+assert(includesAll(app, [
+  "快捷键 Profile（应用专属的按键方案）",
+  "配置浏览器遥控（Browser Remote Lite）",
+  "是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
+  'SectionTitle("术语表"',
+  '"快捷键 Profile", "某个应用专属的一套按键动作。绑定后，切到该应用会自动使用它。"',
+  '"Context Deck", "遥控器、Profile、目标与最近一次动作的详细面板，从托盘菜单打开。"',
+]), "A product term is used in the interface without a Chinese gloss, or the glossary is gone");// The workflow page has one card, not two. 常用应用 and 应用工作流 answered the same question in two stacked cards,
 // so the user had to read both and work out which list was theirs. The favourites (the user's own list, with their
 // open / edit / delete / make-current actions) come first and the applications a key Profile binds that still need a
 // workflow follow inside the same card, in the one-line-per-application form that was chosen over listing everything.
