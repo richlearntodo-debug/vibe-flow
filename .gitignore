@@ -60,6 +60,7 @@ scripts/VoxDeck*.cs
 scripts/*.ps1
 !scripts/capture-ui-screenshots.ps1
 !scripts/Install-VBCable.ps1
+!scripts/Set-UsbSelectiveSuspend.ps1
 !scripts/Get-StableCaptureBinary.ps1
 !scripts/Prepare-DevelopmentRuntime.ps1
 !scripts/Measure-HardwareAcceptance.ps1

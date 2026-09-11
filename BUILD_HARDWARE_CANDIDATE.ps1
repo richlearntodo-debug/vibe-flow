@@ -74,6 +74,7 @@ Copy-Item (Join-Path $root "LICENSE") $candidateDir
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") $candidateDir
 Copy-Item (Join-Path $root "SECURITY.md") $candidateDir
 Copy-Item (Join-Path $root "scripts\Install-VBCable.ps1") $candidateScripts
+Copy-Item (Join-Path $root "scripts\Set-UsbSelectiveSuspend.ps1") $candidateScripts
 Copy-Item (Join-Path $root "scripts\Measure-HardwareAcceptance.ps1") $candidateScripts
 Copy-Item (Join-Path $root "docs\USER_GUIDE_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_2_1_TUTORIAL_ZH.md") $candidateDocs

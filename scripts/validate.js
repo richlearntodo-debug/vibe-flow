@@ -1873,6 +1873,17 @@ assert(includesAll(release, [
   '& $stableCapturePath --self-test',
   'Test-ReleaseIdentity.ps1', 'Test-ReleaseArtifacts.ps1',
 ]), "Release packaging, checksums, or signing are incomplete");
+// The self-check's one-click "disable USB selective suspend" runs this script from the
+// install directory, where it is the measured fix for the remote's Bluetooth audio gaps.
+// It is a runtime script, not a build helper, so both payload builders have to carry it and
+// it has to survive cloning — an ignored script passes every local check and then makes the
+// action fail on a real install with "缺少 USB 电源脚本".
+assert(includesAll(release, [
+  'Copy-Item (Join-Path $root "scripts\\Set-UsbSelectiveSuspend.ps1") (Join-Path $packageDir "scripts")',
+]) && includesAll(candidateBuild, [
+  'Copy-Item (Join-Path $root "scripts\\Set-UsbSelectiveSuspend.ps1") $candidateScripts',
+]) && gitignore.includes("!scripts/Set-UsbSelectiveSuspend.ps1"),
+  "A runtime repair script reaches a user install without travelling in the payload or surviving a clone");
 assert(!release.includes('BUILD_VIBE_MIC_CAPTURE.cmd') &&
   !release.includes('@("VibeMic.exe", "VibeMicAtvvCapture.exe", "VoxDeckInputBridge.exe")'),
   "The formal release can rebuild or re-sign the frozen capture binary");

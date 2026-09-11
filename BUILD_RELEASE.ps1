@@ -133,6 +133,11 @@ Copy-Item (Join-Path $root "SECURITY.md") $packageDir
 Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "scripts") | Out-Null
 Copy-Item (Join-Path $root "scripts\Install-VBCable.ps1") (Join-Path $packageDir "scripts")
+# The self-check runs this one at runtime from the install directory to turn off USB
+# selective suspend, which is the measured cause of the remote's Bluetooth audio gaps.
+# It is not a build-time helper, so it has to travel in the payload like the cable
+# installer does.
+Copy-Item (Join-Path $root "scripts\Set-UsbSelectiveSuspend.ps1") (Join-Path $packageDir "scripts")
 # Bundled official VB-CABLE driver package (VB-Audio donationware; bundling is
 # permitted per https://vb-audio.com/Services/licensing.htm "VB-CABLE
 # Distribution with other product"). The installer verifies the pinned
