@@ -4,6 +4,8 @@
 
 当前稳定模式遵循 RC003 的物理按键周期，单段约 `60 秒`；提前松开立即结束，不会自动创建第二个麦克风会话。
 
+> **录音键隔离（安装前请先读）**：未安装签名设备过滤器前，录音键使用“遥控器在线范围内”的钩子隔离——遥控器**已连接**时 F5 被拦截、不会触发浏览器刷新；遥控器**不在线**时普通键盘的 F5 **原样直通**；用户态无法做逐事件设备归属隔离，因此它与签名过滤器**不等同**。安装后「首页」「快捷键」「自检」与首启向导第一步都会显示当前状态。
+
 ## 下载
 
 V2.0.0 当前是本地候选版，产物位于 `release/VibeFlow-Setup.exe`、`release/Vibe-Flow-Windows-x64.zip` 和 `release/SHA256SUMS.txt`，未发布、未签名且仍需真机验收。普通用户请继续下载 [V1.5.0 稳定安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe)。不要下载 GitHub 自动生成的源码 ZIP。

@@ -387,7 +387,21 @@ assert(includesAll(read("scripts/ui/BrowserRemoteLiteForm.cs"), [
   "private static extern int SetWindowTheme(IntPtr handle, string subApplicationName, string subIdList);",
   'SetWindowTheme(listHandle, "", "");',
   "Colouring it needs custom draw.",
-]), "The dark-mode table fix is gone, so the rows would render light on a dark page again");// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
+]), "The dark-mode table fix is gone, so the rows would render light on a dark page again");// The caveat also has to be where a downloader reads it, not only inside the application: the release body that
+// BUILD_RELEASE.ps1 generates from docs/GITHUB_RELEASE_BODY_ZH.md, the README, and the quick-start. All three
+// described using the record key without ever saying that without the signed filter the key uses hook isolation
+// scoped to the remote being online, and that an ordinary keyboard's F5 passes through when it is not.
+assert(includesAll(read("docs/GITHUB_RELEASE_BODY_ZH.md"), [
+  "录音键隔离现状（安装前请先读）",
+  "遥控器**不在线**时，普通键盘的 F5 **原样直通**",
+  "不能与签名过滤器等同",
+]) && includesAll(read("README.md"), [
+  "**录音键隔离**",
+  "普通键盘 F5 原样直通",
+]) && includesAll(read("QUICK_START_ZH.md"), [
+  "录音键隔离（安装前请先读）",
+  "遥控器**不在线**时普通键盘的 F5 **原样直通**",
+]), "The key-isolation caveat is missing from the documents a downloader reads");// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
 // device-level filter is not healthy the record key can reach whatever application is in front, and this is the
 // project's top release concern. It is shown only when that is actually the case, and the step was captured after
 // the change to confirm the line renders and the rest of the step is unchanged.
