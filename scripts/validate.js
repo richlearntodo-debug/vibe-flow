@@ -818,6 +818,39 @@ assert(includesAll(app, [
   "Start application Unicode invariant failed", "FinalReleaseComObject",
   "name.IndexOf('\\uFFFD')", "APPLICATION PICKER loaded=true",
 ]), "Installed application discovery can corrupt localized Windows app names");
+// The add-application picker, reported broken by the user and reproduced from a screenshot of the
+// real dialog: every "running now" row was listed with a blank gap instead of its icon, and with the
+// raw process name ("catprox", "windowsterminal") for anything the curated name map does not cover.
+// The running rows carried no icon at all, because that path never assigned one even though the
+// executable of a running application yields one. The product's own process was offered as a target
+// too. All three are pinned here, together with the icon fallback the catalogue needs for
+// executables that carry no icon resource of their own (measured: Steam, BOOTICE).
+assert(includesAll(app, [
+  "internal static string RunningApplicationLabel(FocusApplicationChoice running, string cataloguedName,",
+  "IsExecutableFileName", "choice.Icon = known != null && known.Icon != null",
+  "InstalledAppCatalog.IconForExecutable(executable)", "InstalledAppCatalog.ExecutableForProcess(running.ProcessName)",
+  "InstalledAppCatalog.DescribeExecutable(executable)",
+  "A running application's picker name is resolved wrongly",
+  "The picker can offer one of Vibe Flow's own processes as a target",
+]) && app.indexOf("InstalledAppCatalog.List()") < app.indexOf("GetRunningApplications()"),
+  "A running application is listed in the picker without its icon or its real name");
+assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
+  "internal static Icon IconForExecutable(string exePath)",
+  "return extracted ?? LoadShellImage(exePath);",
+  "private static Icon LoadShellImage(string parsingName)",
+  "internal static string ExecutableForProcess(string processName)",
+  "internal static string DescribeExecutable(string exePath)",
+  "choice.Icon = IconForExecutable(target);",
+  // shell:AppsFolder also lists desktop applications, so both sources are keyed by process name and
+  // an AppUserModelID-registered desktop app resolves through its executable instead of its id.
+  "HashSet<string> seenProcesses", "if (!seenProcesses.Add(processName)) continue;",
+  '"System.Link.TargetParsingPath"',
+  "string fromDesktopTarget = FocusTargetDescriptor.NormalizeProcessName(desktopTarget);",
+]), "The installed-application catalogue can list one application twice or lose an icon");
+assert(includesAll(read("scripts/features/FocusTargetService.cs"), [
+  "internal static readonly string[] ExcludedProcesses",
+  '"vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture"',
+]), "Vibe Flow can offer one of its own processes as an application to learn");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths

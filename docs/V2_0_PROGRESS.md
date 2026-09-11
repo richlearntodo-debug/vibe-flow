@@ -3181,3 +3181,83 @@ INPUT ENGINE ACTIVE engine=… scope=thread … foreground_thread=… foreground
 - 宏（含条件/分支/导出）—— 宏已作为产品决定整体移除，不恢复。
 - 出厂默认 Profile 对齐到用户实测方案 —— 见上，属产品决策。
 - 真机/授权类：RC003 设备级过滤器、DPI 矩阵、安装升级卸载生命周期、VB-CABLE 复测、第三方输入法真实落点、经典 UWP 学习、免驱动模式真机、代码签名。
+
+## 2026-09-11 真机落点验证（记事本 + ChatGPT）与「添加应用」三个缺陷
+
+用户配合实体遥控器做了两次听写，另外报告「添加应用」列表里很多应用没有名字、没有 logo。两条线都有结论。
+
+### 1）落点验证：记事本与 ChatGPT 都通过，且剪贴板全程未被使用
+
+做法：先把日志的字节偏移做成 markerstamp，用户按完再读增量，关键行**回读原始日志**核对时间戳；同时**分别读宿主日志与冻结 Capture 的运行时日志**——真实回执（`WETYPE SESSION END`）写在 Capture 侧，宿主日志里没有它，只看宿主日志会误判成「没有回执」。
+
+**记事本（generation 5，按住 7.7 秒）**
+
+```
+16:01:31.233 VOICE FOCUS LOCK armed=true target_id=foreground-notepad
+16:01:31.234 VOICE INPUT TARGET ready=true code=OK
+16:01:34.744 / :56.680 … VOICE FOCUS RESTORE skipped=true
+        foreground=notepad target_foreground=True focused_edit=True   ← 焦点未被面板抢走
+capture: audio_ms≈7.7s  丢包 0  间隔 46 ms
+16:01:42.724 WETYPE TRANSCRIPTION SUBMIT generation=5 sent=True audio_delivered=True
+16:01:43.219 WETYPE SESSION END generation=5 audio_delivered=True submitted=True panel_wait_ms=400
+16:01:47.209 WETYPE PASTE FALLBACK payload_ready=False skipped=true reason=payload_missing
+```
+
+**ChatGPT（generation 8，按住 8.4 秒）**
+
+```
+16:05:55.203 VOICE FOCUS LOCK armed=true target_id=foreground-chatgpt source=focused_observation_transient
+16:05:55.203 VOICE INPUT TARGET ready=true target_id=foreground-chatgpt code=OK
+16:05:56.574 / :56.680 / 16:06:04.964  VOICE FOCUS RESTORE skipped=true
+        foreground=chatgpt target_foreground=True focused_edit=True
+capture: frames=569 audio_ms=8535 max_gap_ms=74 queue_drops=0 sink_queue_drops=0
+16:06:05.232 WETYPE TRANSCRIPTION SUBMIT generation=8 sent=True audio_delivered=True
+16:06:06.303 WETYPE SESSION END generation=8 audio_delivered=True submitted=True panel_wait_ms=850
+16:06:09.719 WETYPE PASTE FALLBACK payload_ready=False skipped=true reason=payload_missing
+```
+
+**两条结论**：
+
+1. `payload_missing` 是**好事**：两次都是输入法**直接上屏**，剪贴板从没被用过——这正是产品声称的路径，比"粘进去的"强。
+2. **修正一条历史结论**：文档里写过「ChatGPT 桌面 UIA 未提供可验证编辑控件，因此输入目标仍未验证」。真机证据表明 ChatGPT 的输入框**能被实时验证**（`code=OK` + 三次 `focused_edit=True`）。精确限定：这次走的是**唤醒时的瞬时前台目标**（`foreground-chatgpt source=focused_observation_transient`），不等于「已把 ChatGPT 学成保存目标」——用户保存的默认目标仍是 notepad。也就是说：**按的时候 ChatGPT 在前台就能落字**，想在别的窗口前台时也收字才需要学习。
+
+**顺带查清的一个疑点**：用户按过的那几轮里有两次前台是 Chrome，`WETYPE PASTE FALLBACK` 都 `payload_ready=False` → **根本没有粘贴动作**，所以浏览器里没有内容是正确结果。更早一轮（generation 6）确实发出了 `sent=True target_id=session-source-chrome`，但用户没看到内容 —— 这说明 **`sent=True` 只证明按键发出去了，不证明文字落进去**。宿主回执在这里存在过度声明，可选的收紧方式是：配置目标不匹配且无法确认可编辑控件时只提示手动粘贴，或把回执改成「已尝试粘贴」。（**未改，留给用户决定**。）
+
+### 2）「添加应用」列表的三个缺陷（用户报告 → 截图复现 → 修复 → 截图复验）
+
+用户报「很多 APP 都没有名字、没有 logo，包括全部当前正在运行的 APP 都没有 logo」。为了不靠猜，写了一个一次性脚本：启动 `--ui-smoke` → 点导航 → 找「＋ 添加应用」按钮 `BM_CLICK` → `PrintWindow` 抓对话框本身（不抓桌面）→ 再对 ListBox 发 `WM_VSCROLL SB_BOTTOM` 抓列表下半部分。**截图与用户描述完全一致**：
+
+| 行 | 修复前 | 修复后 |
+| --- | --- | --- |
+| 01–07 | ChatGPT / Cursor / 记事本 / Chrome / **catprox** / **typeless** / **vibeflow** —— **全部没有 logo** | ChatGPT / Cursor / 记事本 / Google Chrome / **CatproX** / **Typeless** / **终端** —— **全部有 logo** |
+| 08+ | 已安装的行有 logo、有名字 | 同左（未受影响） |
+
+**缺陷 1：运行中的应用一律没有图标。** 根因在 `BeginFavoriteAppLearning`：运行中的应用走的是**新建 `InstalledAppChoice` 的分支，从来没给 `Icon` 赋值**；而 `AppPickerDialog` 画的是 `item.Icon`，为 null 就跳过 → 空白。实测本机 10 个运行应用里 **9 个能从自己的 exe 抽出图标**，所以这不是平台限制。
+
+**缺陷 2：名字是原始进程名。** 运行行的名字来自 `FocusApplicationChoice.DisplayName`，而 `FriendlyProcessName` 只映射了 6 个应用（Cursor / VS Code / ChatGPT / 记事本 / Chrome / Edge），其余直接回退成进程名 —— 截图里的 `catprox`、`typeless`、`vibeflow`、`windowsterminal` 就是这么来的。
+
+**缺陷 3：把言灵自己列成可学习的对象**（`vibeflow`）。排除表里只有 `vibemic`，而发布版进程名是 `VibeFlow`。
+
+**修复**：改为**先建本机目录、再建运行行**，运行行从目录借名字与图标（`Google Chrome`、`终端`、`CatProX` 都是这么来的）；名字优先级抽成纯函数 `RunningApplicationLabel(curated → catalogue → exe 描述 → 进程名)` 并由 self-test 钉住 7 组取值；图标加载加**外壳回退**（`IconForExecutable`：先 `ExtractAssociatedIcon`，失败再问 shell —— 实测 Steam 与 BOOTICE 属于"自己不带图标资源、资源管理器里却有图标"的那类）；排除表补上 `vibeflow` / `voxdeckinputbridge` / `vibemicatvvcapture` 并暴露成 `ExcludedProcesses` 供 self-test 断言。
+
+> 一次自我纠错：新 self-test 第一次就红了，我原以为是代码错，读回实际值才发现是**我的期望写错了**——`Chrome` 与 `chrome` 在 `OrdinalIgnoreCase` 下相等，所以它正确地被判为"没说新东西"而落到目录名 `Google Chrome`。断言改成打印实际值后立刻定位。这条也是教训：**断言必须能说出它看到了什么**。
+
+### 3）顺带发现并修掉：同一个应用被列两次（167 → 99）
+
+修复截图里注意到 `CatproX`（正在运行）与 `Catprox`（未运行）同时在列。实测两者指向**同一个文件** `D:\CatproX\CatproX.exe`，但 AppsFolder 那条的 `Path`/`AppUserModelID` 是 `org.erb.vortex`（应用自己注册的 AUMID，**不是进程名**）→ 两条来源的 `ProcessName` 不同 → 去重没生效。**`shell:AppsFolder` 不只列 UWP，也列桌面应用**，所以本机大量桌面应用都被列了两遍。
+
+修复：两个来源统一按**进程名**去重；AUMID 不是包（不含 `!`）时，先用外壳暴露的 `System.Link.TargetParsingPath` 反查真实 exe 再取进程名（真正的 Store 应用这个属性为空，实测「照片」为空、`org.erb.vortex` 为 `D:\CatproX\CatproX.exe`）。**可选条目从 167 降到 99**，没有应用丢失。
+
+### 4）经典 UWP：定为「不做」，并证明失败是安全的
+
+用户问「这一项有必要测吗，我觉得对于有输入框的 APP，设置这类没有太大必要，你可以自己判断」。**判断：不做，并把它从"待验证"改成"有意的非目标"**。理由：
+
+1. 这一类确实存在（本机实测「设置」的顶层窗口属于 `ApplicationFrameHost.exe`，内容属于 `SystemSettings.exe`），但**值得听写的应用都不在这一类**里；
+2. 读代码确认学习是**失败即停**的：`CaptureFavoriteTarget` 10 秒内抓不到可验证控件就 `FAVORITE LEARN failed=true` + 提示「没有学到输入框，请重试」，**什么都不保存**——不会留下一个永远匹配不上的目标；
+3. 已经写在 `V2_0_KNOWN_LIMITATIONS_ZH.md` 里，措辞是"决定，不是待办"。
+
+这一项因此**不需要占用你的按键**。
+
+### 本轮改动文件
+
+`scripts/VibeMic.cs`（picker 重建顺序 + `RunningApplicationLabel`/`IsExecutableFileName` + self-test 断言）、`scripts/features/InstalledAppCatalog.cs`（`IconForExecutable`/`ExecutableForProcess`/`DescribeExecutable`/`LoadShellImage` + 按进程名与 AUMID 反查去重）、`scripts/features/FocusTargetService.cs`（`ExcludedProcesses` 补入产品自身进程）、`scripts/validate.js`（3 条新门禁）、`CHANGELOG.md`、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`。

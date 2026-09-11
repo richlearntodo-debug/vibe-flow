@@ -5069,39 +5069,90 @@ internal sealed partial class VibeMicForm : Form
     // Redesigned Smart Focus, step 1: the user picks a running application from the
     // machine's own list. Nothing is typed, and the application is brought forward so
     // the very next click on its input box can be captured.
+    // What a running application is called in the picker. Four sources, in order of how much they
+    // actually say: a curated name that is more than the process name in different capitalisation,
+    // the machine catalogue's name when it is more than the file name, then what the executable
+    // says about itself, then the raw process name. The order matters: notepad's shortcut is called
+    // "Notepad.exe" while the curated name is 记事本, and Windows Terminal is only named 终端 by the
+    // catalogue — while Chrome's curated "Chrome" adds nothing over the process name, so the
+    // catalogue's "Google Chrome" wins. Pure, so the precedence is pinned by the self-test instead
+    // of being re-derived at the call site.
+    internal static string RunningApplicationLabel(FocusApplicationChoice running, string cataloguedName,
+        string executableName)
+    {
+        string process = running == null ? "" : (running.ProcessName ?? "");
+        string curated = running == null ? "" : (running.DisplayName ?? "");
+        if (curated.Length > 0 && !string.Equals(curated, process, StringComparison.OrdinalIgnoreCase))
+            return curated.Trim();
+        string catalogue = (cataloguedName ?? "").Trim();
+        if (catalogue.Length > 0 && !IsExecutableFileName(catalogue, process)) return catalogue;
+        if (!string.IsNullOrWhiteSpace(executableName)) return executableName.Trim();
+        if (curated.Length > 0) return curated.Trim();
+        return process;
+    }
+
+    // A catalogue name that is only the executable's file name says nothing the raw process name
+    // does not already say, so it must not displace a description that does.
+    private static bool IsExecutableFileName(string name, string processName)
+    {
+        if (processName.Length == 0) return false;
+        string trimmed = name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? name.Substring(0, name.Length - 4) : name;
+        return string.Equals(trimmed, processName, StringComparison.OrdinalIgnoreCase);
+    }
+
     private void BeginFavoriteAppLearning()
     {
-        // Running applications first, then everything installed but not running, so a
-        // favourite can be created for an application that was never started.
+        // The machine's own catalogue is built first so a running application can borrow its
+        // real name and its icon from it. Built the other way round, every running row was a raw
+        // process name ("catprox", "windowsterminal") next to a blank gap, because the running
+        // entries carried no icon at all and the friendly-name map covers only a handful of apps.
         var choices = new List<InstalledAppChoice>();
         var runningNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        IList<InstalledAppChoice> catalogued;
+        try
+        {
+            catalogued = InstalledAppCatalog.List();
+        }
+        catch (Exception ex)
+        {
+            HostLog("FAVORITE LEARN catalog_failed=true error=" + SafeLogValue(ex.GetType().Name));
+            catalogued = new List<InstalledAppChoice>();
+        }
+        var cataloguedByProcess = new Dictionary<string, InstalledAppChoice>(StringComparer.OrdinalIgnoreCase);
+        foreach (InstalledAppChoice entry in catalogued)
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.ProcessName)) continue;
+            if (!cataloguedByProcess.ContainsKey(entry.ProcessName)) cataloguedByProcess[entry.ProcessName] = entry;
+        }
         try
         {
             foreach (FocusApplicationChoice running in focusAutomationBackend.GetRunningApplications())
             {
                 if (running == null || string.IsNullOrWhiteSpace(running.ProcessName)) continue;
                 if (!runningNames.Add(running.ProcessName)) continue;
-                choices.Add(new InstalledAppChoice(
-                    string.IsNullOrWhiteSpace(running.DisplayName) ? running.ProcessName : running.DisplayName,
-                    "", running.ProcessName) { Running = true });
+                InstalledAppChoice known;
+                cataloguedByProcess.TryGetValue(running.ProcessName, out known);
+                string executable = known != null && !string.IsNullOrWhiteSpace(known.LaunchTarget)
+                    ? known.LaunchTarget : InstalledAppCatalog.ExecutableForProcess(running.ProcessName);
+                string label = RunningApplicationLabel(running,
+                    known == null ? "" : known.DisplayName,
+                    InstalledAppCatalog.DescribeExecutable(executable));
+                var choice = new InstalledAppChoice(label, "", running.ProcessName) { Running = true };
+                choice.Icon = known != null && known.Icon != null
+                    ? known.Icon : InstalledAppCatalog.IconForExecutable(executable);
+                choices.Add(choice);
             }
         }
         catch (Exception ex)
         {
             HostLog("FAVORITE LEARN enumerate_failed=true error=" + SafeLogValue(ex.GetType().Name));
         }
-        try
+        foreach (InstalledAppChoice installed in catalogued)
         {
-            foreach (InstalledAppChoice installed in InstalledAppCatalog.List())
-            {
-                if (installed == null || runningNames.Contains(installed.ProcessName)) continue;
-                installed.Running = false;
-                choices.Add(installed);
-            }
-        }
-        catch (Exception ex)
-        {
-            HostLog("FAVORITE LEARN catalog_failed=true error=" + SafeLogValue(ex.GetType().Name));
+            if (installed == null || runningNames.Contains(installed.ProcessName)) continue;
+            installed.Running = false;
+            choices.Add(installed);
         }
         HostLog("FAVORITE PICKER choices=" + choices.Count + " running=" + runningNames.Count);
         string processName = "";
@@ -24087,6 +24138,25 @@ internal sealed partial class VibeMicForm : Form
 
     private static void RunFavoriteAppSelfTests()
     {
+        // The picker's running rows: a machine with no catalogue entry for an application used to
+        // show the raw process name ("catprox", "windowsterminal") beside a blank gap. The label
+        // precedence and the product's own process exclusion are pinned here.
+        string labelNotepad = RunningApplicationLabel(new FocusApplicationChoice("notepad"), "Notepad.exe", "Notepad");
+        string labelTerminal = RunningApplicationLabel(new FocusApplicationChoice("windowsterminal"), "终端", "");
+        string labelChrome = RunningApplicationLabel(new FocusApplicationChoice("chrome"), "Google Chrome", "");
+        string labelCatprox = RunningApplicationLabel(new FocusApplicationChoice("catprox"), "catprox", "CatProX Tool");
+        string labelRaw = RunningApplicationLabel(new FocusApplicationChoice("catprox"), "", "   ");
+        string labelNone = RunningApplicationLabel(null, "", "");
+        string labelNulls = RunningApplicationLabel(new FocusApplicationChoice("catprox"), null, null);
+        if (labelNotepad != "记事本" || labelTerminal != "终端" || labelChrome != "Google Chrome" ||
+            labelCatprox != "CatProX Tool" || labelRaw != "catprox" || labelNone != "" || labelNulls != "catprox")
+            throw new InvalidOperationException("A running application's picker name is resolved wrongly: " +
+                "notepad=" + labelNotepad + " terminal=" + labelTerminal + " chrome=" + labelChrome +
+                " catprox=" + labelCatprox + " raw=" + labelRaw + " none=[" + labelNone + "] nulls=" + labelNulls);
+        foreach (string own in new string[] { "vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture" })
+            if (Array.IndexOf(WindowsUiaFocusAutomationBackend.ExcludedProcesses, own) < 0)
+                throw new InvalidOperationException(
+                    "The picker can offer one of Vibe Flow's own processes as a target: " + own);
         var chatGpt = new FocusTargetDescriptor
         {
             Id = "focus-chatgpt", Name = "ChatGPT 输入框", ProcessName = "ChatGPT", LastVerifiedUtc = DateTime.UtcNow

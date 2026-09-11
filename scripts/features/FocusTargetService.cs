@@ -656,13 +656,21 @@ internal sealed class WindowsUiaFocusAutomationBackend : IFocusAutomationBackend
         return choices;
     }
 
+    // Vibe Flow's own processes are never a target: the shipped executable is VibeFlow.exe, and the
+    // bridge and the capture helper are likewise part of the product. Listing them offered the user
+    // "vibeflow" as something to learn, which can only ever capture the app itself. Exposed so the
+    // self-test can pin the list instead of trusting the literal.
+    internal static readonly string[] ExcludedProcesses = {
+        "vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture",
+        "applicationframehost", "textinputhost", "explorer", "svchost",
+        "codex-computer-use", "msedgewebview2", "wetype_update", "shellexperiencehost",
+        "searchhost", "startmenuexperiencehost"
+    };
+
     private static bool IsCandidateApplication(string processName)
     {
         if (string.IsNullOrWhiteSpace(processName)) return false;
-        string[] excluded = { "vibemic", "applicationframehost", "textinputhost", "explorer", "svchost",
-            "codex-computer-use", "msedgewebview2", "wetype_update", "shellexperiencehost",
-            "searchhost", "startmenuexperiencehost" };
-        return Array.IndexOf(excluded, processName.ToLowerInvariant()) < 0;
+        return Array.IndexOf(ExcludedProcesses, processName.ToLowerInvariant()) < 0;
     }
 
     private static int ApplicationPriority(string processName)

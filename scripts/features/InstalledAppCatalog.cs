@@ -50,6 +50,12 @@ internal static class InstalledAppCatalog
     {
         var found = new List<InstalledAppChoice>();
         var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // The process name is the application's identity across both sources: shell:AppsFolder lists
+        // desktop applications as well as packaged ones, so an application that already arrived
+        // through its start-menu shortcut would otherwise be offered a second time under its shell
+        // identity (measured on this machine: CatProX was listed twice, both times from
+        // D:\CatproX\CatproX.exe).
+        var seenProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var roots = new List<string>();
         try
         {
@@ -61,12 +67,12 @@ internal static class InstalledAppCatalog
         {
             if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) continue;
             string programs = Path.Combine(root, "Programs");
-            Collect(programs, found, seenTargets, 0);
+            Collect(programs, found, seenTargets, seenProcesses, 0);
         }
         // Store applications come from the shell namespace, not from a start-menu
         // shortcut, so this ran once per start-menu root: the second pass re-walked the
         // whole AppsFolder and only ever added the diagnostic line again.
-        CollectStoreApps(found, seenTargets);
+        CollectStoreApps(found, seenTargets, seenProcesses);
         found.Sort(delegate(InstalledAppChoice left, InstalledAppChoice right)
         {
             return string.Compare(left.DisplayName, right.DisplayName, StringComparison.CurrentCultureIgnoreCase);
@@ -84,7 +90,8 @@ internal static class InstalledAppCatalog
     // the real process name is asked of the operating system; the package-derived key is
     // only kept as a list key for an application that is not running, and the add flow
     // resolves the real name from the process once it has been started.
-    private static void CollectStoreApps(List<InstalledAppChoice> found, HashSet<string> seenTargets)
+    private static void CollectStoreApps(List<InstalledAppChoice> found, HashSet<string> seenTargets,
+        HashSet<string> seenProcesses)
     {
         object shell = null;
         object folder = null;
@@ -118,8 +125,10 @@ internal static class InstalledAppCatalog
                 int bang = identity.IndexOf('!');
                 if (name.Length == 0 || identity.Length == 0) continue;
                 if (IsSkipped(name)) continue;
-                string processName = ResolveStoreProcessName(identity, running, bang);
+                string processName = ResolveStoreProcessName(identity, running, bang,
+                    ReadExtendedProperty(item, "System.Link.TargetParsingPath"));
                 if (processName.Length == 0) continue;
+                if (!seenProcesses.Add(processName)) continue;
                 string launchTarget = "shell:AppsFolder\\" + identity;
                 if (!seenTargets.Add(launchTarget)) continue;
                 var choice = new InstalledAppChoice(name, launchTarget, processName);
@@ -144,9 +153,10 @@ internal static class InstalledAppCatalog
 
     // The real process name when the packaged application is running right now, so it
     // lines up with the running-application list and is de-duplicated against it;
-    // otherwise the package part of the AppUserModelID, which is only a list key.
+    // otherwise the executable behind the shell entry, and only then the package part of
+    // the AppUserModelID, which is not a process name at all.
     private static string ResolveStoreProcessName(string identity,
-        IDictionary<string, string> running, int bang)
+        IDictionary<string, string> running, int bang, string desktopTarget)
     {
         string resolved;
         if (running.TryGetValue(identity, out resolved)) return resolved;
@@ -156,6 +166,14 @@ internal static class InstalledAppCatalog
             if (entry.Key.StartsWith(package + "!", StringComparison.OrdinalIgnoreCase))
                 return entry.Value;
         }
+        // A desktop application may register its own AppUserModelID ("org.erb.vortex") and appear in
+        // the AppsFolder under it. That identifier is not a process name, so an application which
+        // already arrived through its start-menu shortcut was offered a second time under the
+        // identifier (measured: CatProX listed twice, once as catprox and once as org.erb.vortex).
+        // The shell exposes the executable behind such an entry — and exposes nothing for a real
+        // packaged application — so the real process name is used and the duplicate collapses.
+        string fromDesktopTarget = FocusTargetDescriptor.NormalizeProcessName(desktopTarget);
+        if (fromDesktopTarget.Length > 0) return fromDesktopTarget;
         return FocusTargetDescriptor.NormalizeProcessName(package);
     }
 
@@ -171,7 +189,7 @@ internal static class InstalledAppCatalog
     }
 
     private static void Collect(string directory, List<InstalledAppChoice> found,
-        HashSet<string> seenTargets, int depth)
+        HashSet<string> seenTargets, HashSet<string> seenProcesses, int depth)
     {
         if (depth > 4 || string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return;
         string[] shortcuts;
@@ -182,12 +200,13 @@ internal static class InstalledAppCatalog
             InstalledAppChoice choice = Resolve(shortcut);
             if (choice == null) continue;
             if (!seenTargets.Add(choice.LaunchTarget)) continue;
+            seenProcesses.Add(choice.ProcessName);
             found.Add(choice);
         }
         string[] children;
         try { children = Directory.GetDirectories(directory); }
         catch { children = new string[0]; }
-        foreach (string child in children) Collect(child, found, seenTargets, depth + 1);
+        foreach (string child in children) Collect(child, found, seenTargets, seenProcesses, depth + 1);
     }
 
     private static InstalledAppChoice Resolve(string shortcutPath)
@@ -201,7 +220,7 @@ internal static class InstalledAppCatalog
         string processName = FocusTargetDescriptor.NormalizeProcessName(Path.GetFileNameWithoutExtension(fileName));
         if (processName.Length == 0 || IsSkipped(processName)) return null;
         var choice = new InstalledAppChoice(ReadableName(name, target), target, processName);
-        choice.Icon = LoadIcon(target);
+        choice.Icon = IconForExecutable(target);
         choice.Arguments = ResolveShortcutArguments(shortcutPath);
         return choice;
     }
@@ -238,6 +257,57 @@ internal static class InstalledAppCatalog
     {
         try { return Icon.ExtractAssociatedIcon(exePath); }
         catch { return null; }
+    }
+
+    // Extract first, then ask the shell. An executable can carry no icon resource of its own and
+    // still show one in Explorer, so ExtractAssociatedIcon alone leaves real rows blank — measured
+    // on this machine: Steam and BOOTICE both have no icon to extract and both show one in the
+    // start menu. The shell answer is the same one Explorer draws.
+    internal static Icon IconForExecutable(string exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath)) return null;
+        Icon extracted = File.Exists(exePath) ? LoadIcon(exePath) : null;
+        return extracted ?? LoadShellImage(exePath);
+    }
+
+    // The executable behind a running process, for an icon. Readable only for processes this
+    // session may inspect; anything else returns nothing rather than guessing.
+    internal static string ExecutableForProcess(string processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName)) return "";
+        try
+        {
+            foreach (Process process in Process.GetProcessesByName(processName))
+            {
+                try
+                {
+                    string path = process.MainModule == null ? "" : process.MainModule.FileName;
+                    if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) return path;
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    // What the application calls itself, for an application that is running but is not in the
+    // catalogue at all (a portable tool, a background helper): the same description-then-product
+    // order the shortcut entries use, and "" when the file says nothing.
+    internal static string DescribeExecutable(string exePath)
+    {
+        if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath)) return "";
+        try
+        {
+            FileVersionInfo info = FileVersionInfo.GetVersionInfo(exePath);
+            string described = Tidy(info.FileDescription);
+            if (described.Length > 0 && described.Length <= 60) return described;
+            string product = Tidy(info.ProductName);
+            if (product.Length > 0 && product.Length <= 60) return product;
+        }
+        catch { }
+        return "";
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -279,12 +349,19 @@ internal static class InstalledAppCatalog
     private static Icon LoadStoreIcon(string launchTarget)
     {
         if (!PackagedAppIdentity.IsStoreLaunchTarget(launchTarget)) return null;
+        return LoadShellImage(launchTarget);
+    }
+
+    // The shell's own image for a parsing name; an AppsFolder item and a file path both work.
+    private static Icon LoadShellImage(string parsingName)
+    {
+        if (string.IsNullOrWhiteSpace(parsingName)) return null;
         IntPtr bitmapHandle = IntPtr.Zero;
         object item = null;
         try
         {
             Guid interfaceId = typeof(IShellItemImageFactory).GUID;
-            SHCreateItemFromParsingName(launchTarget, IntPtr.Zero, ref interfaceId, out item);
+            SHCreateItemFromParsingName(parsingName, IntPtr.Zero, ref interfaceId, out item);
             var factory = item as IShellItemImageFactory;
             if (factory == null) return null;
             var size = new NativeSize { Width = 32, Height = 32 };
