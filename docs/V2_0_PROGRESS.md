@@ -5367,3 +5367,27 @@ Key 电源键 DOWN vk=0xFF scan=0x5E source=raw_input
 ```
 
 而**不再**是 `Key 录音键 DOWN vk=0xFF scan=0x5E` ✗。**如果仍显示"录音键"** ✗，那就说明运行中的桥没有读到新配置（例如安装版的 `voxdeck-shortcuts.json` 未更新 ✔），我会据此继续查 ✔。
+
+### 安装侧验证（本轮新增 ✔）：**安装版**读的那份配置已含电源键
+
+上一节的日志来自本机旧状态 ✗。本轮装完后我直接查**安装目录**里的那份文件（即桥实际读取的那一份 ✔）：
+
+`C:\Users\Admin\AppData\Local\Programs\Vibe Flow Remote\voxdeck-shortcuts.json`
+
+**5 个 Profile 全部**含 ✔：
+
+```json
+{"name":"power","label":"电源键","vk":"0xFF","scan":"0x5E","enabled":false,"suppress":false,"mode":"passthrough","sourceType":"keyboard"}
+```
+
+→ 结论 ✔：**这台机器上正在运行的桥**（安装版 ✔）现在会让 `FindMapping(0xFF, 0x5E)` 命中 ✔ → 语音兜底不会被执行 ✔ → 按电源键**不再被当成录音键** ✔；未指派则**什么都不做** ✔，指派后**执行动作并吞掉该键** ✔。
+
+### 现在唯一剩下的一步（只有你能做 ✗）
+
+**按一次遥控器电源键** ✔，然后看 `input-bridge-log.txt` 里出现的是 ✔：
+
+```
+Key 电源键 DOWN vk=0xFF scan=0x5E source=raw_input
+```
+
+而**不是** `Key 录音键 DOWN vk=0xFF scan=0x5E` ✗。（若仍显示"录音键"✗，说明桥读的不是上面那份文件 ✔ —— 我会据此继续查 ✔。）
