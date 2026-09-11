@@ -84,6 +84,9 @@ internal sealed partial class VibeMicForm : Form
     // The shortcut page's management menu. The page is rebuilt on every navigation, so the previous one is disposed
     // as the new one is built rather than left behind on each visit.
     private ContextMenuStrip profileMenuStrip;
+    // Which self-check rows are expanded to their detail. The page is rebuilt on every navigation, so this lives in a
+    // field rather than in the controls.
+    private readonly HashSet<string> expandedSelfCheckRows = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly Panel content = new Panel();
     private Panel sidebarPanel;
     // The keyboard-order diagnostic is a measurement, and a measurement that runs twice reads like two
@@ -10133,7 +10136,7 @@ deck.Hide();
     }
     private void BuildDevicePage()
     {
-        AddPageTitle("自检", "逐项说明正确状态、当前状态、原因和修复入口");
+        AddPageTitle("自检", "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步");
         SelfCheckReport report = BuildSelfCheckReport();
         // The per-application workflow used to be a card here as well, and with thirteen bound applications it put
         // thirteen four-line blocks — 需要配置 / 缺少工作流 / VF-WORKFLOW-* — above the system checks, on a page whose
@@ -10141,7 +10144,9 @@ deck.Hide();
         // (AddWorkflowStatusSection), one line per application and only for the ones that still need something,
         // which is also the only page that can act on it.
         int checksY = 302;
-        int checksHeight = 66 + report.Items.Count * 112;
+        // Rows are one line unless their detail is open, so the card's height is the sum of the row heights.
+        int checksHeight = 66;
+        foreach (SelfCheckItem checkItem in report.Items) checksHeight += SelfCheckRowHeight(checkItem);
         int diagnosticsY = checksY + checksHeight;
         content.AutoScrollMinSize = new Size(1000, diagnosticsY + 326);
 
@@ -10204,7 +10209,12 @@ deck.Hide();
         checkHint.Size = new Size(410, 24);
         checkHint.TextAlign = ContentAlignment.MiddleRight;
         checks.Controls.Add(checkHint);
-        for (int i = 0; i < report.Items.Count; i++) AddSelfCheckRow(checks, report.Items[i], 54 + i * 112);
+        int checkRowTop = 54;
+        for (int i = 0; i < report.Items.Count; i++)
+        {
+            AddSelfCheckRow(checks, report.Items[i], checkRowTop);
+            checkRowTop += SelfCheckRowHeight(report.Items[i]);
+        }
 
         var diagnostics = NewCard(new Point(34, diagnosticsY), new Size(960, 290));
         diagnostics.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -16970,11 +16980,41 @@ deck.Hide();
         return string.Join(Environment.NewLine, lines, start, lines.Length - start);
     }
 
+    // A link-styled button. A Label would look the same and answer a real mouse click, but it is not focusable, so
+    // the 详情 toggle would have been mouse-only — and a synthetic click (BM_CLICK) does nothing to a label, which is
+    // how this was caught. A flat borderless button keeps the link look and stays reachable from the keyboard.
+    private Button NewLinkButton(string text, Point location)
+    {
+        var link = new Button();
+        link.Text = text;
+        link.Location = location;
+        link.Size = new Size(96, 22);
+        link.FlatStyle = FlatStyle.Flat;
+        link.FlatAppearance.BorderSize = 0;
+        link.FlatAppearance.MouseOverBackColor = Color.Transparent;
+        link.BackColor = Color.Transparent;
+        link.ForeColor = violet;
+        link.Font = new Font("Microsoft YaHei UI", 8.4f, FontStyle.Underline);
+        link.Cursor = Cursors.Hand;
+        link.TextAlign = ContentAlignment.MiddleLeft;
+        return link;
+    }
+    // A self-check row is one line by default: the state, what the check found, the one action that fixes it and a
+    // 详情 link. The four-line block it used to be — 正确状态 / 当前状态 / 原因 [VF-…] / 下一步 — put a developer error
+    // code and a restatement of the requirement in front of the answer, and only about three checks fitted on a
+    // screen. The detail is one click away and stays for the session (the page is rebuilt on every navigation, so
+    // which rows are open is kept in a field rather than in the controls).
+    private int SelfCheckRowHeight(SelfCheckItem item)
+    {
+        return expandedSelfCheckRows.Contains(item.Id ?? "") ? 104 : 64;
+    }
+
     private void AddSelfCheckRow(Control parent, SelfCheckItem item, int y)
     {
+        bool expanded = expandedSelfCheckRows.Contains(item.Id ?? "");
         var row = new Panel();
         row.Location = new Point(18, y);
-        row.Size = new Size(924, 104);
+        row.Size = new Size(924, SelfCheckRowHeight(item));
         row.BackColor = item.State == "fail" ? StatusSurface("error") :
             item.State == "warning" ? StatusSurface("connecting") :
             item.State == "checking" ? StatusSurface("recovering") :
@@ -16991,45 +17031,59 @@ deck.Hide();
         string statusText = item.State == "pass" ? "正常" : item.State == "fail" ? "错误" :
             item.State == "checking" ? "正在检测" : item.State == "unsupported" ? "不支持" : "需要配置";
         var mark = NewLabel(statusGlyph, 10f, FontStyle.Bold, Color.White);
-        mark.Location = new Point(6, 12);
+        mark.Location = new Point(6, expanded ? 12 : 17);
         mark.Size = new Size(30, 30);
         mark.TextAlign = ContentAlignment.MiddleCenter;
         mark.BackColor = statusColor;
         ApplyRoundedRegion(mark, 15);
         var title = NewLabel(item.Group + " · " + item.Title, 9.6f, FontStyle.Bold, ink);
-        title.Location = new Point(50, 5);
+        title.Location = new Point(50, expanded ? 5 : 6);
         title.Size = new Size(500, 24);
         var state = NewLabel("●  " + statusText, 8.2f, FontStyle.Bold, statusColor);
-        state.Location = new Point(564, 5);
+        state.Location = new Point(564, expanded ? 5 : 6);
         state.Size = new Size(126, 24);
         state.TextAlign = ContentAlignment.MiddleRight;
-        var expected = NewLabel("正确状态：" + item.Expected, 8.0f, FontStyle.Regular, muted);
-        expected.Location = new Point(50, 29);
-        expected.Size = new Size(690, 19);
-        expected.AutoEllipsis = true;
         var actual = NewLabel("当前状态：" + item.Actual, 8.0f, FontStyle.Bold, item.State == "fail" ? coral : ink);
-        actual.Location = new Point(50, 48);
-        actual.Size = new Size(690, 19);
+        actual.Location = new Point(50, expanded ? 48 : 31);
+        actual.Size = new Size(expanded ? 690 : 520, 19);
         actual.AutoEllipsis = true;
-        var cause = NewLabel("原因" + (item.State == "pass" ? "" : " [" + item.ErrorCode + "]") +
-            "：" + item.Cause, 8.0f, FontStyle.Regular, muted);
-        cause.Location = new Point(50, 67);
-        cause.Size = new Size(690, 19);
-        cause.AutoEllipsis = true;
-        var nextStep = NewLabel("下一步：" + item.NextStep, 8.0f, FontStyle.Bold, statusColor);
-        nextStep.Location = new Point(50, 85);
-        nextStep.Size = new Size(690, 19);
-        nextStep.AutoEllipsis = true;
         row.Controls.Add(mark);
         row.Controls.Add(title);
         row.Controls.Add(state);
-        row.Controls.Add(expected);
         row.Controls.Add(actual);
-        row.Controls.Add(cause);
-        row.Controls.Add(nextStep);
+
+        var toggle = NewLinkButton(expanded ? "收起详情" : "详情", new Point(expanded ? 596 : 580, expanded ? 85 : 32));
+        toggle.Name = "selfCheckToggle_" + (item.Id ?? "");
+        toggle.Click += delegate
+        {
+            if (expandedSelfCheckRows.Contains(item.Id ?? "")) expandedSelfCheckRows.Remove(item.Id ?? "");
+            else expandedSelfCheckRows.Add(item.Id ?? "");
+            ShowPage(currentPageIndex);
+        };
+        row.Controls.Add(toggle);
+
+        if (expanded)
+        {
+            var expected = NewLabel("正确状态：" + item.Expected, 8.0f, FontStyle.Regular, muted);
+            expected.Location = new Point(50, 29);
+            expected.Size = new Size(690, 19);
+            expected.AutoEllipsis = true;
+            var cause = NewLabel("原因" + (item.State == "pass" ? "" : " [" + item.ErrorCode + "]") +
+                "：" + item.Cause, 8.0f, FontStyle.Regular, muted);
+            cause.Location = new Point(50, 67);
+            cause.Size = new Size(520, 19);
+            cause.AutoEllipsis = true;
+            var nextStep = NewLabel("下一步：" + item.NextStep, 8.0f, FontStyle.Bold, statusColor);
+            nextStep.Location = new Point(50, 85);
+            nextStep.Size = new Size(520, 19);
+            nextStep.AutoEllipsis = true;
+            row.Controls.Add(expected);
+            row.Controls.Add(cause);
+            row.Controls.Add(nextStep);
+        }
         if (!string.IsNullOrEmpty(item.Action))
         {
-            var action = SecondaryButton(item.ActionText, new Point(762, 31), new Size(144, 40));
+            var action = SecondaryButton(item.ActionText, new Point(762, expanded ? 31 : 12), new Size(144, 40));
             action.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Bold);
             action.Click += delegate { HandleSelfCheckAction(item.Action); };
             row.Controls.Add(action);

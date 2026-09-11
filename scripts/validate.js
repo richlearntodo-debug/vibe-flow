@@ -1960,7 +1960,26 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The theme choice is a segmented control, not three commands. The current choice used to be a solid accent button
+// A self-check row is one line unless its detail is open. The four-line block it used to be put a developer error
+// code and a restatement of the requirement in front of the answer, and only about three checks fitted on a screen;
+// at 64 px per collapsed row the same card shows about sixty per cent more. The detail is one click away.
+//
+// The toggle is a Button, not a Label. A Label looks and behaves identically for a real mouse click, but it is not
+// focusable — the toggle would have been mouse-only — and a synthetic click does nothing to it, which is how the
+// first version was caught. Measured after the change: the self-check page's reachable controls in the keyboard walk
+// go from 20 to 30, exactly the ten 详情 buttons, and the walk includes 详情 by name.
+assert(includesAll(app, [
+  "private int SelfCheckRowHeight(SelfCheckItem item)",
+  'return expandedSelfCheckRows.Contains(item.Id ?? "") ? 104 : 64;',
+  "private readonly HashSet<string> expandedSelfCheckRows",
+  "bool expanded = expandedSelfCheckRows.Contains(item.Id ?? \"\");",
+  'var toggle = NewLinkButton(expanded ? "收起详情" : "详情"',
+  "private Button NewLinkButton(string text, Point location)",
+  "foreach (SelfCheckItem checkItem in report.Items) checksHeight += SelfCheckRowHeight(checkItem);",
+  "checkRowTop += SelfCheckRowHeight(report.Items[i]);",
+  "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步",
+]) && !app.includes("NewLinkLabel"),
+  "Self-check rows are four-line blocks again, or their toggle is not reachable");// The theme choice is a segmented control, not three commands. The current choice used to be a solid accent button
 // — identical to the button you would press to make it the current choice — so it read as "press me" while it was
 // already selected. Selection is carried by a tinted fill, an accent border, an accent label and a filled dot; the
 // alternatives stay plain with a hollow dot. The labels were read back from the running page (● 白天模式, ○ 夜间模式,
@@ -2046,7 +2065,9 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   'AddPageTitle("快捷键", "管理遥控器实体键动作；录音键保持独立");',
   'AddPageTitle("语音", "遥控器负责收音；转写与整理能力由所选工具设置");',
-  'AddPageTitle("自检", "逐项说明正确状态、当前状态、原因和修复入口");',
+  // The self-check subtitle changed with the collapsible rows: its detail is behind the 详情 toggle now, so the
+  // subtitle no longer promises all four lines up front.
+  'AddPageTitle("自检", "每项给出结论与修复入口；点「详情」看正确状态、原因与下一步");',
   'AddPageTitle("设置", "让言灵按你的习惯在后台运行");',
   '(verified || saved) ? "✓" : (i + 1).ToString()',
   'saved ? "\\r\\n进度已保存" : ""',
@@ -2256,9 +2277,11 @@ assert(includesAll(app, [
   "The workflow summary does not match the composed cards", "ShortGapLabel",
 ]), "The workflow-card composition is not pinned by the host self-test");
 // The environment checks now start at the top of the self-check page: the workflow section that used to sit
-// above them is gone from this page, so nothing shifts them and the count gate for that list stays exact.
+// above them is gone from this page, so nothing shifts them and the count gate for that list stays exact. The card's
+// height is the sum of its row heights now, because a row is one line until its detail is opened.
 assert(includesAll(app, [
-  "int checksY = 302;", "int checksHeight = 66 + report.Items.Count * 112;",
+  "int checksY = 302;",
+  "foreach (SelfCheckItem checkItem in report.Items) checksHeight += SelfCheckRowHeight(checkItem);",
   "int diagnosticsY = checksY + checksHeight;",
 ]) && !app.includes("workflowHeight"),
   "The self-check page still reserves space for the workflow section, or lost the checks it reports");
