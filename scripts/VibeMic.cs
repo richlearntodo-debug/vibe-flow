@@ -94,6 +94,8 @@ internal sealed partial class VibeMicForm : Form
     private bool tabOrderLogged;
     // Set from --ui-theme by Main; empty in normal use.
     private static string themeOverride = "";
+    // Set from --ui-scale by Main, in percent; 0 in normal use, where the configured value applies.
+    private static int uiScaleOverride;
     // Set from --crash-test by Main; verification only.
     private static bool crashTestRequested;
     private readonly List<Button> navButtons = new List<Button>();
@@ -359,6 +361,17 @@ internal sealed partial class VibeMicForm : Form
                 break;
             }
         }
+        // --ui-scale <percent>: lets the automated check launch the application at a chosen interface scale. Like the
+        // theme override this is verification only; nothing in normal use passes it.
+        for (int scaleIndex = 0; scaleIndex < args.Length - 1; scaleIndex++)
+        {
+            if (args[scaleIndex].Equals("--ui-scale", StringComparison.OrdinalIgnoreCase))
+            {
+                int requestedPercent;
+                if (int.TryParse(args[scaleIndex + 1], out requestedPercent)) uiScaleOverride = requestedPercent;
+                break;
+            }
+        }
         // --crash-test: throws on the user-interface thread once the window is up, so the crash handler can be
         // verified end to end. Nothing but a verification run passes this, and it is the only way to prove the
         // handler is connected rather than merely present.
@@ -513,6 +526,12 @@ internal sealed partial class VibeMicForm : Form
             if (requested == "light" || requested == "dark" || requested == "system")
                 config.theme = requested;
         }
+        // The user's interface scale, on top of the display's own. It is applied once here, before the shell is built,
+        // because the window and its layout are sized when they load: a change from the settings page takes effect on
+        // the next start, which is what its note says.
+        UiDisplayScale.UserScale = ClampUiScaleFactor(uiScaleOverride > 0 ? uiScaleOverride : config.uiScalePercent);
+        HostLog("UI SCALE override=" + uiScaleOverride + " configured=" + config.uiScalePercent +
+            " factor=" + UiDisplayScale.UserScale.ToString("0.00"));
         InitializeProjectSpaces();
         InitializeBrowserRemoteLite();
         InitializeCaptureAsk();
@@ -1123,12 +1142,20 @@ internal sealed partial class VibeMicForm : Form
     }
 
     // The display scaling this window is rendered at, relative to the 96 dpi the layout was designed at.
+    // 100% to 150%, with anything unset or out of range meaning 100%.
+    private static float ClampUiScaleFactor(int percent)
+    {
+        if (percent <= 0) return 1f;
+        int clamped = Math.Max(100, Math.Min(150, percent));
+        return clamped / 100f;
+    }
+
     private float DesignScale()
     {
         try
         {
             uint dpi = CurrentWindowDpi();
-            if (dpi >= 48 && dpi <= 480) return dpi / 96f;
+                if (dpi >= 48 && dpi <= 480) return dpi / 96f * UiDisplayScale.UserScale;
         }
         catch { }
         return 1f;
@@ -10675,7 +10702,52 @@ deck.Hide();
             glossaryCard.Controls.Add(meaning);
         }
         content.Controls.Add(glossaryCard);
-        content.AutoScrollMinSize = new Size(1000, 1440);
+        content.AutoScrollMinSize = new Size(1000, 1610);
+
+        // Interface scale. Some users cannot read a 9 pt label on a dense screen, and the display's own scaling is
+        // not always something they can change. The choice applies on the next start: the window and its layout are
+        // sized when they load, and the note under the segments says so rather than leaving a user to wonder why
+        // nothing moved.
+        var scaleCard = NewCard(new Point(34, 1420), new Size(960, 150));
+        scaleCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        scaleCard.Controls.Add(SectionTitle("界面缩放", "\uE7F8", new Point(28, 22)));
+        int currentScale = config.uiScalePercent <= 0 ? 100 : config.uiScalePercent;
+        Button[] scaleSegments = new Button[3];
+        int[] scaleValues = { 100, 110, 125 };
+        for (int i = 0; i < scaleValues.Length; i++)
+        {
+            int value = scaleValues[i];
+            bool selected = value == currentScale;
+            var segment = SecondaryButton((selected ? "●  " : "○  ") + value + "%",
+                new Point(32 + i * 118, 64), new Size(106, 40));
+            segment.Name = "uiScaleSegment" + value;
+            Color segmentAccent = darkTheme ? Color.FromArgb(150, 135, 255) : violet;
+            segment.BackColor = selected
+                ? (darkTheme ? Color.FromArgb(52, 47, 88) : Color.FromArgb(238, 235, 255))
+                : surfaceBackground;
+            segment.ForeColor = selected ? segmentAccent : ink;
+            segment.Font = new Font("Microsoft YaHei UI", 9f, selected ? FontStyle.Bold : FontStyle.Regular);
+            segment.FlatAppearance.BorderColor = selected ? segmentAccent : line;
+            segment.Click += delegate
+            {
+                if (config.uiScalePercent == value) return;
+                config.uiScalePercent = value;
+                bool saved = SaveConfig();
+                HostLog("UI SCALE set=" + value + " saved=" + saved);
+                ShowPage(currentPageIndex);
+                ShowToast(saved ? "界面缩放已设为 " + value + "%，重启言灵后生效"
+                    : "界面缩放保存失败：请检查数据目录", saved ? "info" : "error");
+            };
+            scaleSegments[i] = segment;
+            scaleCard.Controls.Add(segment);
+        }
+        var scaleNote = NewLabel("在 Windows 显示缩放之上再放大整个界面；改动在重启言灵后生效。",
+            8.8f, FontStyle.Regular, muted);
+        scaleNote.Location = new Point(400, 72);
+        scaleNote.Size = new Size(530, 24);
+        scaleNote.TextAlign = ContentAlignment.MiddleRight;
+        scaleCard.Controls.Add(scaleNote);
+        content.Controls.Add(scaleCard);
 
         content.Controls.Add(startupCard);
         content.Controls.Add(feedbackCard);
@@ -25652,6 +25724,8 @@ deck.Hide();
         public bool onboardingDraftMinimizeToTray { get; set; }
         public bool onboardingDraftSmartProfilesEnabled { get; set; }
         public string theme { get; set; }
+        // A user-chosen interface scale in percent, on top of the display's own scaling. 0 means the default.
+        public int uiScalePercent { get; set; }
         public bool launchAtStartup { get; set; }
         public bool startBridgeOnLaunch { get; set; }
         public bool minimizeToTray { get; set; }

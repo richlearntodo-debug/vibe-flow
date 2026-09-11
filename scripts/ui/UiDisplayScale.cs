@@ -21,6 +21,11 @@ internal static class UiDisplayScale
     // Below this, the display is not scaled at all and the 96 dpi layout is already correct.
     internal const float MinimumScale = 1.01f;
 
+    // A user-chosen interface scale, on top of the display's own scaling (100% - 150%). Set once at startup from
+    // the configuration: the window and its layout are sized when they load, so a change takes effect on the next
+    // start rather than mid-session.
+    internal static float UserScale = 1f;
+
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr handle);
 
@@ -36,7 +41,7 @@ internal static class UiDisplayScale
             {
                 using (Graphics graphics = control.CreateGraphics()) dpi = (uint)Math.Round(graphics.DpiX);
             }
-            if (dpi >= 48 && dpi <= 480) return dpi / 96f;
+                if (dpi >= 48 && dpi <= 480) return dpi / 96f * UserScale;
         }
         catch { }
         return 1f;

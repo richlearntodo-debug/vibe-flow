@@ -1960,7 +1960,31 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// Two small pieces of P2 polish.
+// An interface scale the user can choose, on top of the display's own scaling. Some users cannot read a 9 pt label
+// on a dense screen and cannot change the display scaling either. The choice is stored in the configuration and
+// applied once at startup — the window and its layout are sized when they load — and the settings card says so
+// rather than leaving the user to wonder why nothing moved.
+//
+// Verified end to end: the segments render as ● 100% / ○ 110% / ○ 125%; driving the 125% segment shows the
+// acknowledgement, redraws with ● 125% selected and logs "UI SCALE set=125 saved=True"; and launching with
+// --ui-scale 125 reports window=1600x1050, which is the 1280x840 design times 1.25, with no overlapping or clipped
+// controls.
+assert(includesAll(app, [
+  "public int uiScalePercent { get; set; }",
+  "private static int uiScaleOverride;",
+  "--ui-scale",
+  "private static float ClampUiScaleFactor(int percent)",
+  "UiDisplayScale.UserScale = ClampUiScaleFactor(uiScaleOverride > 0 ? uiScaleOverride : config.uiScalePercent);",
+  "UI SCALE override=",
+  'SectionTitle("界面缩放"',
+  'segment.Name = "uiScaleSegment" + value;',
+  '"界面缩放已设为 " + value + "%',
+  "在 Windows 显示缩放之上再放大整个界面；改动在重启言灵后生效。",
+]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), [
+  "internal static float UserScale = 1f;",
+  "return dpi / 96f * UserScale;",
+]) && app.includes("return dpi / 96f * UiDisplayScale.UserScale;"),
+  "The interface scale option is gone, or one of the two places that apply scaling ignores it");// Two small pieces of P2 polish.
 //
 // 试听结束提示音 was a 284 px tinted bar inside its card, so a secondary action looked like the card's primary
 // one. It is sized to its text now.
