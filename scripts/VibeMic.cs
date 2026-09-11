@@ -600,7 +600,31 @@ internal sealed partial class VibeMicForm : Form
     private void ClampWindowToWorkingArea()
     {
         Rectangle work = Screen.FromControl(this).WorkingArea;
+        // The window is laid out for 1280x840 at 96 dpi, and its size has to follow the display scaling
+        // the way the content does. It did not: measured with the app's own diagnostic, the window
+        // reported 1280x840 at 100% and again at 150%, so at 150% the same physical window had to hold
+        // content that is 1.5x bigger — the pages no longer fit and the rows inside them collided
+        // (measured with scripts/check-ui-geometry.ps1). Scaling the window here, before the work-area
+        // clamp, keeps the interface the same apparent size at every setting.
+        float scale = DesignScale();
+        if (scale > 1.01f)
+        {
+            Width = (int)Math.Round(1280 * scale);
+            Height = (int)Math.Round(840 * scale);
+        }
         VibeWindowLayout.FitToWorkingArea(this, work, 32);
+    }
+
+    // The display scaling this window is rendered at, relative to the 96 dpi the layout was designed at.
+    private float DesignScale()
+    {
+        try
+        {
+            uint dpi = CurrentWindowDpi();
+            if (dpi >= 48 && dpi <= 480) return dpi / 96f;
+        }
+        catch { }
+        return 1f;
     }
 
     private uint CurrentWindowDpi()
@@ -6075,12 +6099,24 @@ internal sealed partial class VibeMicForm : Form
                 8.4f, FontStyle.Bold, amber);
             filterWarning.Name = "rc003FilterWarning";
             filterWarning.Location = new Point(52, 190);
-            // Wrapped, not clipped: a fixed 610 px box was tuned for 100%, and at 125% the same sentence
-            // needs about 750 px, so it was cut off mid-word (measured with
-            // scripts/check-ui-geometry.ps1). MaximumSize makes the label wrap within the card and grow
-            // downwards instead of truncating.
-            filterWarning.AutoSize = true;
-            filterWarning.MaximumSize = new Size(620, 0);
+            // The room is reserved from what the text actually needs at this scaling, and the button row
+            // below follows it. A fixed 610x24 box was tuned at 100%: at 125% the sentence was cut off
+            // mid-word, and reserving two lines instead ran the label into the buttons at 150% (measured:
+            // 14 px of overlap). Measuring here is exact, because the label's own font is already set.
+            int warningWidth = 620;
+            Size warningNeeded = TextRenderer.MeasureText(filterWarning.Text, filterWarning.Font,
+                new Size(warningWidth, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+            filterWarning.AutoSize = false;
+            filterWarning.Size = new Size(warningWidth, warningNeeded.Height + 4);
+        }
+        // The action row and its hint follow the warning when one is shown, so a warning that wraps to a
+        // second line at a higher scaling pushes them down instead of landing on top of them.
+        if (filterWarning != null)
+        {
+            int actionY = filterWarning.Bottom + 8;
+            foreach (Control control in new Control[] { bridgeButton, scan, openShortcuts, openDiagnostics })
+                control.Location = new Point(control.Left, actionY);
+            gestureHint.Location = new Point(gestureHint.Left, actionY + (276 - 217));
         }
 
         remoteVisual = new RemoteVisual();
@@ -6213,17 +6249,23 @@ internal sealed partial class VibeMicForm : Form
         var receipt = NewCard(new Point(34, HomeWorkflowEntryTop + HomeWorkflowEntryHeight + 118),
             new Size(960, 78));
         receipt.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        receipt.Controls.Add(SectionTitle("最近一次快捷操作", "\uE945", new Point(24, 20)));
+        Label receiptTitle = SectionTitle("最近一次快捷操作", "\uE945", new Point(24, 20));
+        receipt.Controls.Add(receiptTitle);
+        // The title's width grows with the display scaling, so everything beside it is placed after what
+        // the text actually measures rather than at a fixed x — measured at 150%: the title ran 12 px
+        // into the glyph that follows it.
+        Size receiptTitleSize = TextRenderer.MeasureText(receiptTitle.Text, receiptTitle.Font);
+        int receiptGlyphX = receiptTitle.Left + receiptTitleSize.Width + 12;
         actionReceiptGlyph = NewLabel("\uE946", 13f, FontStyle.Regular, muted);
         actionReceiptGlyph.Font = UiFonts.Icon(13f, FontStyle.Regular);
-        actionReceiptGlyph.Location = new Point(238, 20);
+        actionReceiptGlyph.Location = new Point(receiptGlyphX, 20);
         actionReceiptGlyph.Size = new Size(34, 34);
         actionReceiptGlyph.TextAlign = ContentAlignment.MiddleCenter;
         actionReceiptTitle = NewLabel("等待一次真实按键操作", 9.6f, FontStyle.Bold, ink);
-        actionReceiptTitle.Location = new Point(278, 12);
+        actionReceiptTitle.Location = new Point(receiptGlyphX + 40, 12);
         actionReceiptTitle.Size = new Size(410, 28);
         actionReceiptDetail = NewLabel("执行结果会在这里显示", 8.3f, FontStyle.Regular, muted);
-        actionReceiptDetail.Location = new Point(278, 39);
+        actionReceiptDetail.Location = new Point(receiptGlyphX + 40, 39);
         actionReceiptDetail.Size = new Size(640, 24);
         receipt.Controls.Add(actionReceiptGlyph);
         receipt.Controls.Add(actionReceiptTitle);
