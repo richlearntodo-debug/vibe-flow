@@ -6977,10 +6977,13 @@ deck.Hide();
             chip.TextAlign = ContentAlignment.MiddleCenter;
             var key = NewLabel(quick[i, 0], 9.5f, FontStyle.Bold, ink);
             key.Location = new Point(x + 24, y);
-            key.Size = new Size(68, 24);
-            var value = NewLabel(quick[i, 1], 9f, FontStyle.Regular, muted);
-            value.Location = new Point(x + 94, y);
-            value.Size = new Size(128, 24);
+            key.Size = new Size(52, 24);
+            // 8.4 pt and 150 px: "短按 显示桌面 · 长按 未设置" measured about 147 px at 9 pt in a 128 px cell, so the
+            // long layer was silently ellipsised away. The summary also drops "长按 未设置" now, which is why the rows
+            // that have no long action of their own read as a single clause.
+            var value = NewLabel(quick[i, 1], 8.4f, FontStyle.Regular, muted);
+            value.Location = new Point(x + 78, y);
+            value.Size = new Size(150, 24);
             value.AutoEllipsis = true;
             value.TextAlign = ContentAlignment.MiddleLeft;
             shortcuts.Controls.Add(chip);
@@ -7109,7 +7112,11 @@ deck.Hide();
     {
         string shortText = MappingCardActionText(GetMapping(shortKey, DefaultConfigurableAction(shortKey)));
         string longText = MappingCardActionText(GetMapping(longKey, DefaultConfigurableAction(longKey)));
-        return "短按 " + shortText + " · 长按 " + longText;
+        // "· 长按 未设置" is noise in a summary cell, and it was ellipsising away the half that matters. The long layer is
+        // named only when it actually has an action of its own.
+        bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&
+            !longText.Equals("none", StringComparison.OrdinalIgnoreCase);
+        return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;
     }
 
     private string DirectionMappingSummary()

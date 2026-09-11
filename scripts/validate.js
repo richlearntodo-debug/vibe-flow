@@ -1134,7 +1134,19 @@ assert(includesAll(app, [
   "CaptureActiveShortcutProfileMappings(powerProbe);",
   "An unassigned power key is not left as a passthrough key",
   "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
-]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The copy pass, second instalment: the home page's own words.
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The home page's shortcut summary, and a tooling gap this round exposed.
+//
+// The summary used to read "短 显示桌面 / 长 未设置" and then "短按 显示桌面 · 长按 未设置". The second wording is clearer
+// but does not fit the cell, and WinForms ellipsised it silently: the geometry check measures control bounds, so a
+// label that drops half its own text still passes it. Three things are pinned here — the wider cell, the smaller
+// font, and the rule that a long layer with no action of its own is not announced at all. "短按 显示桌面" for an
+// unset long layer is both the clearer summary and the one that fits.
+assert(includesAll(app, [
+  'var value = NewLabel(quick[i, 1], 8.4f, FontStyle.Regular, muted);',
+  'value.Size = new Size(150, 24);',
+  'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
+  'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, second instalment: the home page's own words.
 //
 // The page said the same thing three times over — a hero subtitle, a "按住说话 · 松开结束 · 用户确认发送" hint and a
 // three-step card — and the hint's last clause described an internal notion rather than telling the user anything. The
@@ -1146,7 +1158,9 @@ assert(includesAll(app, [
   '不自动发送 · 文字由你确认',
   'string[] steps = new string[] { "按住录音键", "说出内容", "松开结束" };',
   'activityLabel = NewLabel("等待按住录音键"',
-  'return "短按 " + shortText + " · 长按 " + longText;',
+  // The summary keeps the long layer quiet when it has no action of its own, which is both clearer and the form
+  // that fits the cell.
+  'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
   '"等待按键操作"',
   '按下已配置按键后，这里显示真实结果',
 ]) && !app.includes('用户确认发送') && !app.includes('等待一次真实按键操作'),
