@@ -26,12 +26,15 @@ internal sealed class AppPickerDialog : Form
     private readonly Label hint = new Label();
     private readonly Label emptyState = new Label();
     private readonly List<InstalledAppChoice> allChoices = new List<InstalledAppChoice>();
-    private readonly Dictionary<string, Image> iconCache =
-        new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
     private Label titleLabel;
     private Label subtitleLabel;
     private Button confirmButton;
     private Button cancelButton;
+    private readonly Action<string> logger;
+    private int iconFromCatalogue;
+    private int iconFromProcess;
+    private int iconFromTarget;
+    private int iconFromTile;
     private bool rebuilding;
     private int hoverIndex = -1;
 
@@ -53,12 +56,18 @@ internal sealed class AppPickerDialog : Form
     internal string SelectedLaunchArguments { get; private set; }
 
     internal AppPickerDialog(IList<InstalledAppChoice> choices)
-        : this(choices, false)
+        : this(choices, false, null)
     {
     }
 
     internal AppPickerDialog(IList<InstalledAppChoice> choices, bool darkTheme)
+        : this(choices, darkTheme, null)
     {
+    }
+
+    internal AppPickerDialog(IList<InstalledAppChoice> choices, bool darkTheme, Action<string> log)
+    {
+        logger = log;
         // Its layout is built at 96 dpi at runtime, so it is scaled onto the display it opens on: measured
         // at 200%, this dialog drew its title with a doubled font inside a 1x box and cut its subtitle off.
         UiDisplayScale.Apply(this);
@@ -102,7 +111,7 @@ internal sealed class AppPickerDialog : Form
         searchFrame.Paint += delegate(object sender, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = RoundedPath(new Rectangle(0, 0, searchFrame.Width - 1, searchFrame.Height - 1), 10))
+            using (var path = AppIcons.RoundedPath(new Rectangle(0, 0, searchFrame.Width - 1, searchFrame.Height - 1), 10))
             using (var fill = new SolidBrush(cardColor))
             using (var pen = new Pen(lineColor))
             {
@@ -144,7 +153,7 @@ internal sealed class AppPickerDialog : Form
         listFrame.Paint += delegate(object sender, PaintEventArgs e)
         {
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = RoundedPath(new Rectangle(0, 0, listFrame.Width - 1, listFrame.Height - 1), 10))
+            using (var path = AppIcons.RoundedPath(new Rectangle(0, 0, listFrame.Width - 1, listFrame.Height - 1), 10))
             using (var fill = new SolidBrush(cardColor))
             using (var pen = new Pen(lineColor))
             {
@@ -221,6 +230,17 @@ internal sealed class AppPickerDialog : Form
         // are created with; this one styles the buttons and frames, which did not exist yet when it ran — measured,
         // the confirm button rendered as an unstyled system button because StyleButton ran while its field was null.
         ApplyTheme(darkTheme);
+        // Every icon is resolved once here rather than during the first paint of each row: the counts below are the
+        // measurement of how many applications still fall through to a generated tile, and a per-paint lookup also
+        // made the first paint of every row do shell work.
+        var started = DateTime.UtcNow;
+        foreach (InstalledAppChoice choice in allChoices) IconFor(choice);
+        if (logger != null)
+        {
+            logger("PICKER ICONS total=" + allChoices.Count + " catalogue=" + iconFromCatalogue +
+                " process=" + iconFromProcess + " target=" + iconFromTarget + " tile=" + iconFromTile +
+                " elapsedMs=" + (int)(DateTime.UtcNow - started).TotalMilliseconds);
+        }
         ApplyFilter();
         filter.Focus();
     }
@@ -282,18 +302,6 @@ internal sealed class AppPickerDialog : Form
         return button;
     }
 
-    private static GraphicsPath RoundedPath(Rectangle bounds, int radius)
-    {
-        var path = new GraphicsPath();
-        int diameter = Math.Max(2, radius * 2);
-        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
-        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
-        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
     // One row: icon tile, name, and what the application is doing right now. Every measurement is taken from the
     // row height instead of being a fixed pixel offset, because the row height is scaled for the display while a
     // constant is not — at 200% the earlier fixed offsets left the icon and the two text lines bunched at the top
@@ -323,8 +331,11 @@ internal sealed class AppPickerDialog : Form
         Image icon = IconFor(item);
         if (icon != null)
         {
-            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            e.Graphics.DrawImage(icon, new Rectangle(iconLeft, iconTop, iconSize, iconSize));
+            // On a subtle tile rather than straight onto the card: several application icons are drawn for a white
+            // or a dark background and carry transparency, so on the card they are nearly invisible — measured, that
+            // is what many of the "missing" logos actually were.
+            AppIcons.DrawTile(e.Graphics, icon, new Rectangle(iconLeft, iconTop, iconSize, iconSize),
+                darkTheme ? Color.FromArgb(45, 47, 56) : Color.FromArgb(243, 245, 250), Math.Max(4, iconSize / 5));
         }
 
         using (var nameFont = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
@@ -347,64 +358,23 @@ internal sealed class AppPickerDialog : Form
     // name — which is what guarantees that no row is left with an empty slot.
     private Image IconFor(InstalledAppChoice item)
     {
-        Image cached;
-        if (iconCache.TryGetValue(item.ProcessName, out cached)) return cached;
-        Image resolved = null;
-        try
+        string source;
+        Image icon = AppIcons.For(item.ProcessName, item.DisplayName, item.LaunchTarget, item.Icon, out source);
+        // Reported per application so the coverage can be counted instead of guessed at: which applications still
+        // fall through to a generated tile is the question, not whether the chain exists.
+        if (source == "catalogue") iconFromCatalogue++;
+        else if (source == "process") iconFromProcess++;
+        else if (source == "target") iconFromTarget++;
+        else if (source == "tile") iconFromTile++;
+        // Only the fallbacks are logged per application: the summary below counts every source, and logging all
+        // ninety-five rows on every open buried the three that are actually interesting.
+        if (logger != null && source == "tile")
         {
-            if (item.Icon != null) resolved = item.Icon.ToBitmap();
-            if (resolved == null)
-            {
-                string executable = InstalledAppCatalog.ExecutableForProcess(item.ProcessName);
-                Icon fromProcess = InstalledAppCatalog.IconForExecutable(executable);
-                if (fromProcess != null) resolved = fromProcess.ToBitmap();
-            }
-            if (resolved == null)
-            {
-                Icon fromTarget = InstalledAppCatalog.IconForExecutable(item.LaunchTarget);
-                if (fromTarget != null) resolved = fromTarget.ToBitmap();
-            }
+            logger("PICKER ICON FALLBACK process=" + item.ProcessName +
+                " target=" + (string.IsNullOrWhiteSpace(item.LaunchTarget) ? "-" : "yes") +
+                " display=" + item.DisplayName);
         }
-        catch
-        {
-            resolved = null;
-        }
-        if (resolved == null) resolved = LetterTile(item.DisplayName);
-        iconCache[item.ProcessName] = resolved;
-        return resolved;
-    }
-
-    // A generated tile for an application whose icon cannot be read: its first character on a colour derived from
-    // its name, so the same application always gets the same tile.
-    private static Image LetterTile(string name)
-    {
-        const int size = 64;
-        var bitmap = new Bitmap(size, size);
-        string text = string.IsNullOrWhiteSpace(name) ? "?" : name.Trim().Substring(0, 1).ToUpperInvariant();
-        Color[] palette =
-        {
-            Color.FromArgb(104, 82, 244), Color.FromArgb(0, 153, 190), Color.FromArgb(10, 164, 104),
-            Color.FromArgb(229, 151, 39), Color.FromArgb(204, 70, 82), Color.FromArgb(80, 120, 220)
-        };
-        int hash = 0;
-        foreach (char character in name ?? "") hash = (hash * 31 + character) & 0x7fffffff;
-        Color fill = palette[hash % palette.Length];
-        using (var graphics = Graphics.FromImage(bitmap))
-        {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var path = RoundedPath(new Rectangle(0, 0, size - 1, size - 1), 16))
-            using (var brush = new SolidBrush(fill))
-                graphics.FillPath(brush, path);
-            using (var font = new Font("Microsoft YaHei UI", 26f, FontStyle.Bold))
-            using (var textBrush = new SolidBrush(Color.White))
-            using (var format = new StringFormat())
-            {
-                format.Alignment = StringAlignment.Center;
-                format.LineAlignment = StringAlignment.Center;
-                graphics.DrawString(text, font, textBrush, new RectangleF(0, 0, size, size), format);
-            }
-        }
-        return bitmap;
+        return icon;
     }
 
     // Filters the machine's own list in place. Running applications stay on top so the most

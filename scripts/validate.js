@@ -381,16 +381,25 @@ assert(includesAll(read("scripts/ui/AppPickerDialog.cs"), [
   "internal AppPickerDialog(IList<InstalledAppChoice> choices, bool darkTheme)",
   "internal void ApplyTheme(bool dark)",
   "private Image IconFor(InstalledAppChoice item)",
-  "private static Image LetterTile(string name)",
-  "InstalledAppCatalog.ExecutableForProcess(item.ProcessName)",
-  "InstalledAppCatalog.IconForExecutable(item.LaunchTarget)",
-  "if (resolved == null) resolved = LetterTile(item.DisplayName);",
+  "AppIcons.For(item.ProcessName, item.DisplayName, item.LaunchTarget, item.Icon, out source);",
+  "AppIcons.DrawTile(e.Graphics, icon,",
+  "PICKER ICON FALLBACK process=",
   "private void DrawRow(object sender, DrawItemEventArgs e)",
   "emptyState.Visible = applications.Items.Count == 0;",
   'filterPlaceholder.Text = "搜索应用名或进程名，例如 cursor / chrome"',
   "filterPlaceholder.BringToFront();",
-]) && includesAll(app, ["new AppPickerDialog(choices, darkTheme)"]),
-  "The application picker lost its icon fallback, its live filter or its theme");
+]) && includesAll(app, [
+  "new AppPickerDialog(choices, darkTheme, HostLog)",
+  // The workflow rows now carry the application's own logo, through the same shared lookup: measured, this machine
+  // has 91 real icons out of 95 catalogue entries, and the picker had them while this list drew a status dot.
+  "Image rowIcon = AppIcons.For(card.ProcessName, card.Title, \"\", null, out iconSource);",
+  "AppIcons.DrawTile(e.Graphics, rowIcon,",
+]) && includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
+  "internal static class AppIcons",
+  "internal static Image For(string processName, string displayName, string launchTarget, Icon catalogueIcon,",
+  "internal static Image LetterTile(string name)",
+  "internal static void DrawTile(Graphics graphics, Image icon, Rectangle bounds, Color tileColor, int radius)",
+]), "The application picker lost its icon fallback, its live filter or its theme");
 // The minimum window size is a design measurement too. Left unscaled, the window could be dragged down to
 // 880x500 device pixels at 200% — 440x250 logical, below anything the layout was built for, with the
 // sidebar alone taking more than half of it. It scales now, and the diagnostic reports it so the value is

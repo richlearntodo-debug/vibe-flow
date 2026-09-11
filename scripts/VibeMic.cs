@@ -5856,7 +5856,7 @@ deck.Hide();
         HostLog("FAVORITE PICKER choices=" + choices.Count + " running=" + runningNames.Count);
         string processName = "";
         string launchTarget = "";
-        using (var picker = new AppPickerDialog(choices, darkTheme))
+        using (var picker = new AppPickerDialog(choices, darkTheme, HostLog))
         {
             if (picker.ShowDialog(this) != DialogResult.OK) return;
             processName = picker.SelectedProcessName;
@@ -7116,24 +7116,35 @@ deck.Hide();
         string gap = card.Gaps.Count > 0 ? card.Gaps[0] : "";
         bool unverified = string.Equals(gap, WorkflowCards.GapTargetUnverified, StringComparison.Ordinal);
         Color statusColor = card.State == "pass" ? green : unverified ? cyan : amber;
-        var mark = NewLabel(card.State == "pass" ? "✓" : unverified ? "…" : "·", 9f, FontStyle.Bold, Color.White);
-        mark.Location = new Point(4, 9);
-        mark.Size = new Size(26, 26);
-        mark.TextAlign = ContentAlignment.MiddleCenter;
-        mark.BackColor = statusColor;
-        ApplyRoundedRegion(mark, 13);
+        // The application's own icon, on a subtle tile. This row used to show a status dot where the logo belongs,
+        // which is what "many applications have no logo" turned out to be about: the picker had icons for 91 of this
+        // machine's 95 applications, and this list had none at all. The tile matters because several application
+        // icons carry transparency for a white or a dark background and read as absent when drawn straight onto a
+        // card. The state is still carried by the label's colour.
+        string iconSource;
+        Image rowIcon = AppIcons.For(card.ProcessName, card.Title, "", null, out iconSource);
+        Color iconTile = darkTheme ? Color.FromArgb(45, 47, 56) : Color.FromArgb(243, 245, 250);
+        var iconPanel = new Panel();
+        iconPanel.Location = new Point(4, 6);
+        iconPanel.Size = new Size(30, 30);
+        iconPanel.BackColor = Color.Transparent;
+        iconPanel.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            AppIcons.DrawTile(e.Graphics, rowIcon, new Rectangle(0, 0, iconPanel.Width, iconPanel.Height),
+                iconTile, 8);
+        };
         var title = NewLabel(card.Title, 9.4f, FontStyle.Bold, ink);
-        title.Location = new Point(42, 3);
-        title.Size = new Size(290, 22);
+        title.Location = new Point(44, 3);
+        title.Size = new Size(288, 22);
         title.AutoEllipsis = true;
         var state = NewLabel(WorkflowCards.ShortGapLabel(gap), 8.4f, FontStyle.Bold, statusColor);
         state.Location = new Point(342, 3);
         state.Size = new Size(200, 22);
         var detail = NewLabel(card.Actual, 8f, FontStyle.Regular, muted);
-        detail.Location = new Point(42, 24);
-        detail.Size = new Size(660, 19);
+        detail.Location = new Point(44, 24);
+        detail.Size = new Size(658, 19);
         detail.AutoEllipsis = true;
-        row.Controls.Add(mark);
+        row.Controls.Add(iconPanel);
         row.Controls.Add(title);
         row.Controls.Add(state);
         row.Controls.Add(detail);
