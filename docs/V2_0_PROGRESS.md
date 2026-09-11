@@ -5266,3 +5266,34 @@ return BridgeMapping(name, label, vk, scan, !passthrough, !passthrough,
 1. 读 `ProjectActiveShortcutProfile`（宿主投影 ✔）与 `GetBridgeMapping` ✔，确认「电源键」是否被投影带过 ✔；
 2. 若没有 → 把「电源键」加入投影的键表 ✔（或把 `defaultShort` 改成一个**真实**动作而不是 `"none"` ✗ —— 但注意默认拦截会改变 Windows 行为 ✗，所以**优先修投影** ✔）；
 3. 然后用与上轮**同样的断言**验证（这次它应当成立 ✔），并保留负对照 ✔。
+
+## 2026-09-12 **找到并修好"电源键指派了也没用"的真正原因** ✔（根因：Profile 投影的固定键表）
+
+### 根因（读代码 + 负对照定位 ✔）
+
+`NormalizeShortcutProfileMappings`（21151 ✔）会用一张**固定键表重建整张映射** ✗：
+
+```csharp
+string[] keys = { "确认键", "Home", "Home:short", "Home:long", "TV", "功能键",
+                  "功能键:short", "功能键:long", "上键", "下键", "左键", "右键" };   // ← 没有「电源键」✗
+```
+
+而 `ProjectActiveShortcutProfile` 会把 `value.mappings` **整体替换**为这张表的重建结果 ✗ → 用户给「电源键」指派的动作**在下一次投影时被抹掉** ✗ → `GetBridgeMapping(…, "电源键", "none")` 落到兜底 `"none"` ✗ → `ConfiguredMapping` 判定 `passthrough` ✔ → **生成的映射永远是 passthrough、永不拦截** ✗ —— **"指派了也没用"至此端到端解释清楚** ✔。
+
+### 修法（两处，缺一不可 ✔）
+
+1. `DefaultRemoteMappings()` 增加 `mappings["电源键"] = "none"` ✔ —— 默认值**必须**是 `none` ✔：未指派时要**让 Windows 继续处理**电源键 ✔（安全默认 ✔）
+2. `NormalizeShortcutProfileMappings` 的键表增加 `"电源键"` ✔ —— 让指派**活过投影** ✔
+3. 顺带修了一条**编码旧形状**的自测：`defaults.mappings.Count != 12` → **13** ✔，并**显式断言** `电源键 == "none"` ✔
+
+### 验证（这次断言**真的会失败** ✔）
+
+宿主自测新增**两半**断言 ✔：
+- **未指派** ⇒ `passthrough`、不启用、不拦截 ✔
+- **已指派**（走真实流程：写 `config.mappings` → `CaptureActiveShortcutProfileMappings`（保存时的动作 ✔）→ `ProjectActiveShortcutProfile` → 生成桥文档 ✔）⇒ **`enabled=true` / `suppress=true` / `mode=tap`** ✔✔
+
+**负对照** ✔：把"已指派必须 enabled"反转后，自测**失败** ✔（`exit=1` ✔）；还原后通过 ✔。**上一轮同一条断言无法失败** ✗ —— 正是因为产品有 bug ✔，这也是它被找出来的方式 ✔。
+
+### 仍只有你能确认的（✗）
+
+**实际按键** ✗：现在请你在「快捷键」页给「**电源键**」指派一个动作（例如「回车」✔）并保存 ✔，然后**按一次遥控器电源键** ✔。预期：动作执行 ✔，且该键**不再传给 Windows** ✔（`suppress` ✔）。若你的机器上仍被 Windows 抢先处理 ✗，我再上 MiVibe 那套**系统级扫描码映射**（管理员 + 重启 + 可还原 + 默认关闭 ✔）。

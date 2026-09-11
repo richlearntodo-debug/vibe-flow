@@ -1092,7 +1092,25 @@ assert(includesAll(app, [
   'new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")',
   "Keyboard shortcut recorder normalization invariant failed",
 ]), "Physical keyboard shortcut recording or its strict validation is incomplete");
-// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
+// Why the power key did nothing even after being assigned an action: the profile projection rebuilds the mapping
+// table from a fixed key list, and 电源键 was not in it. An assignment was therefore rebuilt away on the next
+// projection, GetBridgeMapping fell back to the key's default, and the generated mapping stayed passthrough for ever.
+// Two places carry the key now, and the default is "none" on purpose: an unassigned power key must leave Windows'
+// handling of the ACPI power button alone.
+//
+// The host self-test asserts both halves — unassigned stays passthrough, assigned becomes an intercepted and
+// suppressed tap — and the assigned half was confirmed by a negative control that inverted its condition and made the
+// self-test fail. Before the fix the same assertion could not fail, which is how the fault was found.
+assert(includesAll(app, [
+  'mappings["电源键"] = "none";',
+  // The key list the projection rebuilds from, identified by the comment that says why it matters.
+  'The power key has to survive this projection.',
+  'defaults.mappings["电源键"] != "none" || defaults.mappings.Count != 13)',
+  'powerProbe.mappings["电源键"] = "enter";',
+  "CaptureActiveShortcutProfileMappings(powerProbe);",
+  "An unassigned power key is not left as a passthrough key",
+  "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
 // GestureLayerKeys and stopped there, and the page builds its cards from explicit calls — so the key was mappable in
 // the generated configuration while the user had no way to assign it. The page's own copy also still listed it among
 // the unsupported controls.

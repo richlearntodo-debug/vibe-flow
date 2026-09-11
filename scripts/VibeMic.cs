@@ -3328,7 +3328,10 @@ deck.Hide();
                 defaults.mappings["Home:short"] != "win+d" || defaults.mappings["Home:long"] != "none" ||
                 defaults.mappings["确认键"] != "enter" || defaults.mappings["上键"] != "up" ||
                 defaults.mappings["下键"] != "down" || defaults.mappings["左键"] != "left" ||
-                defaults.mappings["右键"] != "right" || defaults.mappings.Count != 12)
+                defaults.mappings["右键"] != "right" ||
+                // The power key defaults to "none" on purpose: it must leave Windows' own handling of the ACPI power
+                // key alone until the user assigns it something.
+                defaults.mappings["电源键"] != "none" || defaults.mappings.Count != 13)
                 throw new InvalidOperationException("Default remote mapping invariant failed");
             if (defaults.shortcutProfiles == null || defaults.shortcutProfiles.Length != 4 ||
                 defaults.activeShortcutProfileId != "general" ||
@@ -3848,6 +3851,38 @@ deck.Hide();
             if (Convert.ToString(BuildKeyboardBridgeDocument(mappingFixture)["revision"]) == bridgeRevision)
                 throw new InvalidOperationException("Bridge configuration revision did not change with its action mapping");
 
+            // The remote's power key, both halves.
+            //
+            // Unconfigured it has to stay a passthrough key, so Windows keeps handling the ACPI power button exactly
+            // as before. Assigned an action it has to become an intercepted, suppressed key — that is the "the power
+            // key still does not work" report. The assignment has to survive the profile round trip, which is what
+            // the two calls below do: the page writes config.mappings, saving captures that into the active profile,
+            // and projecting brings it back.
+            //
+            // It did not survive. 电源键 was missing from the projection's key list, so an assignment was rebuilt
+            // away, GetBridgeMapping fell back to the key's default and the generated mapping stayed passthrough for
+            // ever. Verified by a negative control that inverted the assigned-key check and made this fail.
+            {
+                VibeMicConfig powerProbe = VibeMicConfig.Default();
+                Dictionary<string, object> unassignedPower = FindGeneratedBridgeMapping(
+                    BuildKeyboardBridgeDocument(powerProbe), "power", "keyboard");
+                if (unassignedPower == null || Convert.ToBoolean(unassignedPower["enabled"]) ||
+                    Convert.ToBoolean(unassignedPower["suppress"]) ||
+                    Convert.ToString(unassignedPower["mode"]) != "passthrough")
+                    throw new InvalidOperationException(
+                        "An unassigned power key is not left as a passthrough key");
+                powerProbe.mappings["电源键"] = "enter";
+                CaptureActiveShortcutProfileMappings(powerProbe);
+                ProjectActiveShortcutProfile(powerProbe);
+                Dictionary<string, object> assignedPower = FindGeneratedBridgeMapping(
+                    BuildKeyboardBridgeDocument(powerProbe), "power", "keyboard");
+                if (!powerProbe.mappings.ContainsKey("电源键") || powerProbe.mappings["电源键"] != "enter" ||
+                    assignedPower == null || !Convert.ToBoolean(assignedPower["enabled"]) ||
+                    !Convert.ToBoolean(assignedPower["suppress"]) ||
+                    Convert.ToString(assignedPower["mode"]) != "tap")
+                    throw new InvalidOperationException(
+                        "An assigned power key is not intercepted: the assignment did not survive the profile round trip");
+            }
             VibeMicConfig browserBridgeFixture = VibeMicConfig.Default();
             browserBridgeFixture.activeShortcutProfileId = "browser-ai";
             ProjectActiveShortcutProfile(browserBridgeFixture);
@@ -21137,6 +21172,11 @@ deck.Hide();
         mappings["下键"] = "down";
         mappings["左键"] = "left";
         mappings["右键"] = "right";
+        // The remote's power button. "none" is deliberate and is the reason the key is safe to ship: the projection
+        // below rebuilds the mapping table from a fixed key list, so a key missing from that list loses whatever the
+        // user assigned to it and falls back to this value — which, for the power key, has to mean "leave Windows
+        // alone" rather than "intercept and do nothing".
+        mappings["电源键"] = "none";
         return mappings;
     }
 
@@ -21154,7 +21194,12 @@ deck.Hide();
         var normalized = new Dictionary<string, string>();
         string[] keys = {
             "确认键", "Home", "Home:short", "Home:long", "TV", "功能键",
-            "功能键:short", "功能键:long", "上键", "下键", "左键", "右键"
+            "功能键:short", "功能键:long", "上键", "下键", "左键", "右键",
+            // The power key has to survive this projection. It was missing from this list, so an action the user
+            // assigned to 电源键 was rebuilt away on the next profile projection, the bridge fell back to the key's
+            // default ("none") and the generated mapping stayed passthrough for ever — the key was recognised and
+            // then never acted on, which is exactly what "the power key still does not work" turned out to be.
+            "电源键"
         };
         foreach (string key in keys)
         {
