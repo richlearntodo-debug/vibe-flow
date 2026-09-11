@@ -13491,6 +13491,15 @@ deck.Hide();
                 };
                 var back = SecondaryButton("上一步", new Point(34, 42), new Size(112, 42));
                 back.Name = "setupWizardBackButton";
+                // A way out that does not pretend the step was done.
+                //
+                // The 完成本步，继续 button refuses to advance until the step's evidence exists — a real remote
+                // direction key for the remote task, CABLE Input/Output plus the RC003 microphone for the audio task
+                // — so anyone without the hardware at hand was stuck inside the wizard with no exit but the window's
+                // close box. 稍后再说 closes it and keeps the progress exactly where it is, so the wizard opens on
+                // the same task next time: that is the reminder, and no step is ever marked as finished by leaving.
+                var setupLater = SecondaryButton("稍后再说", new Point(430, 42), new Size(112, 42));
+                setupLater.Name = "setupWizardLaterButton";
                 var next = PrimaryButton("完成本步，继续", new Point(554, 42), new Size(188, 42));
                 next.Name = "setupWizardNextButton";
                 var stepCounter = NewLabel("任务 1 / 5", 8.8f, FontStyle.Bold, violet);
@@ -13529,6 +13538,7 @@ deck.Hide();
                 footer.Controls.Add(stepCounter);
                 footer.Controls.Add(wizardFeedback);
                 footer.Controls.Add(wizardRepair);
+                footer.Controls.Add(setupLater);
                 body.Controls.Add(pageScroll);
                 body.Controls.Add(footer);
                 wizard.Controls.Add(body);
@@ -13640,6 +13650,8 @@ deck.Hide();
                     stepCounter.Text = "任务 " + (currentStep + 1) + " / " + OnboardingStepCount;
                     back.Enabled = currentStep > 0;
                     next.Text = OnboardingNextButtonText(uiSmokeMode, currentStep);
+                // On the last task 稍后再说 would only mean closing the window, so it is not offered there.
+                setupLater.Visible = currentStep < OnboardingStepCount - 1;
 
                     string subtitleText = currentStep == 0 ? "先确认设备和固定操作方式，整个设置通常只需几分钟。" :
                         currentStep == 1 ? "配对 RC003，并用一个真实方向键证明 Windows 已收到遥控器事件。" :
@@ -14058,6 +14070,18 @@ deck.Hide();
                 };
 
                 back.Click += delegate { renderStep(currentStep - 1); };
+                setupLater.Click += delegate
+                {
+                    // Leaving keeps the progress untouched: the wizard reopens on this same task, which is the
+                    // reminder, and no step is recorded as complete by leaving.
+                    //
+                    // wizard.Close() and not Close(): this delegate is a closure inside a method of the host form, so
+                    // an unqualified Close() closes the *main window* and takes the application with it. Measured —
+                    // the first version did exactly that, and driving the button showed the wizard and the main window
+                    // both gone.
+                    HostLog("ONBOARDING later=true step=" + currentStep);
+                    wizard.Close();
+                };
                 next.Click += delegate
                 {
                     if (currentStep == 1)

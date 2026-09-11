@@ -1960,7 +1960,21 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The interface uses English product terms, and until now none of them was explained anywhere in the application.
+// The setup wizard had no way out for anyone without the hardware at hand: 完成本步，继续 refuses to advance until
+// the step's evidence exists (a real remote direction key, or CABLE Input/Output plus the RC003 microphone), so the
+// only exit was the window's close box. 稍后再说 closes the wizard and leaves the progress where it is, so it reopens
+// on the same task — that is the reminder, and no step is ever marked complete by leaving.
+//
+// wizard.Close() and not Close(): the handler is a closure inside a method of the host form, so an unqualified
+// Close() closes the main window and takes the application with it. Driving the button is what caught it.
+assert(includesAll(app, [
+  'var setupLater = SecondaryButton("稍后再说", new Point(430, 42), new Size(112, 42));',
+  'setupLater.Name = "setupWizardLaterButton";',
+  'HostLog("ONBOARDING later=true step=" + currentStep);',
+  "wizard.Close();",
+  "// On the last task 稍后再说 would only mean closing the window, so it is not offered there.",
+  "setupLater.Visible = currentStep < OnboardingStepCount - 1;",
+]), "The setup wizard has no non-destructive exit again, or its exit closes the main window");// The interface uses English product terms, and until now none of them was explained anywhere in the application.
 // Each first occurrence carries a Chinese gloss and the settings page carries the glossary, so a new user can look
 // them up in one place instead of hunting through six pages.
 assert(includesAll(app, [
