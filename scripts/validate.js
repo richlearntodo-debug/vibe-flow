@@ -1960,7 +1960,22 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// Two small items cleared together, both about the instruments and the data being trustworthy.
+// The design review's last recommendation was a search. It is already satisfied where it is needed: the action
+// picker — the only list in the application long enough to need one, with every shortcut action in it — carries a
+// live search box that filters as the user types and reselects the current choice. The other pages hold at most
+// thirteen controls, and the application picker gained its own filter earlier in this session. No application-wide
+// search overlay was therefore added; that was a judgement, recorded rather than left implied.
+//
+// Honest limit: this dialog could not be driven from smoke mode. Its rows are opened through an action control that
+// is gated on hardware readiness, and the ▶ buttons beside them are test buttons, not the picker's entry point —
+// so the filter is verified by its implementation and by the same pattern being driven end to end in the
+// application picker, not by driving this dialog.
+assert(includesAll(app, [
+  'var searchLabel = NewLabel("搜索动作"',
+  "search.TextChanged += delegate { refresh(); };",
+  "if (query.Length == 0 || choice.Label.IndexOf(query, StringComparison.CurrentCultureIgnoreCase) >= 0)",
+  "int index = FindShortcutChoiceInList(list, current);",
+]), "The action picker's search is gone, and no application-wide search replaced it");// Two small items cleared together, both about the instruments and the data being trustworthy.
 //
 // Documentation is not a place to dictate text into, and the skip list decided by whichever word an installer chose:
 // measured on this machine, "Inno Setup FAQ" and "Git FAQs (Frequently Asked Questions)" were offered as targets
