@@ -378,7 +378,29 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// Every wired form asserts its own scaling in each smoke run, and which value to compare is measured rather
+// The exported diagnostics' content is built and checked in every smoke run, because the export itself goes
+// through a save dialog that cannot be driven from a test. The report is the same string the export writes, so
+// this is what a user's report contains; when crash reports exist the newest one has to be in it, which was
+// verified while two were present (reports left by this session's own failing assertions).
+assert(includesAll(app, [
+  "private string BuildDiagnosticsReport()",
+  "private void CheckDiagnosticsReport()",
+  "if (uiSmokeMode) CheckDiagnosticsReport();",
+  "The diagnostics report is missing: ",
+  "does not state a crash count: ",
+  "but does not include the newest one",
+  'File.WriteAllText(dialog.FileName, BuildDiagnosticsReport(), new UTF8Encoding(false));',
+]), "The exported diagnostics are neither testable nor checked");
+// The keyboard walk asserts what it finds, because a walk that reports nothing looks exactly like a walk that
+// found nothing wrong: every page must reach at least one control, must never reach a control that refuses
+// focus (its own negative control), and must not collapse below the number of tab stops the page declares —
+// that last bound is the regression test for the walk keyed on labels, which reported 1 reachable control on a
+// page holding 34.
+assert(includesAll(app, [
+  "reaches no control at all",
+  "reaches a control that is not a tab stop",
+  "of \" + tabbable + \" tab stops",
+]), "The keyboard order is measured but nothing about it is enforced");// Every wired form asserts its own scaling in each smoke run, and which value to compare is measured rather
 // than assumed: a form already larger than its design size at the end of its constructor was scaled by Windows
 // Forms, which scales the client area and leaves the frame alone, while a form still at its design size there is
 // scaled here, which scales the window. The autoscale baseline does not separate them — measured, the Context

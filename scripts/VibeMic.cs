@@ -792,6 +792,40 @@ internal sealed partial class VibeMicForm : Form
         return new List<InstalledAppChoice>();
     }
 
+    // The diagnostics report is built and checked in a smoke run, using the same builder the export writes. The
+    // save dialog cannot be driven from a test, so this is the part that can be: it is what a user's report will
+    // contain. The crash section is conditional — a machine with no crashes should say zero rather than show an
+    // empty block — so only its presence is required here, and the crash writer's own self-test covers the
+    // content of a report.
+    private void CheckDiagnosticsReport()
+    {
+        string report = BuildDiagnosticsReport();
+        if (string.IsNullOrWhiteSpace(report))
+            throw new InvalidOperationException("The diagnostics report is empty");
+        string[] required = {
+            "Technical diagnostics", "Generated: ", "Windows: ", "App: ", "Capture running: ",
+            "UI rendering: ", "Display: ", "Crashes recorded: ", "Mappings: "
+        };
+        foreach (string fragment in required)
+        {
+            if (report.IndexOf(fragment, StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException("The diagnostics report is missing: " + fragment);
+        }
+        int crashLine = report.IndexOf("Crashes recorded: ", StringComparison.Ordinal);
+        string countText = report.Substring(crashLine + "Crashes recorded: ".Length);
+        countText = countText.Substring(0, countText.IndexOf('\n') < 0 ? countText.Length : countText.IndexOf('\n')).Trim();
+        int parsed;
+        if (!int.TryParse(countText.Split(' ')[0], out parsed))
+            throw new InvalidOperationException("The diagnostics report does not state a crash count: " + countText);
+        // When reports exist, the newest one has to be in the export — that is the whole point of including it,
+        // and this is the only place the inclusion can be checked without driving the save dialog.
+        if (parsed > 0 && report.IndexOf("Newest crash report", StringComparison.Ordinal) < 0)
+            throw new InvalidOperationException("The diagnostics report states " + parsed +
+                " crashes but does not include the newest one");
+        HostLog("UI DIAGNOSTICS report=ok length=" + report.Length + " crashes=" + parsed +
+            " includesNewest=" + (report.IndexOf("Newest crash report", StringComparison.Ordinal) >= 0));
+    }
+
     // Measures the Capture & Ask surface, the one interface that has no route through the application's own
     // pages: it opens from the tray menu only. The host has the service it needs, so this instance method can
     // do what the static self-test cannot. The assertion is the same one the Context Deck uses — design size
@@ -932,6 +966,20 @@ internal sealed partial class VibeMicForm : Form
                 " first=" + (visitedNames.Count > 0 ? visitedNames[0] : "-") +
                 " last=" + (visitedNames.Count > 0 ? visitedNames[visitedNames.Count - 1] : "-") +
                 " order=" + string.Join(" > ", visitedNames.ToArray()));
+            // Assertions, because a walk that reports nothing looks the same as a walk that found nothing wrong.
+            // The middle one is the negative control: reaching a control that refuses focus means the walk is
+            // measuring something other than the tab order. The last is the regression bound for the bug this
+            // walk had: keyed on the control's label, it stopped at the first repeated label and reported 1
+            // reachable control on a page holding 34.
+            if (visited.Count <= 0)
+                throw new InvalidOperationException("Keyboard order: page " + page + " reaches no control at all");
+            if (CountVisitedNotTabbable(visitedNames) != 0)
+                throw new InvalidOperationException("Keyboard order: page " + page +
+                    " reaches a control that is not a tab stop");
+            int tabbable = CountTabbableInTree(this);
+            if (tabbable >= 4 && visited.Count < tabbable - 2)
+                throw new InvalidOperationException("Keyboard order: page " + page + " reaches " + visited.Count +
+                    " of " + tabbable + " tab stops");
         }
         ShowPage(PageHome);
     }
@@ -10842,6 +10890,8 @@ deck.Hide();
         // size. "Not opened" is logged rather than passed over: a surface that silently stops appearing would
         // otherwise look exactly like a surface that was checked.
         if (uiSmokeMode) MeasureTraySurfaceGeometry();
+        // The exported diagnostics' content, built here because the export itself goes through a save dialog.
+        if (uiSmokeMode) CheckDiagnosticsReport();
         if (crashTestRequested)
         {
             HostLog("CRASH TEST requested=true");
@@ -23224,51 +23274,58 @@ deck.Hide();
             dialog.Filter = "诊断文本|*.txt";
             dialog.FileName = "vibe-flow-diagnostics-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt";
             if (dialog.ShowDialog() != DialogResult.OK) return;
-
-            var report = new StringBuilder();
-            report.Append(BuildProblemSummary());
-            report.AppendLine();
-            report.AppendLine("Technical diagnostics");
-            report.AppendLine("Generated: " + DateTime.Now.ToString("o"));
-            report.AppendLine("Windows: " + Environment.OSVersion.VersionString);
-            report.AppendLine("App: " + Application.ProductVersion);
-            report.AppendLine("Capture running: " + IsCapturing);
-            report.AppendLine("Audio endpoint: " + config.audioEndpointName);
-            report.AppendLine("Input method: " + config.inputMethod + " / " + config.inputMethodHotkey);
-            // Interface rendering: the two facts behind a "garbled screen" or "squeezed layout"
-            // report, so the answer does not depend on the user describing their machine.
-            report.AppendLine("UI rendering: " + UiFonts.Describe());
-            report.AppendLine("Display: " + DescribeScreenGeometry());
-            // What previous runs recorded before dying, so a report from a user carries the crash as well as
-            // the environment. An unhandled exception used to leave nothing at all.
-            var crashReports = CrashReports.ExistingReports();
-            report.AppendLine("Crashes recorded: " + crashReports.Count +
-                (crashReports.Count > 0 ? " (newest " + Path.GetFileName(crashReports[0]) + ")" : ""));
-            if (crashReports.Count > 0)
-            {
-                report.AppendLine("Newest crash report");
-                report.AppendLine(CrashReports.Summarize(crashReports[0], 14));
-            }
-            report.AppendLine("Mappings: " + BuildDiagnosticMappingSummary(config.mappings));
-            report.AppendLine();
-            AppendLogTail(report, Path.Combine(sessionDir, "vibe-mic-runtime.log"), "Runtime log", 200);
-            AppendLogTail(report, Path.Combine(root, "input-bridge-log.txt"), "Input bridge log", 200);
-            string captureReport = Path.Combine(sessionDir, "remote-voice-report.json");
-            if (File.Exists(captureReport))
-            {
-                report.AppendLine("Capture report");
-                report.AppendLine(SanitizeDiagnosticText(File.ReadAllText(captureReport, Encoding.UTF8)));
-            }
-            string captureHealthPath = Path.Combine(sessionDir, "capture-health.json");
-            if (File.Exists(captureHealthPath))
-            {
-                report.AppendLine("Capture heartbeat");
-                report.AppendLine(SanitizeDiagnosticText(File.ReadAllText(captureHealthPath, Encoding.UTF8)));
-            }
-            File.WriteAllText(dialog.FileName, SanitizeDiagnosticText(report.ToString()), new UTF8Encoding(false));
+            File.WriteAllText(dialog.FileName, BuildDiagnosticsReport(), new UTF8Encoding(false));
             ShowToast("诊断已导出，不包含录音和识别文字", "success");
         }
         catch (Exception ex) { ShowToast("诊断导出失败", "error"); Log("Diagnostics export failed: " + ex.Message); }
+    }
+
+    // The report itself, separated from the save dialog so it can be checked: the only unverified part of the
+    // crash-reporting work was whether this content really carries the crash, and a file dialog cannot be driven
+    // in a test. The self-test builds the same string the export writes.
+    private string BuildDiagnosticsReport()
+    {
+        var report = new StringBuilder();
+        report.Append(BuildProblemSummary());
+        report.AppendLine();
+        report.AppendLine("Technical diagnostics");
+        report.AppendLine("Generated: " + DateTime.Now.ToString("o"));
+        report.AppendLine("Windows: " + Environment.OSVersion.VersionString);
+        report.AppendLine("App: " + Application.ProductVersion);
+        report.AppendLine("Capture running: " + IsCapturing);
+        report.AppendLine("Audio endpoint: " + config.audioEndpointName);
+        report.AppendLine("Input method: " + config.inputMethod + " / " + config.inputMethodHotkey);
+        // Interface rendering: the two facts behind a "garbled screen" or "squeezed layout"
+        // report, so the answer does not depend on the user describing their machine.
+        report.AppendLine("UI rendering: " + UiFonts.Describe());
+        report.AppendLine("Display: " + DescribeScreenGeometry());
+        // What previous runs recorded before dying, so a report from a user carries the crash as well as
+        // the environment. An unhandled exception used to leave nothing at all.
+        var crashReports = CrashReports.ExistingReports();
+        report.AppendLine("Crashes recorded: " + crashReports.Count +
+            (crashReports.Count > 0 ? " (newest " + Path.GetFileName(crashReports[0]) + ")" : ""));
+        if (crashReports.Count > 0)
+        {
+            report.AppendLine("Newest crash report");
+            report.AppendLine(CrashReports.Summarize(crashReports[0], 14));
+        }
+        report.AppendLine("Mappings: " + BuildDiagnosticMappingSummary(config.mappings));
+        report.AppendLine();
+        AppendLogTail(report, Path.Combine(sessionDir, "vibe-mic-runtime.log"), "Runtime log", 200);
+        AppendLogTail(report, Path.Combine(root, "input-bridge-log.txt"), "Input bridge log", 200);
+        string captureReport = Path.Combine(sessionDir, "remote-voice-report.json");
+        if (File.Exists(captureReport))
+        {
+            report.AppendLine("Capture report");
+            report.AppendLine(SanitizeDiagnosticText(File.ReadAllText(captureReport, Encoding.UTF8)));
+        }
+        string captureHealthPath = Path.Combine(sessionDir, "capture-health.json");
+        if (File.Exists(captureHealthPath))
+        {
+            report.AppendLine("Capture heartbeat");
+            report.AppendLine(SanitizeDiagnosticText(File.ReadAllText(captureHealthPath, Encoding.UTF8)));
+        }
+        return SanitizeDiagnosticText(report.ToString());
     }
 
     private void AppendLogTail(StringBuilder output, string path, string title, int maximumLines)
