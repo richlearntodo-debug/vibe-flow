@@ -1181,7 +1181,22 @@ assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
   '未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。',
   '未安装签名通道时，言灵按「遥控器是否在场」判断',
 ]) && !app.includes('RC003 按键隔离未就绪') && !app.includes('言灵不拦截来源未知的键'),
-  "The presence probe fell back outside its window, or the copy went back to saying keys of unknown origin pass through");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  "The presence probe fell back outside its window, or the copy went back to saying keys of unknown origin pass through");// The voice page reports the last session's measured capture level.
+//
+// This is the one place where the software can help with the microphone problem: measured over 920 sessions, the
+// median output level was 5% against the 10% speech recognition needs, 92% of sessions sat below it, and the
+// automatic gain was already applying about 4x — so nothing in the pipeline can be raised without clipping the
+// sessions that already peak at 100%. What was missing was visibility, and the capture component already writes the
+// numbers; the page reads the last of them and says what to do about it.
+assert(includesAll(app, [
+  "private CaptureLevelReading ReadLastCaptureLevel()",
+  'Path.Combine(sessionDir, "vibe-mic-runtime.log")',
+  '"REMOTE STREAM STOP session="',
+  "level.OutputRms < 10",
+  "最近一次收音电平 ",
+  "识别舒适区约 10–30%",
+  "这一次没有收到音频",
+]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

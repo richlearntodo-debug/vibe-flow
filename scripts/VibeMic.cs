@@ -7290,6 +7290,67 @@ deck.Hide();
         parent.Controls.Add(row);
     }
 
+    // The capture component writes one line per finished session with the levels it measured, and the voice page shows
+    // the last of them. It is there because on this hardware the acoustic level, not the pipeline, decides whether
+    // dictation works: measured over 920 sessions, the median output level was 5% and 92% of sessions sat below the
+    // 10% that speech recognition needs, while the link itself reported no drops and the automatic gain was already
+    // applying about 4x. A user can only act on that if they can see it.
+    private sealed class CaptureLevelReading
+    {
+        public bool Found;
+        public double OutputRms;
+        public double RawPeak;
+        public int AudioMs;
+    }
+
+    private CaptureLevelReading ReadLastCaptureLevel()
+    {
+        var reading = new CaptureLevelReading();
+        try
+        {
+            string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
+            if (!File.Exists(path)) return reading;
+            // Tail the file: it grows into megabytes over a few hundred sessions.
+            string last = null;
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                long from = Math.Max(0, stream.Length - 64 * 1024);
+                stream.Seek(from, SeekOrigin.Begin);
+                using (var reader = new StreamReader(stream, Encoding.UTF8))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        if (line.IndexOf("REMOTE STREAM STOP session=", StringComparison.Ordinal) >= 0) last = line;
+                    }
+                }
+            }
+            if (last == null) return reading;
+            reading.Found = true;
+            reading.OutputRms = ParseLogNumber(last, "output_rms_pct=");
+            reading.RawPeak = ParseLogNumber(last, "raw_peak_pct=");
+            reading.AudioMs = (int)ParseLogNumber(last, "audio_ms=");
+        }
+        catch
+        {
+            // A log that cannot be read must not break the page; the label simply reports that there is no reading.
+        }
+        return reading;
+    }
+
+    private static double ParseLogNumber(string line, string key)
+    {
+        int at = line.IndexOf(key, StringComparison.Ordinal);
+        if (at < 0) return 0;
+        at += key.Length;
+        int end = at;
+        while (end < line.Length && (char.IsDigit(line[end]) || line[end] == '.')) end++;
+        if (end == at) return 0;
+        double value;
+        return double.TryParse(line.Substring(at, end - at), NumberStyles.Float, CultureInfo.InvariantCulture, out value)
+            ? value : 0;
+    }
+
     private void BuildVoicePage()
     {
         AddPageTitle("语音", "遥控器负责收音；转写与整理能力由所选工具设置");
@@ -7432,6 +7493,43 @@ deck.Hide();
         cableEndpoint.Size = new Size(670, 18);
         cableEndpoint.TextAlign = ContentAlignment.MiddleLeft;
         card.Controls.Add(cableEndpoint);
+
+        // The measured level of the last session, in the card's free space below the buttons (they end at y=568 and the
+        // card is 716 tall). It answers the question the transcription result cannot: was the capture loud enough?
+        CaptureLevelReading level = ReadLastCaptureLevel();
+        string levelText;
+        Color levelColor;
+        if (!level.Found)
+        {
+            levelText = "最近一次收音电平：还没有记录 —— 完成一次听写后这里会显示实测值";
+            levelColor = muted;
+        }
+        else if (level.AudioMs <= 0)
+        {
+            levelText = "最近一次收音电平：这一次没有收到音频 —— 检查遥控器是否已连接并唤醒，再试一次";
+            levelColor = coral;
+        }
+        else if (level.OutputRms < 10)
+        {
+            levelText = "最近一次收音电平 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) +
+                "%（偏低，识别舒适区约 10–30%）：把遥控器靠近到 10–20 cm、对准顶部麦克风孔并握稳；" +
+                "仍偏低时检查 Windows「声音 → 输入 → CABLE Output → 属性 → 级别」是否为 100%。";
+            levelColor = amber;
+        }
+        else
+        {
+            levelText = "最近一次收音电平 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) +
+                "%　·　处于识别舒适的区间";
+            levelColor = green;
+        }
+        // The measured level of the last session, placed in the card's empty band between the title area (which ends
+        // near y=60) and the first field row at y=152. The lower half of the card is fully occupied: the first attempt
+        // at y=578 collided with the workflow entry line (430x34) and the second at y=628 with the provider note, both
+        // reported by scripts/check-ui-geometry.ps1.
+        var levelLabel = NewLabel(levelText, 8.8f, FontStyle.Regular, levelColor);
+        levelLabel.Location = new Point(220, 96);
+        levelLabel.Size = new Size(670, 40);
+        card.Controls.Add(levelLabel);
 
         var start = PrimaryButton(IsCapturing ? "暂停语音桥接" : "启动语音桥接", new Point(220, 524), new Size(152, 44));
         start.Click += delegate { ToggleCapture(); start.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接"; };
