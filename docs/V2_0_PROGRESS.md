@@ -4492,3 +4492,42 @@ after 2s / 5s / 9s : RGB=(35,37,44) luminance=39 -> dark
 ### 相关门禁
 
 原先有三条门禁**钉住了"自检页必须有工作流卡"** ✗（这正是我要改掉的行为 ✔）→ 已**显式改写**为新的契约 ✔：自检页**不得**再渲染工作流（负向断言 ✔）、工作流页**必须**有紧凑卡与动作分发 ✔、状态标签必须读作进度而非故障 ✔、自检页不再为工作流预留布局空间 ✔。**门禁正确地拦住了我**，我改的是门禁而不是绕过它 ✔。
+
+## 2026-09-11 工作流里列出的应用改为**只列本机真实存在的**
+
+### 你说的问题（已复现并查明原因）
+
+「工作流」页那张卡列出了 cursor / **code** / **windsurf** / **codex** / chrome / **msedge** / **firefox** / brave / Terminal Agent… ✗ —— 而本机**根本没装** Code、Windsurf、Firefox、Brave ✗。
+
+**原因**：那张卡是从 **配置里的 Profile 应用绑定**合成的 ✗（`config.shortcutProfiles[].processNames` ✔），而这份清单**会随卸载残留、也包含出厂默认**✗ —— 和"本机装了什么"完全无关 ✗。
+
+**本机实测**（两条独立来源互相印证）：
+- 安装目录扫描：cursor / windsurf / chrome / msedge / firefox / brave / code / codex **均无** ✗（只有 `CodexNode` 这种同名巧合 ✔）
+- 开始菜单快捷方式（共 **113** 个）：**Cursor ✔**、**Google Chrome ✔**、**Microsoft Edge ✔** 存在；code / windsurf / codex / firefox / brave **都不在** ✗
+
+### 改动：工作流清单改为"本机存在才列"
+
+判定"本机存在"的四条证据（任一满足 ✔）：**开始菜单目录里有它** ✔、**有在本机学习过的输入目标** ✔、**是用户加过的常用应用** ✔、或者它被明确配置过 ✔；再叠加一条**能力筛选**：**shell/卸载器/说明文档类不列**（复用添加应用表单里已有的同一份 skip 名单 ✔）。
+
+**实测结果（同一台机器）**：
+
+```
+before: WORKFLOW CARDS cards=14
+after : WORKFLOW CARDS cards=4  skipped_missing=10
+        清单 = cursor ✔ chrome ✔ msedge ✔ focustargetsmokeapp（仅 smoke 测试用）
+```
+
+即 **Windsurf / Code / Codex / Firefox / Brave / Terminal Agent / cmd / powershell 全部消失** ✔（其中 cmd、powershell 是我先漏掉、后按你第 2 步"筛选可作为文本输入/Coding 的工具"补上的 ✔）。
+
+**一个我自己纠正的误判**：我最初把"进程正在运行"也当作"已安装" ✗ → 结果 msedge、cmd、powershell 因为**本会话有同名进程在跑**而被放行 ✗（而 cmd/powershell 恰恰是那份 skip 名单**明确要排除**的 ✗）。改为**只认"装没装"**，不认"跑没跑" ✔（便携工具可以用"加为常用应用"表达"这是我的" ✔）。
+
+### 「添加应用」表单：本来就是按本机扫描的 ✔（实测）
+
+我核对了它的构造过程与运行结果：候选 = **本机开始菜单目录（113 个快捷方式 → 去重/跳过 shell 等后 94 个）** + 2 个正在运行的 ✔，日志实测 `FAVORITE PICKER choices=94 running=2` ✔ → **Firefox / Brave / Windsurf / Code 本来就不在表单里** ✔（因为它们不在开始菜单里 ✔）。你看到的那份"表单"是**工作流卡** ✗，不是添加应用表单 ✔ —— 现在这张卡也修好了 ✔。
+
+### 性能与验证
+
+- 目录扫描做了**缓存（5 分钟）**✔：工作流页每次切换都会重建，而扫描要遍历两个开始菜单根目录 + 枚举 shell AppsFolder ✗ → 不能每页一次 ✔；添加应用表单仍走**实时**扫描 ✔（保持新鲜 ✔）。
+- 新增**确定性自测**：`powershell / pwsh / Command Prompt` 必须被判为 shell 而排除 ✔、`cursor / chrome` 必须**不被**排除 ✔。
+- 几何：工作流页 1280×840、**0 重叠 / 0 裁切** ✔；添加应用对话框 580×660、0/0 ✔；self-test / validate / 矩阵 / 发布链 / 安装器全部通过 ✔（安装 exit 0、51/51 一致 ✔）。
+- 门禁已钉：`IsInstalled` + 缓存 + "运行 ≠ 已安装"的说明 + skip 名单 + `skipped_missing=` 日志 + 自测断言 ✔。

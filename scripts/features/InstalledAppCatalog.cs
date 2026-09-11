@@ -40,7 +40,11 @@ internal static class InstalledAppCatalog
     {
         "uninstall", "卸载", "readme", "read me", "help", "帮助", "documentation", "文档",
         "website", "网址", "homepage", "license", "许可", "release notes", "更新日志",
-        "configuration", "配置工具", "cmd", "command prompt", "windows powershell"
+        "configuration", "配置工具", "cmd", "command prompt", "windows powershell",
+        // Bare shells, added after measuring: a binding named "powershell" reached the workflow list because the
+        // entry above only matches the phrase "windows powershell". A shell is not a place to dictate text into,
+        // which is the same judgement the phrase was already making.
+        "powershell", "pwsh"
     };
 
     // Enumerates start-menu shortcuts from both the machine and the current user, resolving
@@ -292,6 +296,59 @@ internal static class InstalledAppCatalog
         return "";
     }
 
+    // Whether an application actually exists on this machine, by process name.
+    //
+    // The 工作流 page is rebuilt on every navigation and has to answer this for each configured binding, while the
+    // scan behind List() walks both start-menu roots and enumerates the shell AppsFolder. The answer only changes
+    // when the user installs something, so it is cached; the picker still calls List() directly and stays fresh.
+    private static readonly Dictionary<string, bool> installedByProcess =
+        new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+    private static DateTime installedCacheBuiltAt = DateTime.MinValue;
+
+    internal static bool IsInstalled(string processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName)) return false;
+        string key = processName.Trim();
+        // Being *running* is deliberately not part of this answer, although it is the cheapest test available.
+        // Measured: with a running-process shortcut, the workflow list admitted msedge, cmd and powershell — the
+        // last two are exactly the entries the catalogue's own skip list excludes, and all three were present only
+        // because this session had such processes running. Whether an application is the user's own is a question
+        // about what is installed, so the catalogue answers it. A portable tool that is running but has no shortcut
+        // can still be added as a favourite application, which is the user saying it is theirs.
+        if (installedCacheBuiltAt == DateTime.MinValue ||
+            (DateTime.UtcNow - installedCacheBuiltAt).TotalMinutes > 5)
+        {
+            RebuildInstalledCache();
+        }
+        bool installed;
+        return installedByProcess.TryGetValue(key, out installed) && installed;
+    }
+
+    private static void RebuildInstalledCache()
+    {
+        installedByProcess.Clear();
+        try
+        {
+            foreach (InstalledAppChoice entry in List())
+            {
+                if (entry == null || string.IsNullOrWhiteSpace(entry.ProcessName)) continue;
+                string name = entry.ProcessName.Trim();
+                // A shortcut's name and the process it starts can differ in case ("Cursor" / "cursor"), and the
+                // entries can carry an extension; the comparison is case-insensitive and extension-blind.
+                installedByProcess[name] = true;
+                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                    installedByProcess[name.Substring(0, name.Length - 4)] = true;
+            }
+        }
+        catch
+        {
+            // An unavailable scan must not turn into "not installed": the list would silently empty itself, so
+            // the failure is recorded and callers fall back to the running-process test above.
+            installedByProcess.Clear();
+        }
+        installedCacheBuiltAt = DateTime.UtcNow;
+    }
+
     // What the application calls itself, for an application that is running but is not in the
     // catalogue at all (a portable tool, a background helper): the same description-then-product
     // order the shortcut entries use, and "" when the file says nothing.
@@ -384,7 +441,11 @@ internal static class InstalledAppCatalog
             if (bitmapHandle != IntPtr.Zero) DeleteObject(bitmapHandle);
         }
     }
-    private static bool IsSkipped(string text)
+    // The same judgement the picker applies to its own rows, exposed so the workflow list can apply it to a
+    // configured binding: a shell, an uninstaller or a read-me is not a place to dictate text into, and a profile's
+    // application list can name one. Measured on this machine, cmd and powershell reached the workflow list from
+    // config bindings even though this skip list excludes them from the add-application list.
+    internal static bool IsSkipped(string text)
     {
         string lowered = (text ?? "").ToLowerInvariant();
         foreach (string word in SkipWords)

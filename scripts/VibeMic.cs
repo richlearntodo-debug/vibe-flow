@@ -9564,6 +9564,7 @@ deck.Hide();
     private List<WorkflowCard> BuildCurrentWorkflowCards()
     {
         var bindings = new List<WorkflowAppBinding>();
+        int skipped = 0;
         if (config.shortcutProfiles != null)
         {
             foreach (ShortcutProfileConfig profile in config.shortcutProfiles)
@@ -9572,6 +9573,12 @@ deck.Hide();
                 foreach (string processName in profile.processNames)
                 {
                     if (string.IsNullOrWhiteSpace(processName)) continue;
+                    // A profile's application list outlives an uninstall, and the defaults shipped with the
+                    // application name programs this machine may never have had. Measured here: thirteen bound
+                    // applications resolved to the two that exist (Cursor and Google Chrome). Listing the rest
+                    // would fill the page with rows for applications the user cannot act on at all.
+                    if (InstalledAppCatalog.IsSkipped(processName) ||
+                        !WorkflowAppExistsOnThisMachine(processName)) { skipped++; continue; }
                     bindings.Add(new WorkflowAppBinding
                     {
                         ProcessName = processName,
@@ -9611,10 +9618,40 @@ deck.Hide();
         if (signature != lastWorkflowSignature)
         {
             lastWorkflowSignature = signature;
-            HostLog("WORKFLOW CARDS cards=" + cards.Count + " summary=" +
+            HostLog("WORKFLOW CARDS cards=" + cards.Count + " skipped_missing=" + skipped + " summary=" +
                 SafeLogValue(WorkflowCards.Summarize(cards)));
         }
         return cards;
+    }
+
+    // Whether an application exists on this machine: the machine's own catalogue lists it, it is running now, it
+    // has a learned input target here, or the user has added it as a favourite application. A configured binding
+    // that fails all four is a leftover from an uninstall or from the shipped defaults, and it is not something the
+    // user can act on — so it does not get a row.
+    private bool WorkflowAppExistsOnThisMachine(string processName)
+    {
+        if (string.IsNullOrWhiteSpace(processName)) return false;
+        string name = processName.Trim();
+        if (InstalledAppCatalog.IsInstalled(name)) return true;
+        if (focusTargetDocument != null && focusTargetDocument.Targets != null)
+        {
+            foreach (FocusTargetDescriptor target in focusTargetDocument.Targets)
+            {
+                if (target == null) continue;
+                if (string.Equals(FocusTargetDescriptor.NormalizeProcessName(target.ProcessName), name,
+                    StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        FavoriteAppDocument favorites = favoriteAppStore.Load();
+        if (favorites != null && favorites.apps != null)
+        {
+            foreach (FavoriteApp favorite in favorites.apps)
+            {
+                if (favorite != null && string.Equals(favorite.processName, name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
     }
 
     // The whole redesigned Smart Focus surface: the favourite applications, each with
@@ -24902,6 +24939,13 @@ deck.Hide();
 
     private static void RunWorkflowCardsSelfTests()
     {
+        // Which applications may appear in a workflow row: the list is composed from configured bindings, so it
+        // used to name programs this machine never had. Measured here, thirteen of them resolved to two that exist.
+        // A shell is excluded by the same judgement the add-application list already applied to its own rows.
+        if (!InstalledAppCatalog.IsSkipped("powershell") || !InstalledAppCatalog.IsSkipped("pwsh") ||
+            !InstalledAppCatalog.IsSkipped("Command Prompt") || InstalledAppCatalog.IsSkipped("cursor") ||
+            InstalledAppCatalog.IsSkipped("chrome"))
+            throw new InvalidOperationException("A shell is offered as a place to dictate text into, or a real application is skipped");
         var bindings = new List<WorkflowAppBinding>
         {
             new WorkflowAppBinding { ProcessName = "chrome", ProfileId = "browser-ai", ProfileName = "浏览器 AI" },

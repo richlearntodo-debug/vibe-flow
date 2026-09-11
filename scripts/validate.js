@@ -1924,7 +1924,25 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The workflow cards belong to the 工作流 page and to nowhere else. They used to be rendered on the self-check
+// The workflow list names applications, so it has to name applications this machine has. It is composed from
+// configured bindings, which outlive an uninstall and include the shipped defaults: measured on this machine,
+// fourteen bindings resolved to four rows once the list was filtered. The catalogue behind the filter is cached
+// because the 工作流 page is rebuilt on every navigation and the scan walks both start-menu roots and the shell
+// AppsFolder; being merely *running* is not treated as installed, because that admitted msedge, cmd and powershell.
+assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
+  "internal static bool IsInstalled(string processName)",
+  "private static void RebuildInstalledCache()",
+  "installedCacheBuiltAt",
+  "Being *running* is deliberately not part of this answer",
+  "internal static bool IsSkipped(string text)",
+  '"powershell", "pwsh"',
+]) && includesAll(app, [
+  "WorkflowAppExistsOnThisMachine",
+  "InstalledAppCatalog.IsSkipped(processName)",
+  "skipped_missing=",
+  "InstalledAppCatalog.IsInstalled(name)",
+  "A shell is offered as a place to dictate text into, or a real application is skipped",
+]), "The workflow list can name applications that are not on this machine again");// The workflow cards belong to the 工作流 page and to nowhere else. They used to be rendered on the self-check
 // page as well, where thirteen bound applications put thirteen four-line blocks — 需要配置 / 缺少工作流 /
 // VF-WORKFLOW-* — above the system checks, on a page whose job is to say whether the components work. The
 // self-check page now must not render them, and the 工作流 page must: one line per application that still needs
