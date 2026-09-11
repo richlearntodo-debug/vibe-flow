@@ -46,10 +46,10 @@ internal sealed partial class VibeMicForm
         {
             case VibePageId.Home: return "首页";
             case VibePageId.Workflow: return "工作流";
-            case VibePageId.Controls: return "按键";
-            case VibePageId.Voice: return "语音听写";
-            case VibePageId.Diagnostics: return "一键自检";
-            case VibePageId.Settings: return "偏好设置";
+            case VibePageId.Controls: return "快捷键";
+            case VibePageId.Voice: return "语音";
+            case VibePageId.Diagnostics: return "自检";
+            case VibePageId.Settings: return "设置";
             default: return "";
         }
     }

@@ -988,7 +988,9 @@ for (const unsupported of ["电源键", "返回键", "音量 +", "音量 -"]) {
 }
 const mappingsPage = section(app, "private void BuildMappingsPage()", "private void BuildMappingsPageV13Legacy()");
 assert(includesAll(mappingsPage, [
-  'AddPageTitle("按键"', "管理遥控器实体键动作；录音键保持独立", "安全直通", "RemoteVisual",
+  // The page title matches the navigation entry ("快捷键"), which is the name the user clicked to get here:
+  // the page used to be titled "按键" while the sidebar said "快捷键", and four of the six pages disagreed that way.
+  'AddPageTitle("快捷键"', "管理遥控器实体键动作；录音键保持独立", "安全直通", "RemoteVisual",
   '"Home:short", "Home:long"',
   "AddFixedVoiceOverviewCard", "ShowMappingActionPicker", "TestMappingAction",
   '"按住听写 · 松开结束"', 'config.smartProfilesEnabled ? "回退 Profile" : "当前 Profile"', "录制键盘快捷键",
@@ -1956,7 +1958,33 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The settings page's key-source card used to assert device-level isolation unconditionally — a checked box
+// P1 of the design review: one type scale, page titles that match the navigation, and one meaning per status
+// colour.
+//
+// Fonts: the smallest UI text was 7.1-7.9 pt — roughly 10 px at 100% — which is below a comfortable reading size
+// and got worse on a higher-resolution screen. Every 7.x label is now 8.0 pt; the only remaining 7.x is the
+// decorative "xiaomi" mark drawn on the remote illustration, which is artwork rather than text.
+// Titles: four of the six pages disagreed with the name the user clicked in the sidebar (按键/语音听写/一键自检/
+// 偏好设置 against 快捷键/语音/自检/设置). The live pages and ExpectedPageTitle now agree.
+// Colour: the wizard marked a completed step with an amber dot and an exclamation mark captioned 进度已保存，待复核,
+// so a finished step looked like a problem. Completed steps are green with a tick and the caption 进度已保存, which
+// still claims only that progress was saved; amber is left for what needs the user's attention.
+assert(includesAll(app, [
+  'AddPageTitle("快捷键", "管理遥控器实体键动作；录音键保持独立");',
+  'AddPageTitle("语音", "遥控器负责收音；转写与整理能力由所选工具设置");',
+  'AddPageTitle("自检", "逐项说明正确状态、当前状态、原因和修复入口");',
+  'AddPageTitle("设置", "让言灵按你的习惯在后台运行");',
+  '(verified || saved) ? "✓" : (i + 1).ToString()',
+  'saved ? "\\r\\n进度已保存" : ""',
+]) && includesAll(read("scripts/ui/PageShell.cs"), [
+  'case VibePageId.Controls: return "快捷键";', 'case VibePageId.Voice: return "语音";',
+  'case VibePageId.Diagnostics: return "自检";', 'case VibePageId.Settings: return "设置";',
+]) &&
+  // The literal, not the prose: the comment explaining this change quotes the old caption.
+  !app.includes('"\\r\\n进度已保存，待复核"') &&
+  !app.includes("7.9f") && !app.includes("7.8f") &&
+  !app.includes("7.6f") && !app.includes("7.4f") && !app.includes("7.3f") && !app.includes("7.1f"),
+  "A page title disagrees with the navigation, a status colour has two meanings, or 7.x pt UI text came back");// The settings page's key-source card used to assert device-level isolation unconditionally — a checked box
 // reading "只有带 RC003 身份的事件可以执行遥控器动作" — while the badge and the note in the same card said the
 // opposite ("言灵不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
 // four parts of that card agree. A checked box promising what the same card denies is worse than saying nothing.
@@ -2340,7 +2368,7 @@ assert(includesAll(browserRemoteLiteForm + app, [
   'AutoScaleMode = AutoScaleMode.Dpi', 'AutoScroll = true', '录音键、Home、TV',
 ]), "Browser Remote Lite is missing difference, explicit apply/undo, per-action test, or DPI UI");
 assert(!app.includes("当前页面不会启动应用") &&
-  controlsPage.includes('AddPageTitle("按键"'),
+  controlsPage.includes('AddPageTitle("快捷键"'),
   "The five-page shell exposes internal safety wording or an inconsistent Controls title");
 assert(includesAll(hostBuild, [
   '"%~dp0scripts\\features\\ActionResult.cs"',

@@ -5025,7 +5025,7 @@ deck.Hide();
         logo.Size = new Size(48, 48);
 
         var brand = NewLabel("言灵", 19f, FontStyle.Bold, ink);
-        var sub = NewLabel("VIBE FLOW · V" + ProductRelease, 7.4f, FontStyle.Bold, violet);
+        var sub = NewLabel("VIBE FLOW · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
         sub.Margin = new Padding(2, 0, 0, 0);
 
         var navigation = new FlowLayoutPanel();
@@ -7160,7 +7160,7 @@ deck.Hide();
 
     private void BuildVoicePage()
     {
-        AddPageTitle("语音听写", "遥控器负责收音；转写与整理能力由所选工具设置");
+        AddPageTitle("语音", "遥控器负责收音；转写与整理能力由所选工具设置");
         // The redesigned Smart Focus surface comes first: the one thing a new user must set.
         int favoriteCardHeight = 0;
         var card = NewCard(new Point(34, 116 + favoriteCardHeight), new Size(960, 716));
@@ -7508,7 +7508,7 @@ deck.Hide();
         content.AutoScrollMinSize = new Size(1000, 116 + FavoriteAppsCardHeight() + 1066 + 60);
         BridgeHealthSnapshot mappingHealth = ReadKeyboardBridgeHealth();
         bool exactDeviceIsolation = mappingHealth.FilterHealthy;
-        AddPageTitle("按键", "管理遥控器实体键动作；录音键保持独立");
+        AddPageTitle("快捷键", "管理遥控器实体键动作；录音键保持独立");
 
         var header = NewCard(new Point(34, 100), new Size(960, 204));
         var headerTitle = NewLabel("快捷键 Profile", 14f, FontStyle.Bold, ink);
@@ -8729,7 +8729,7 @@ deck.Hide();
         title.Location = new Point(12, 8);
         title.Size = new Size(126, 23);
         string statusText = observed ? "● 已识别" : requiresHardwareReport ? "● 待识别" : "● 可配置";
-        var status = NewLabel(statusText, 7.8f, FontStyle.Bold,
+        var status = NewLabel(statusText, 8.0f, FontStyle.Bold,
             observed ? green : requiresHardwareReport ? amber : muted);
         status.Location = new Point(142, 8);
         status.Size = new Size(130, 23);
@@ -8869,7 +8869,7 @@ deck.Hide();
         var title = NewLabel("录音键", 9.5f, FontStyle.Bold, ink);
         title.Location = new Point(12, 8);
         title.Size = new Size(126, 23);
-        var fixedState = NewLabel("固定稳定链路", 7.8f, FontStyle.Bold, violet);
+        var fixedState = NewLabel("固定稳定链路", 8.0f, FontStyle.Bold, violet);
         fixedState.Location = new Point(142, 8);
         fixedState.Size = new Size(130, 23);
         fixedState.TextAlign = ContentAlignment.MiddleRight;
@@ -9436,7 +9436,7 @@ deck.Hide();
         mappingSelection.TextAlign = ContentAlignment.MiddleCenter;
         mappingSelection.BackColor = Color.FromArgb(243, 241, 255);
         ApplyRoundedRegion(mappingSelection, 6);
-        var previewHelp = NewLabel("返回、独立音量和开机键需由遥控器真实上报。\r\n若设备不支持，自检会明确显示。", 7.8f, FontStyle.Regular, amber);
+        var previewHelp = NewLabel("返回、独立音量和开机键需由遥控器真实上报。\r\n若设备不支持，自检会明确显示。", 8.0f, FontStyle.Regular, muted);
         previewHelp.Location = new Point(24, 526);
         previewHelp.Size = new Size(276, 46);
         previewHelp.TextAlign = ContentAlignment.MiddleCenter;
@@ -10076,7 +10076,7 @@ deck.Hide();
     }
     private void BuildDevicePage()
     {
-        AddPageTitle("一键自检", "逐项说明正确状态、当前状态、原因和修复入口");
+        AddPageTitle("自检", "逐项说明正确状态、当前状态、原因和修复入口");
         SelfCheckReport report = BuildSelfCheckReport();
         // The per-application workflow used to be a card here as well, and with thirteen bound applications it put
         // thirteen four-line blocks — 需要配置 / 缺少工作流 / VF-WORKFLOW-* — above the system checks, on a page whose
@@ -10176,7 +10176,7 @@ deck.Hide();
         logBox.BorderStyle = BorderStyle.FixedSingle;
         logBox.BackColor = inputBackground;
         logBox.ForeColor = muted;
-        logBox.Font = new Font("Consolas", 7.8f);
+        logBox.Font = new Font("Consolas", 8.0f);
         logBox.Text = LoadRecentDiagnostics();
         var copy = PrimaryButton("复制问题摘要", new Point(24, 230), new Size(138, 38));
         copy.Click += delegate
@@ -10286,7 +10286,7 @@ deck.Hide();
         logBox.BorderStyle = BorderStyle.FixedSingle;
         logBox.BackColor = Color.FromArgb(246, 249, 253);
         logBox.ForeColor = muted;
-        logBox.Font = new Font("Consolas", 7.8f);
+        logBox.Font = new Font("Consolas", 8.0f);
         logBox.Text = LoadRecentDiagnostics();
         var openLogs = SecondaryButton("打开日志", new Point(22, 414), new Size(108, 36));
         openLogs.Click += delegate { OpenLogFolder(); };
@@ -10310,7 +10310,7 @@ deck.Hide();
     private void BuildSettingsPage()
     {
         content.AutoScrollMinSize = new Size(1000, 1092);
-        AddPageTitle("偏好设置", "让言灵按你的习惯在后台运行");
+        AddPageTitle("设置", "让言灵按你的习惯在后台运行");
         var startupCard = NewCard(new Point(34, 100), new Size(580, 360));
         startupCard.Controls.Add(SectionTitle("启动与窗口", "\uE713", new Point(28, 22)));
         Label startupState = null;
@@ -13337,7 +13337,7 @@ deck.Hide();
                 var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(78, 21);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW · V" + ProductRelease, 7.1f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE FLOW · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(79, 52);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -13534,13 +13534,18 @@ deck.Hide();
                         bool verified = visualState == "verified";
                         bool saved = visualState == "saved";
                         bool current = visualState == "current";
-                        numberLabels[i].Text = verified ? "✓" : saved ? "!" : (i + 1).ToString();
+                        // A step that was completed and saved reads as done, in the same green as a step verified in
+                        // this session. It used to be amber with an exclamation mark and the caption 进度已保存，待复核,
+                        // which made a finished step look like a problem at the top of the wizard. The caption still
+                        // says only that progress was saved — it never claims the step was verified — and the step's
+                        // own page re-checks its evidence when it is opened, so nothing is over-stated.
+                        numberLabels[i].Text = (verified || saved) ? "✓" : (i + 1).ToString();
                         numberLabels[i].ForeColor = verified || saved || current ? Color.White : muted;
-                        numberLabels[i].BackColor = verified ? green : saved ? amber : current ? violet :
+                        numberLabels[i].BackColor = verified ? green : saved ? green : current ? violet :
                             (darkTheme ? surfaceBackground : Color.FromArgb(237, 240, 248));
-                        progressLabels[i].Text = stepNames[i] + (saved ? "\r\n进度已保存，待复核" : "");
-                        progressLabels[i].Size = new Size(146, saved ? 44 : 28);
-                        progressLabels[i].ForeColor = current ? violet : verified ? green : saved ? amber : muted;
+                        progressLabels[i].Text = stepNames[i] + (saved ? "\r\n进度已保存" : "");
+                        progressLabels[i].Size = new Size(146, 28);
+                        progressLabels[i].ForeColor = current ? violet : verified ? green : saved ? green : muted;
                         progressLabels[i].Font = new Font("Microsoft YaHei UI", 9f,
                             current ? FontStyle.Bold : FontStyle.Regular);
                     }
@@ -14228,7 +14233,7 @@ deck.Hide();
                 var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(78, 21);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW REMOTE · V" + ProductRelease, 7.3f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE FLOW REMOTE · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(80, 52);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -14911,7 +14916,7 @@ deck.Hide();
                 var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(82, 26);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW REMOTE · V1", 7.3f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE FLOW REMOTE · V1", 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(84, 56);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -16880,20 +16885,20 @@ deck.Hide();
         state.Location = new Point(564, 5);
         state.Size = new Size(126, 24);
         state.TextAlign = ContentAlignment.MiddleRight;
-        var expected = NewLabel("正确状态：" + item.Expected, 7.9f, FontStyle.Regular, muted);
+        var expected = NewLabel("正确状态：" + item.Expected, 8.0f, FontStyle.Regular, muted);
         expected.Location = new Point(50, 29);
         expected.Size = new Size(690, 19);
         expected.AutoEllipsis = true;
-        var actual = NewLabel("当前状态：" + item.Actual, 7.9f, FontStyle.Bold, item.State == "fail" ? coral : ink);
+        var actual = NewLabel("当前状态：" + item.Actual, 8.0f, FontStyle.Bold, item.State == "fail" ? coral : ink);
         actual.Location = new Point(50, 48);
         actual.Size = new Size(690, 19);
         actual.AutoEllipsis = true;
         var cause = NewLabel("原因" + (item.State == "pass" ? "" : " [" + item.ErrorCode + "]") +
-            "：" + item.Cause, 7.9f, FontStyle.Regular, muted);
+            "：" + item.Cause, 8.0f, FontStyle.Regular, muted);
         cause.Location = new Point(50, 67);
         cause.Size = new Size(690, 19);
         cause.AutoEllipsis = true;
-        var nextStep = NewLabel("下一步：" + item.NextStep, 7.9f, FontStyle.Bold, statusColor);
+        var nextStep = NewLabel("下一步：" + item.NextStep, 8.0f, FontStyle.Bold, statusColor);
         nextStep.Location = new Point(50, 85);
         nextStep.Size = new Size(690, 19);
         nextStep.AutoEllipsis = true;
@@ -26332,7 +26337,7 @@ internal sealed class RemoteVisual : Control
             using (var dot = new SolidBrush(Color.FromArgb(highlighted ? 220 : 120, color)))
                 g.FillEllipse(dot, targetX - 2, targetY - 2, 4, 4);
         }
-        using (var font = new Font("Microsoft YaHei UI", 7.6f, highlighted ? FontStyle.Bold : FontStyle.Regular))
+        using (var font = new Font("Microsoft YaHei UI", 8.0f, highlighted ? FontStyle.Bold : FontStyle.Regular))
         using (var brush = new SolidBrush(color)) g.DrawString(text, font, brush, textX, textY);
     }
 
