@@ -13477,6 +13477,21 @@ deck.Hide();
                         device.Location = new Point(8, 458);
                         device.Size = new Size(650, 30);
                         pageContent.Controls.Add(device);
+                        // Stated here rather than only on the home page: while the device-level filter is not
+                        // healthy the record key can reach the foreground application, and a first-run user
+                        // should not have to discover that from a badge on a later screen. Shown only when that
+                        // is actually the case; measured afterwards, this step still reports no overlapping or
+                        // clipped controls.
+                        if (!ReadKeyboardBridgeHealth().FilterHealthy)
+                        {
+                            var keyIsolation = NewLabel(
+                                "!  录音键当前为安全直通：前台应用可能同时收到录音键；设备级精确隔离仍在开发中。",
+                                8.6f, FontStyle.Bold, amber);
+                            keyIsolation.Name = "onboardingKeyIsolationNotice";
+                            keyIsolation.Location = new Point(8, 494);
+                            keyIsolation.Size = new Size(690, 28);
+                            pageContent.Controls.Add(keyIsolation);
+                        }
                     }
                     else if (currentStep == 1)
                     {

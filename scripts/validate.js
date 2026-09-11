@@ -379,7 +379,15 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// The release checklist is the artifact a release decision is reviewed against, so it has to exist and has to
+// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
+// device-level filter is not healthy the record key can reach whatever application is in front, and this is the
+// project's top release concern. It is shown only when that is actually the case, and the step was captured after
+// the change to confirm the line renders and the rest of the step is unchanged.
+assert(includesAll(app, [
+  '"onboardingKeyIsolationNotice"',
+  "录音键当前为安全直通：前台应用可能同时收到录音键；设备级精确隔离仍在开发中。",
+  "if (!ReadKeyboardBridgeHealth().FilterHealthy)",
+]), "The setup wizard no longer states the key-isolation status");// The release checklist is the artifact a release decision is reviewed against, so it has to exist and has to
 // keep saying the two things that are easy to lose: what was measured, and what was not.
 assert(includesAll(read("docs/V2_0_RELEASE_CHECKLIST_ZH.md"), [
   "已实测通过",
