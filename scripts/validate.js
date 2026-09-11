@@ -1924,11 +1924,24 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
+// The workflow cards belong to the 工作流 page and to nowhere else. They used to be rendered on the self-check
+// page as well, where thirteen bound applications put thirteen four-line blocks — 需要配置 / 缺少工作流 /
+// VF-WORKFLOW-* — above the system checks, on a page whose job is to say whether the components work. The
+// self-check page now must not render them, and the 工作流 page must: one line per application that still needs
+// something, the action taken from the card model, dispatched through the same handler.
 assert(includesAll(app, [
-  "BuildCurrentWorkflowCards", "BuildWorkflowCardItems", "WORKFLOW CARDS cards=",
-  "WorkflowCards.Summarize(workflowCards)", '"应用工作流"',
+  "BuildCurrentWorkflowCards", "WORKFLOW CARDS cards=",
+  "WorkflowCards.Summarize(cards)", '"应用工作流"',
+  "BuildWorkflowStatusCard", "AddWorkflowStatusRow", "HandleSelfCheckAction(card.Action)",
   'else if (action == "workflow-profile")', 'else if (action == "workflow-target")',
-]), "The Host does not surface workflow cards or their one-click fixes");
+]) && !app.includes("AddSelfCheckRow(workflows") &&
+  !app.includes("WorkflowCards.Summarize(workflowCards)") &&
+  !app.includes("BuildWorkflowCardItems("),
+  "Workflow cards are no longer surfaced on the 工作流 page only, or came back to the self-check page");
+assert(includesAll(read("scripts/features/WorkflowCards.cs"), [
+  'case GapNoTarget: return "还没学习";',
+  'case GapTargetUnverified: return "已学习未验证";',
+]), "The workflow state labels read as faults again instead of as progress");
 assert(includesAll(focusTargetService, [
   "SelectVoiceTarget", "FindTargetById",
 ]) && !/WindowTitle|BoundingRectangle|DocumentRange/.test(
@@ -2068,10 +2081,13 @@ assert(includesAll(app, [
   "RunWorkflowCardsSelfTests", "A workflow card without an input target was not reported truthfully",
   "The workflow summary does not match the composed cards", "ShortGapLabel",
 ]), "The workflow-card composition is not pinned by the host self-test");
-// The workflow section is rendered above the ten environment checks, so the count
-// gate for the self-check list must stay exact.
-assert(includesAll(app, ["int checksY = 302 + workflowHeight;", "workflowRows.Count == 0 ? 0 : 66 + workflowRows.Count * 112"]),
-"The workflow section does not shift the environment checks without changing their count");
+// The environment checks now start at the top of the self-check page: the workflow section that used to sit
+// above them is gone from this page, so nothing shifts them and the count gate for that list stays exact.
+assert(includesAll(app, [
+  "int checksY = 302;", "int checksHeight = 66 + report.Items.Count * 112;",
+  "int diagnosticsY = checksY + checksHeight;",
+]) && !app.includes("workflowHeight"),
+  "The self-check page still reserves space for the workflow section, or lost the checks it reports");
 assert(hostBuild.includes('"%~dp0scripts\\features\\AudioEndpointService.cs"'),
   "The Host build does not compile the audio-endpoint capability");
 assert(includesAll(app, [

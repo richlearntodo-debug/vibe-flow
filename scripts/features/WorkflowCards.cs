@@ -244,16 +244,18 @@ internal static class WorkflowCards
         return cards;
     }
 
-    // A short label for the summary line: the long description belongs to the card.
+    // A short label for the summary line: the long description belongs to the card. Phrased as progress rather
+    // than as faults — an application whose workflow has not been learned yet is the normal starting point, not an
+    // error, and this label is now what a user reads on the 工作流 page for each application that still needs one.
     internal static string ShortGapLabel(string gap)
     {
         switch (gap)
         {
-            case GapNoProfile: return "缺少键位 Profile";
-            case GapNoTarget: return "缺少工作流";
-            case GapTargetUnverified: return "工作流未验证";
+            case GapNoProfile: return "还没选择键位";
+            case GapNoTarget: return "还没学习";
+            case GapTargetUnverified: return "已学习未验证";
             case GapProviderNotRunning: return "语音工具未运行";
-            case GapNeverObserved: return "尚未真实验证";
+            case GapNeverObserved: return "还没真实验证";
             default: return "需要确认";
         }
     }

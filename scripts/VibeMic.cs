@@ -7056,7 +7056,95 @@ deck.Hide();
         hint.Location = new Point(40, 100 + FavoriteAppsCardHeight() + 16);
         hint.Size = new Size(900, 26);
         content.Controls.Add(hint);
-        content.AutoScrollMinSize = new Size(1000, 160 + FavoriteAppsCardHeight());
+        int statusY = 100 + FavoriteAppsCardHeight() + 60;
+        int statusHeight = BuildWorkflowStatusCard(content, statusY);
+        content.AutoScrollMinSize = new Size(1000, statusY + statusHeight + 40);
+    }
+
+    // The per-application workflow status, and the only place it appears.
+    //
+    // It reads as a list of what still needs doing rather than a list of faults: applications that are ready are
+    // counted in the summary line and not listed, and each remaining application takes one line — its name, the
+    // one thing it is missing, and the single action that moves it forward — instead of the four-line block
+    // (正确状态 / 当前状态 / 原因 [VF-WORKFLOW-…] / 下一步) it used to occupy on the self-check page.
+    private int BuildWorkflowStatusCard(Control page, int y)
+    {
+        List<WorkflowCard> cards = BuildCurrentWorkflowCards();
+        var pending = new List<WorkflowCard>();
+        foreach (WorkflowCard card in cards)
+        {
+            if (!card.IsReady) pending.Add(card);
+        }
+        int height = pending.Count == 0 ? 118 : 60 + pending.Count * 52;
+        var surface = NewCard(new Point(34, y), new Size(960, height));
+        surface.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        surface.Controls.Add(SectionTitle("应用工作流", "\uE71D", new Point(24, 18)));
+        var summary = NewLabel(WorkflowCards.Summarize(cards), 8.7f, FontStyle.Regular, muted);
+        summary.Location = new Point(340, 21);
+        summary.Size = new Size(590, 24);
+        summary.TextAlign = ContentAlignment.MiddleRight;
+        surface.Controls.Add(summary);
+        if (pending.Count == 0)
+        {
+            var done = NewLabel(cards.Count == 0
+                ? "还没有应用工作流：在「快捷键 → Smart Profiles」里为一个本机应用选择键位 Profile，然后回来学习它的工作流。"
+                : "所有应用的键位、工作流与语音工具都已就绪，无需处理。", 9f, FontStyle.Regular, ink);
+            done.Location = new Point(24, 62);
+            done.Size = new Size(900, 26);
+            surface.Controls.Add(done);
+        }
+        else
+        {
+            for (int i = 0; i < pending.Count; i++) AddWorkflowStatusRow(surface, pending[i], 54 + i * 52);
+        }
+        page.Controls.Add(surface);
+        return height;
+    }
+
+    // One application, one line. The state chip and the action both come from the card model, so the line cannot
+    // claim something the model does not say, and the action is the same dispatcher the self-check page used.
+    private void AddWorkflowStatusRow(Control parent, WorkflowCard card, int y)
+    {
+        var row = new Panel();
+        row.Location = new Point(18, y);
+        row.Size = new Size(924, 44);
+        row.BackColor = Color.Transparent;
+        row.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            using (var pen = new Pen(line)) e.Graphics.DrawLine(pen, 0, row.Height - 1, row.Width, row.Height - 1);
+        };
+        string gap = card.Gaps.Count > 0 ? card.Gaps[0] : "";
+        bool unverified = string.Equals(gap, WorkflowCards.GapTargetUnverified, StringComparison.Ordinal);
+        Color statusColor = card.State == "pass" ? green : unverified ? cyan : amber;
+        var mark = NewLabel(card.State == "pass" ? "✓" : unverified ? "…" : "·", 9f, FontStyle.Bold, Color.White);
+        mark.Location = new Point(4, 9);
+        mark.Size = new Size(26, 26);
+        mark.TextAlign = ContentAlignment.MiddleCenter;
+        mark.BackColor = statusColor;
+        ApplyRoundedRegion(mark, 13);
+        var title = NewLabel(card.Title, 9.4f, FontStyle.Bold, ink);
+        title.Location = new Point(42, 3);
+        title.Size = new Size(290, 22);
+        title.AutoEllipsis = true;
+        var state = NewLabel(WorkflowCards.ShortGapLabel(gap), 8.4f, FontStyle.Bold, statusColor);
+        state.Location = new Point(342, 3);
+        state.Size = new Size(200, 22);
+        var detail = NewLabel(card.Actual, 8f, FontStyle.Regular, muted);
+        detail.Location = new Point(42, 24);
+        detail.Size = new Size(660, 19);
+        detail.AutoEllipsis = true;
+        row.Controls.Add(mark);
+        row.Controls.Add(title);
+        row.Controls.Add(state);
+        row.Controls.Add(detail);
+        if (!string.IsNullOrEmpty(card.Action))
+        {
+            var action = SecondaryButton(card.ActionText, new Point(762, 3), new Size(144, 38));
+            action.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Bold);
+            action.Click += delegate { HandleSelfCheckAction(card.Action); };
+            row.Controls.Add(action);
+        }
+        parent.Controls.Add(row);
     }
 
     private void BuildVoicePage()
@@ -9529,18 +9617,6 @@ deck.Hide();
         return cards;
     }
 
-    private static List<SelfCheckItem> BuildWorkflowCardItems(IList<WorkflowCard> cards)
-    {
-        var items = new List<SelfCheckItem>();
-        if (cards == null) return items;
-        foreach (WorkflowCard card in cards)
-        {
-            items.Add(new SelfCheckItem("workflow-" + card.ProcessName.ToLowerInvariant(), card.Title,
-                card.State, card.Expected, card.Actual, card.Cause, card.NextStep, card.ActionText, card.Action));
-        }
-        return items;
-    }
-
     // The whole redesigned Smart Focus surface: the favourite applications, each with
     // one click. Everything else (targets, strategies, descriptors) stays in the back.
     private int FavoriteAppsCardHeight()
@@ -9954,10 +10030,12 @@ deck.Hide();
     {
         AddPageTitle("一键自检", "逐项说明正确状态、当前状态、原因和修复入口");
         SelfCheckReport report = BuildSelfCheckReport();
-        List<WorkflowCard> workflowCards = BuildCurrentWorkflowCards();
-        List<SelfCheckItem> workflowRows = BuildWorkflowCardItems(workflowCards);
-        int workflowHeight = workflowRows.Count == 0 ? 0 : 66 + workflowRows.Count * 112;
-        int checksY = 302 + workflowHeight;
+        // The per-application workflow used to be a card here as well, and with thirteen bound applications it put
+        // thirteen four-line blocks — 需要配置 / 缺少工作流 / VF-WORKFLOW-* — above the system checks, on a page whose
+        // job is to report whether the components work. It now lives on the 工作流 page, one line per application
+        // and only for the ones that still need something (BuildWorkflowStatusCard), which is also the only page
+        // that can act on it.
+        int checksY = 302;
         int checksHeight = 66 + report.Items.Count * 112;
         int diagnosticsY = checksY + checksHeight;
         content.AutoScrollMinSize = new Size(1000, diagnosticsY + 326);
@@ -10011,22 +10089,6 @@ deck.Hide();
             item.Location = new Point(30 + i * 174, 14);
             item.Size = new Size(150, 24);
             legend.Controls.Add(item);
-        }
-
-        if (workflowHeight > 0)
-        {
-            // Placed above the environment checks: composition (which app uses which
-            // Profile and which input target) is what the user came to verify.
-            var workflows = NewCard(new Point(34, 302), new Size(960, workflowHeight));
-            workflows.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-            workflows.Controls.Add(SectionTitle("应用工作流", "\uE71D", new Point(24, 18)));
-            var workflowHint = NewLabel(WorkflowCards.Summarize(workflowCards), 8.7f, FontStyle.Regular, muted);
-            workflowHint.Location = new Point(360, 21);
-            workflowHint.Size = new Size(570, 24);
-            workflowHint.TextAlign = ContentAlignment.MiddleRight;
-            workflows.Controls.Add(workflowHint);
-            for (int i = 0; i < workflowRows.Count; i++) AddSelfCheckRow(workflows, workflowRows[i], 54 + i * 112);
-            content.Controls.Add(workflows);
         }
 
         var checks = NewCard(new Point(34, checksY), new Size(960, checksHeight));
