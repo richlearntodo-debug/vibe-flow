@@ -594,7 +594,11 @@ internal static class VoxDeckInputBridge
         bool keyUp = (input.Flags & Rc003FilterProtocol.KeyBreak) != 0;
         int virtualKey = VirtualKeyFromRc003FilterEvent(input.MakeCode, input.Flags);
         ShortcutMapping mapping = FindRc003FilterMapping(virtualKey, input.MakeCode);
-        if (mapping == null && IsVoiceRawCandidate(virtualKey, input.MakeCode))
+        // A disabled mapping must not block the record fallback. The power key and the record key share the raw form
+        // VK 0xFF / scan 0x5E — RC003 has emitted the power form in place of F5 across Bluetooth reconnects, and this
+        // machine's own bridge log shows the microphone arriving that way. So an *unassigned* power key leaves the
+        // record fallback exactly as it was; once the user assigns it an action the mapping is enabled and wins.
+        if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(virtualKey, input.MakeCode))
             mapping = FindVoiceMapping();
         bool isVoice = IsVoiceMapping(mapping);
 
@@ -3220,7 +3224,9 @@ internal static class VoxDeckInputBridge
                 // low-level hook only suppresses the matching legacy event or
                 // replays an unconfirmed physical-keyboard event unchanged.
                 ShortcutMapping mapping = FindRc003FilterMapping(keyboard.VKey, keyboard.MakeCode);
-                if (mapping == null && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
+                // Same rule as the filter path: an unassigned (disabled) power key hands the shared raw form 0xFF/0x5E
+                // back to the record fallback, so a microphone that reports that way keeps working.
+                if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
                 {
                     ShortcutMapping fallbackVoice = FindVoiceMapping();
                     if (fallbackVoice != null && fallbackVoice.enabled)

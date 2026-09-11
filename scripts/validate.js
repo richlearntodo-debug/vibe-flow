@@ -1102,19 +1102,21 @@ assert(includesAll(app, [
 // key. IsVoiceRawCandidate treats that pair as a raw form of the microphone key, because RC003 has emitted the power
 // form in place of F5 across Bluetooth reconnects.
 //
-// The escape is that the fallback only runs when no mapping matched. FindMapping does not consult `enabled`: it
-// returns whenever vk and scan match, so with a power mapping in the table the key routes to it and never reaches the
-// voice fallback — unassigned it does nothing, assigned it runs and Windows is suppressed. This pins the ordering that
-// makes that true, because a fallback that jumped ahead of the mapping would take the key back.
+// The escape is that the fallback only runs when no *enabled* mapping matched. FindMapping does not consult `enabled`
+// — it returns whenever vk and scan match — so the rule lives at the two call sites: a disabled mapping must not block
+// the record fallback. That is what keeps a microphone that reports as 0xFF/0x5E after a reconnect working, while an
+// assigned (hence enabled) power key outranks the fallback and never reaches it. My first version of this fix made the
+// power mapping win even when unassigned, which would have broken the microphone path; the check below is the
+// corrected rule, and a fallback that ignored `enabled` again would take the key back.
 assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
-  "if (mapping == null && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
-  "if (mapping == null && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
+  "if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
+  "if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
   "return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);",
   "if (expectedScan < 0 || expectedScan == scanCode)",
 ]) && includesAll(app, [
   // The power mapping has to exist for the mapping to win over the fallback at all.
   'ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "power", "电源键", "0xFF", "0x5E",',
-]), "The record-key fallback can take the power key again, or the power mapping that outranks it is gone");// Why the power key did nothing even after being assigned an action: the profile projection rebuilds the mapping
+]), "The record-key fallback can take the power key again, the shared raw form can be stolen back, or the power mapping is gone");// Why the power key did nothing even after being assigned an action: the profile projection rebuilds the mapping
 // table from a fixed key list, and 电源键 was not in it. An assignment was therefore rebuilt away on the next
 // projection, GetBridgeMapping fell back to the key's default, and the generated mapping stayed passthrough for ever.
 // Two places carry the key now, and the default is "none" on purpose: an unassigned power key must leave Windows'
