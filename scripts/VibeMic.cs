@@ -7821,12 +7821,15 @@ deck.Hide();
         AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",
             "TV", "", false);
 
-        // The power key is mappable now, so it is no longer named among the unsupported controls. Back and the volume
-        // keys still are: those are what MiVibe-Remote needed an administrator helper and a three-key calibration for.
-        var capabilityNote = NewLabel("电源键可配置；返回与独立音量键在 Windows 下无稳定事件，不提供映射。APP、网页与截图请绑定到可配置按键。",
+        // The power key is mappable now, so it is no longer named among the unsupported controls, and the note says
+        // what a user has to do for it to take effect: an unassigned power key is left to Windows, which on the tested
+        // remote does nothing on a tap. Back and the volume keys still are unsupported: MiVibe-Remote measured that
+        // they never reach Windows' ordinary input stack — no Raw Input, no translated key event, no WM_APPCOMMAND —
+        // so supporting them would need a HID-level helper, which this version does not ship.
+        var capabilityNote = NewLabel("电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。APP、网页与截图请绑定到可配置按键。",
             8.0f, FontStyle.Regular, muted);
-        capabilityNote.Location = new Point(330, 892);
-        capabilityNote.Size = new Size(300, 42);
+        capabilityNote.Location = new Point(330, 886);
+        capabilityNote.Size = new Size(300, 54);
         capabilityNote.TextAlign = ContentAlignment.MiddleCenter;
 
         canvas.Controls.Add(canvasTitle);

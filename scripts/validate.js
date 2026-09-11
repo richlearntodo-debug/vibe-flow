@@ -1117,7 +1117,8 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",',
   '"电源键", "", false);',
-  '电源键可配置；返回与独立音量键在 Windows 下无稳定事件，不提供映射。',
+  // The note also has to say what makes the key take effect, because an unassigned power key is left to Windows.
+  '电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。',
 ]) && !app.includes("开机、返回和独立音量键在 Windows 下无稳定事件"),
   "The power key has no card on the shortcut page, or the page still calls it unsupported");// The remote's power key (RC003). MiVibe-Remote proves it is reachable: Windows delivers it as the ACPI power key,
 // VK 0xFF / scan code E0 5E, and MiVibe reaches it by remapping that scan code system-wide — which needs
