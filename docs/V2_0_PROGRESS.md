@@ -3261,3 +3261,30 @@ capture: frames=569 audio_ms=8535 max_gap_ms=74 queue_drops=0 sink_queue_drops=0
 ### 本轮改动文件
 
 `scripts/VibeMic.cs`（picker 重建顺序 + `RunningApplicationLabel`/`IsExecutableFileName` + self-test 断言）、`scripts/features/InstalledAppCatalog.cs`（`IconForExecutable`/`ExecutableForProcess`/`DescribeExecutable`/`LoadShellImage` + 按进程名与 AUMID 反查去重）、`scripts/features/FocusTargetService.cs`（`ExcludedProcesses` 补入产品自身进程）、`scripts/validate.js`（3 条新门禁）、`CHANGELOG.md`、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`。
+
+## 2026-09-11 DPI 矩阵：先把工具做出来，顺手抓到两处真碰撞
+
+### 做出来的工具：`scripts/check-ui-geometry.ps1`（已入库）
+
+启动 `--ui-smoke` → 逐个点击 6 个导航项 → 枚举控件矩形 → 报告**同父控件里两个带文字的控件相交**的情况 → 每页存一张 PNG（`PrintWindow`，不抓桌面）。重叠时退出码为 1。
+
+三条设计决定（都踩过）：
+
+1. **只比"兄弟"控件**。父子重叠是正常的，一刀切"任意两个控件不得相交"会报出几百个假阳性——第一版就是这么被淹没的。
+2. **`EnumChildWindows` 已经枚举全部后代**，不是只枚举直接子窗口。第一版我又对每个返回值递归，于是每个控件被按祖先个数重复计数：首页报了 **491 个"重叠"**，全是同一个控件和自己。改成一次调用后立刻变成真实数量。
+3. 中文按钮文案用 `[char]` 码点拼，脚本保持纯 ASCII（无 BOM 的 `.ps1` 会被 5.1 按 ANSI 读，中文字面量会把解析器带崩）。
+
+### 100% 基线下抓到两处真碰撞（已修，修完 6 页全部 0）
+
+| 页面 | 碰撞 | 根因（坐标算术） | 修法 |
+| --- | --- | --- | --- |
+| 语音 | 绿色 `✓ CABLE Input（播放端）已检测 ✓ CABLE Output（录音端）已检测` 与灰色 `当前播放端点：…` **重叠 6 px** | `cableState` y482 高 26 → 482–508；`cableEndpoint` y502 高 20 → 502–522 | 状态行高 26→24、端点行 y502→506 高 20→18，两行恰好 482–524，接回下面的按钮行（524） |
+| 设置 | `安全检查更新` 按钮与右侧产品信息标签 **重叠 10 px** | 按钮 x576 宽 124 → 576–700；标签 x690 → 690–928 | 按钮宽 124→108（576–684）、标签 x690→694 |
+
+这两处**不是高 DPI 才出现的问题**——100% 下就存在，只是在四档扫描里才会被系统性发现。修完 `scripts/check-ui-geometry.ps1` 退出码 0、6 页全 0，并已把两处坐标钉进门禁（长期守卫仍是那个脚本本身）。
+
+### 缩放实测进度（诚实记录）
+
+- 用户第一次改为 125% 后，**系统层仍是 100%**：`GetDpiForMonitor(MDT_EFFECTIVE_DPI)=96`、`GetDpiForSystem=96`、且 `HKCU\Control Panel\Desktop\PerMonitorSettings` 键**根本不存在**（改过就会留下 `DpiValue`）。所以那一轮的数据只是重复了 100% 基线，不能算 125% 的证据。
+- 教训：**不要凭"用户说改了"就当成改了**——系统层读一次成本极低，而把 100% 的数据标成 125% 会污染整个矩阵。
+- 已修正路径提示（Windows 11：设置 → 系统 → 「屏幕」→ 缩放与布局 → 缩放；不是"辅助功能 → 文本大小"，后者只改字号不改 DPI）并请用户重试。**125%/150%/200% 三档仍待采集**。

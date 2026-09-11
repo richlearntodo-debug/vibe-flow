@@ -55,6 +55,7 @@ const requiredFiles = [
   "scripts/features/UsageStatsPolicy.cs",
   "scripts/features/SnippetStore.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
+  "scripts/check-ui-geometry.ps1",
   "scripts/ui/LiveHudForm.cs",
   "scripts/ui/ContextDeckForm.cs",
   "scripts/ui/CaptureAskForm.cs",
@@ -851,6 +852,27 @@ assert(includesAll(read("scripts/features/FocusTargetService.cs"), [
   "internal static readonly string[] ExcludedProcesses",
   '"vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture"',
 ]), "Vibe Flow can offer one of its own processes as an application to learn");
+// Page geometry is laid out by coordinate, and two rows on two pages collided: the voice page's
+// CABLE status line ended at y=508 while the endpoint line below it began at y=502 (6 px), and the
+// settings page's 安全检查更新 button ran 10 px into the product label beside it. Both were found
+// by scripts/check-ui-geometry.ps1, which reports sibling controls whose rectangles intersect —
+// nested parent/child overlap is normal, so a blanket rule would report hundreds of false
+// positives. The check itself is the durable guard; these two pins keep the fixed coordinates from
+// being reintroduced while a page is edited, and fail loudly if someone re-lays them out in a way
+// that collides again.
+assert(includesAll(app, [
+  "cableState.Size = new Size(670, 24);",
+  "cableEndpoint.Location = new Point(220, 506);",
+  "cableEndpoint.Size = new Size(670, 18);",
+  'SecondaryButton("安全检查更新", new Point(576, 184), new Size(108, 42))',
+  "about.Location = new Point(694, 184);",
+]), "Two page rows that collided on screen have been moved back on top of each other");
+assert(includesAll(read("scripts/check-ui-geometry.ps1"), [
+  "function Get-SiblingOverlaps",
+  "EnumChildWindows already enumerates every descendant",
+  "no overlapping sibling controls",
+]) && gitignore.includes("!scripts/check-ui-geometry.ps1"),
+  "The UI geometry check is missing, or it is not allowed through the scripts ignore rule");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths

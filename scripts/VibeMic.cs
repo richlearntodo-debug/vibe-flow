@@ -6452,15 +6452,19 @@ internal sealed partial class VibeMicForm : Form
         var cableState = NewLabel(cableStateText, 9.6f, FontStyle.Bold,
             cableReady ? green : coral);
         cableState.Location = new Point(220, 482);
-        cableState.Size = new Size(670, 26);
+        cableState.Size = new Size(670, 24);
         cableState.TextAlign = ContentAlignment.MiddleLeft;
         card.Controls.Add(cableState);
         var cableEndpoint = NewLabel("当前播放端点：" +
             (string.IsNullOrWhiteSpace(config.audioEndpointName) ? "未选择" : config.audioEndpointName) +
             (cableEndpointReady ? " · 与稳定语音档案一致" : " · 需要改回 CABLE Input"),
             8.8f, FontStyle.Regular, cableEndpointReady ? muted : amber);
-        cableEndpoint.Location = new Point(220, 502);
-        cableEndpoint.Size = new Size(670, 20);
+        // The two status lines and the buttons below them are stacked by coordinate, and the rows
+        // used to overlap: the state line ended at 508 while this line began at 502, so the green
+        // CABLE status and the grey endpoint line collided by 6 px at 100% DPI. Measured with
+        // scripts/check-ui-geometry.ps1, which reports sibling controls whose rectangles intersect.
+        cableEndpoint.Location = new Point(220, 506);
+        cableEndpoint.Size = new Size(670, 18);
         cableEndpoint.TextAlign = ContentAlignment.MiddleLeft;
         card.Controls.Add(cableEndpoint);
 
@@ -9666,10 +9670,12 @@ internal sealed partial class VibeMicForm : Form
         import.Click += delegate { ImportConfig(); };
         var restore = SecondaryButton("恢复上次", new Point(452, 184), new Size(112, 42));
         restore.Click += delegate { RestorePreviousConfig(); };
-        var updates = SecondaryButton("安全检查更新", new Point(576, 184), new Size(124, 42));
+        // 124 px wide ran 10 px into the product label beside it (measured with
+        // scripts/check-ui-geometry.ps1); the label starts further right instead.
+        var updates = SecondaryButton("安全检查更新", new Point(576, 184), new Size(108, 42));
         updates.Click += delegate { CheckForUpdates(true); };
         var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 候选版\r\nRC003 本地语音传输与快捷操作工具 · 尚需完成真机验收", 9.5f, FontStyle.Regular, muted);
-        about.Location = new Point(690, 184);
+        about.Location = new Point(694, 184);
         about.Size = new Size(238, 66);
         var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  配置 schema " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
         profile.Location = new Point(32, 260);
