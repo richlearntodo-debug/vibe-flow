@@ -62,6 +62,7 @@ scripts/*.ps1
 !scripts/Install-VBCable.ps1
 !scripts/Set-UsbSelectiveSuspend.ps1
 !scripts/check-ui-geometry.ps1
+!scripts/check-ui-matrix.ps1
 !scripts/Get-StableCaptureBinary.ps1
 !scripts/Prepare-DevelopmentRuntime.ps1
 !scripts/Measure-HardwareAcceptance.ps1
