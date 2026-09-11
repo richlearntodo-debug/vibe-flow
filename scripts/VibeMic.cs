@@ -7770,6 +7770,11 @@ deck.Hide();
             "Home:short", "Home:long", false);
         AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 3), "功能键", "功能键", "menu",
             "功能键:short", "功能键:long", false);
+        // The remote's power button. Windows delivers it as the ACPI power key — VK 0xFF, scan code E0 5E — which the
+        // bridge has always recognised while nothing acted on it, so the key was recognised and dropped. It sits at
+        // the end of the left column, on the same row as TV in the right one.
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",
+            "电源键", "", false);
 
         AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(656, 78));
         AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch), "右键", "右键", "right",
@@ -7781,7 +7786,9 @@ deck.Hide();
         AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",
             "TV", "", false);
 
-        var capabilityNote = NewLabel("开机、返回和独立音量键在 Windows 下无稳定事件，不提供映射；APP、网页与截图请绑定到可配置按键。",
+        // The power key is mappable now, so it is no longer named among the unsupported controls. Back and the volume
+        // keys still are: those are what MiVibe-Remote needed an administrator helper and a three-key calibration for.
+        var capabilityNote = NewLabel("电源键可配置；返回与独立音量键在 Windows 下无稳定事件，不提供映射。APP、网页与截图请绑定到可配置按键。",
             8.0f, FontStyle.Regular, muted);
         capabilityNote.Location = new Point(330, 892);
         capabilityNote.Size = new Size(300, 42);

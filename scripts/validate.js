@@ -1092,7 +1092,16 @@ assert(includesAll(app, [
   'new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")',
   "Keyboard shortcut recorder normalization invariant failed",
 ]), "Physical keyboard shortcut recording or its strict validation is incomplete");
-// The remote's power key (RC003). MiVibe-Remote proves it is reachable: Windows delivers it as the ACPI power key,
+// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
+// GestureLayerKeys and stopped there, and the page builds its cards from explicit calls — so the key was mappable in
+// the generated configuration while the user had no way to assign it. The page's own copy also still listed it among
+// the unsupported controls.
+assert(includesAll(app, [
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",',
+  '"电源键", "", false);',
+  '电源键可配置；返回与独立音量键在 Windows 下无稳定事件，不提供映射。',
+]) && !app.includes("开机、返回和独立音量键在 Windows 下无稳定事件"),
+  "The power key has no card on the shortcut page, or the page still calls it unsupported");// The remote's power key (RC003). MiVibe-Remote proves it is reachable: Windows delivers it as the ACPI power key,
 // VK 0xFF / scan code E0 5E, and MiVibe reaches it by remapping that scan code system-wide — which needs
 // administrator rights and a restart. Our bridge has always recognised the pair (FindMapping's counterpart tests for
 // it and the filter mask reserves 0x5E); what was missing was a mapping and a row, so the key was recognised and
