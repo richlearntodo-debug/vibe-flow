@@ -58,6 +58,7 @@ const requiredFiles = [
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
   "scripts/check-ui-matrix.ps1",
+  "docs/V2_0_RELEASE_CHECKLIST_ZH.md",
   "scripts/ui/UiFonts.cs",
   "scripts/ui/UiDisplayScale.cs",
   "scripts/ui/LiveHudForm.cs",
@@ -378,7 +379,16 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// The exported diagnostics' content is built and checked in every smoke run, because the export itself goes
+// The release checklist is the artifact a release decision is reviewed against, so it has to exist and has to
+// keep saying the two things that are easy to lose: what was measured, and what was not.
+assert(includesAll(read("docs/V2_0_RELEASE_CHECKLIST_ZH.md"), [
+  "已实测通过",
+  "未验证（需要条件或需要你做决定）",
+  "发布建议",
+  "RC003 设备级按键隔离",
+  "代码签名",
+  "如何复现上述验证",
+]), "The release checklist is missing or no longer separates the verified from the unverified");// The exported diagnostics' content is built and checked in every smoke run, because the export itself goes
 // through a save dialog that cannot be driven from a test. The report is the same string the export writes, so
 // this is what a user's report contains; when crash reports exist the newest one has to be in it, which was
 // verified while two were present (reports left by this session's own failing assertions).
