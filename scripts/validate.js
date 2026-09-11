@@ -1960,7 +1960,20 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The setup wizard had no way out for anyone without the hardware at hand: 完成本步，继续 refuses to advance until
+// The theme choice is a segmented control, not three commands. The current choice used to be a solid accent button
+// — identical to the button you would press to make it the current choice — so it read as "press me" while it was
+// already selected. Selection is carried by a tinted fill, an accent border, an accent label and a filled dot; the
+// alternatives stay plain with a hollow dot. The labels were read back from the running page (● 白天模式, ○ 夜间模式,
+// ○ 跟随 Windows) and the row measures with no clipped text at 880x500 and at 1280x1400.
+assert(includesAll(app, [
+  'Action<Button, bool, string> styleThemeSegment = delegate(Button segment, bool selected, string label)',
+  'segment.Text = (selected ? "●  " : "○  ") + label;',
+  'segment.BackColor = selected',
+  "Color.FromArgb(238, 235, 255)",
+  "segment.FlatAppearance.BorderColor = selected ? accent : line;",
+  'styleThemeSegment(lightTheme, lightSelected, "白天模式");',
+  'styleThemeSegment(systemTheme, systemSelected, "跟随 Windows");',
+]), "The theme choice looks like three commands again, or lost its selected state");// The setup wizard had no way out for anyone without the hardware at hand: 完成本步，继续 refuses to advance until
 // the step's evidence exists (a real remote direction key, or CABLE Input/Output plus the RC003 microphone), so the
 // only exit was the window's close box. 稍后再说 closes the wizard and leaves the progress where it is, so it reopens
 // on the same task — that is the reminder, and no step is ever marked complete by leaving.

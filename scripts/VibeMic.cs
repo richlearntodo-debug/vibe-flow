@@ -10435,26 +10435,32 @@ deck.Hide();
         bool lightSelected = string.Equals(config.theme, "light", StringComparison.OrdinalIgnoreCase);
         bool darkSelected = string.Equals(config.theme, "dark", StringComparison.OrdinalIgnoreCase);
         bool systemSelected = string.Equals(config.theme, "system", StringComparison.OrdinalIgnoreCase);
-        lightTheme.BackColor = lightSelected ? violet : surfaceBackground;
-        lightTheme.ForeColor = lightSelected ? Color.White : ink;
-        darkThemeButton.BackColor = darkSelected ? violet : surfaceBackground;
-        darkThemeButton.ForeColor = darkSelected ? Color.White : ink;
-        systemTheme.BackColor = systemSelected ? violet : surfaceBackground;
-        systemTheme.ForeColor = systemSelected ? Color.White : ink;
-        Action<Button, bool> styleThemeSegment = delegate(Button segment, bool selected)
+        // Three segments of one choice, not three commands.
+        //
+        // The current choice was drawn as a solid accent button, exactly like the button you would press to *make*
+        // it the current choice, so it read as "press me" while it was already selected. Selection is now carried by
+        // a tinted fill, an accent border, an accent label and a filled dot; the alternatives stay plain with a
+        // hollow dot, which is what a segmented control looks like.
+        Action<Button, bool, string> styleThemeSegment = delegate(Button segment, bool selected, string label)
         {
-            segment.BackColor = selected ? violet : surfaceBackground;
-            segment.ForeColor = selected ? Color.White : ink;
+            Color accent = darkTheme ? Color.FromArgb(150, 135, 255) : violet;
+            segment.Text = (selected ? "●  " : "○  ") + label;
+            segment.BackColor = selected
+                ? (darkTheme ? Color.FromArgb(52, 47, 88) : Color.FromArgb(238, 235, 255))
+                : surfaceBackground;
+            segment.ForeColor = selected ? accent : ink;
+            segment.Font = new Font("Microsoft YaHei UI", 9f, selected ? FontStyle.Bold : FontStyle.Regular);
+            segment.FlatAppearance.BorderColor = selected ? accent : line;
             segment.FlatAppearance.MouseOverBackColor = selected
-                ? (darkTheme ? Color.FromArgb(142, 135, 226) : Color.FromArgb(88, 66, 238))
-                : (darkTheme ? Color.FromArgb(47, 49, 57) : Color.FromArgb(232, 236, 255));
+                ? (darkTheme ? Color.FromArgb(60, 55, 100) : Color.FromArgb(230, 226, 255))
+                : (darkTheme ? Color.FromArgb(47, 49, 57) : Color.FromArgb(240, 243, 250));
             segment.FlatAppearance.MouseDownBackColor = selected
-                ? (darkTheme ? Color.FromArgb(158, 152, 233) : Color.FromArgb(72, 52, 220))
+                ? (darkTheme ? Color.FromArgb(68, 62, 112) : Color.FromArgb(220, 215, 252))
                 : (darkTheme ? Color.FromArgb(55, 58, 68) : Color.FromArgb(219, 225, 252));
         };
-        styleThemeSegment(lightTheme, lightSelected);
-        styleThemeSegment(darkThemeButton, darkSelected);
-        styleThemeSegment(systemTheme, systemSelected);
+        styleThemeSegment(lightTheme, lightSelected, "白天模式");
+        styleThemeSegment(darkThemeButton, darkSelected, "夜间模式");
+        styleThemeSegment(systemTheme, systemSelected, "跟随 Windows");
         lightTheme.Click += delegate { ApplyThemePreference("light"); };
         darkThemeButton.Click += delegate { ApplyThemePreference("dark"); };
         systemTheme.Click += delegate { ApplyThemePreference("system"); };
