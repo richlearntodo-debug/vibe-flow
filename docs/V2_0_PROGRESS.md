@@ -5597,3 +5597,9 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - **几何**：`1280×1400` 下 **0 重叠 / 0 裁切** ✔
 - host self-test ✔、`validate` ✔
 - 门禁同步为三列栅格与新的画布高度 ✔（5 处坐标全部更新 ✔）
+
+### 收尾（第三版布局 ✔）
+
+- 从**安装版新构建**重拍并**先目视确认**（左列卡片 ∥ 中间遥控器+说明 ∥ 右列卡片 ✔）再替换 `docs/images/03-shortcuts.png` 与 `03-shortcuts-screenshot.png` ✔
+- 基线锁该行哈希：`8296A095…` → `F8E85113…` ✔
+- 发布链 ✔（12/12 界面矩阵 ✔）、安装器 exit 0、**51/51 逐文件一致** ✔、冻结采集件哈希未变 ✔
