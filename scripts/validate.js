@@ -1960,7 +1960,25 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// An interface scale the user can choose, on top of the display's own scaling. Some users cannot read a 9 pt label
+// Two small items cleared together, both about the instruments and the data being trustworthy.
+//
+// Documentation is not a place to dictate text into, and the skip list decided by whichever word an installer chose:
+// measured on this machine, "Inno Setup FAQ" and "Git FAQs (Frequently Asked Questions)" were offered as targets
+// while "Inno Setup Documentation" was skipped. Adding faq and frequently asked dropped the picker's candidate
+// count from 95 to 93. My own expectation was 94, because the file scan I based it on looked only at start-menu
+// shortcuts and missed the shell AppsFolder, which the catalogue also enumerates.
+//
+// The geometry check's titled-window search returned the wrong window: it did not filter by process, stopped at the
+// first match and enumerated only top-level windows, so asking for 言灵 returned a 416x217 window belonging to
+// another process while the application's real window was 1600x1050. It now filters by process and takes the
+// largest match, in both the main-window and the titled-window search.
+assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
+  '"faq", "frequently asked"',
+]) && includesAll(read("scripts/check-ui-geometry.ps1"), [
+  "$script:foundArea = 0",
+  "if ($area -gt $script:foundArea)",
+  "if ($ProcessId -gt 0 -and $owner -ne $ProcessId) { return $true }",
+]), "Documentation entries are offered as targets again, or the geometry check can measure another process's window");// An interface scale the user can choose, on top of the display's own scaling. Some users cannot read a 9 pt label
 // on a dense screen and cannot change the display scaling either. The choice is stored in the configuration and
 // applied once at startup — the window and its layout are sized when they load — and the settings card says so
 // rather than leaving the user to wonder why nothing moved.

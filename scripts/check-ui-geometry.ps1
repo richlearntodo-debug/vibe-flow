@@ -213,7 +213,14 @@ function Get-Rect([IntPtr]$Handle) {
     return $rectangle
 }
 function Find-TopWindow([int]$ProcessId, [string]$Title, [bool]$Prefix) {
+    # The largest matching visible window, not the last one enumerated.
+    #
+    # Assigning on every match meant the enumeration order decided, and the application has small hidden-ish helpers
+    # whose titles also begin with 言灵: measured, this function returned a 416x217 window and the report said the
+    # interface was that size, while the real main window was 1600x1050. Area is the discriminator, and the chosen
+    # window is written to the verbose stream so the instrument says what it measured.
     $script:foundWindow = [IntPtr]::Zero
+    $script:foundArea = 0
     $callback = [DpiNative+WindowCallback]{
         param([IntPtr]$handle, [IntPtr]$parameter)
         [uint32]$owner = 0
@@ -221,7 +228,14 @@ function Find-TopWindow([int]$ProcessId, [string]$Title, [bool]$Prefix) {
         if ($owner -eq $ProcessId) {
             $text = Get-WindowText $handle
             $hit = if ($Prefix) { $text.StartsWith($Title) } else { $text -eq $Title }
-            if ($hit -and [DpiNative]::IsWindowVisible($handle)) { $script:foundWindow = $handle }
+            if ($hit -and [DpiNative]::IsWindowVisible($handle)) {
+                $rectangle = Get-Rect $handle
+                $area = ($rectangle.Right - $rectangle.Left) * ($rectangle.Bottom - $rectangle.Top)
+                if ($area -gt $script:foundArea) {
+                    $script:foundArea = $area
+                    $script:foundWindow = $handle
+                }
+            }
         }
         return $true
     }
@@ -351,15 +365,26 @@ try {
     elseif (-not [string]::IsNullOrWhiteSpace($WindowTitle)) {
         # One window, measured and captured: the dialogs are not pages, and the risk being checked is that a
         # dialog is scaled twice (its contents existed before Windows Forms' autoscale) or not at all.
-        $target = [IntPtr]::Zero
-        foreach ($handle in @($main) + @(Get-AllDescendants $main)) { }
+        #
+        # Three things this search used to get wrong, all of which produced a wrong measurement: it did not filter by
+        # process, it stopped at the first match instead of taking the largest, and it enumerated only top-level
+        # windows. Measured: asked for 言灵 it returned a 416x217 window that belonged to another process while the
+        # application's real window was 1600x1050. A process id and an area comparison fix all three.
         $script:foundWindow = [IntPtr]::Zero
+        $script:foundArea = 0
         $callback = [DpiNative+WindowCallback]{
             param([IntPtr]$handle, [IntPtr]$parameter)
+            [uint32]$owner = 0
+            [DpiNative]::GetWindowThreadProcessId($handle, [ref]$owner) | Out-Null
+            if ($ProcessId -gt 0 -and $owner -ne $ProcessId) { return $true }
             if ([DpiNative]::IsWindowVisible($handle) -and
                 (Get-WindowText $handle).StartsWith($WindowTitle, [StringComparison]::Ordinal)) {
-                $script:foundWindow = $handle
-                return $false
+                $rectangle = Get-Rect $handle
+                $area = ($rectangle.Right - $rectangle.Left) * ($rectangle.Bottom - $rectangle.Top)
+                if ($area -gt $script:foundArea) {
+                    $script:foundArea = $area
+                    $script:foundWindow = $handle
+                }
             }
             return $true
         }

@@ -44,7 +44,11 @@ internal static class InstalledAppCatalog
         // Bare shells, added after measuring: a binding named "powershell" reached the workflow list because the
         // entry above only matches the phrase "windows powershell". A shell is not a place to dictate text into,
         // which is the same judgement the phrase was already making.
-        "powershell", "pwsh"
+        "powershell", "pwsh",
+        // Documentation, not a place to type. Measured on this machine: "Inno Setup FAQ" was offered as a target
+        // while "Inno Setup Documentation" was skipped, so the list depended on which word an installer happened to
+        // choose. Expected effect of adding these two: one fewer candidate on this machine, 95 -> 94.
+        "faq", "frequently asked"
     };
 
     // Enumerates start-menu shortcuts from both the machine and the current user, resolving
