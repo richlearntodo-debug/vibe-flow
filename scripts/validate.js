@@ -378,7 +378,19 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// The keyboard order is measured from inside the application, because nothing outside it can read it here:
+// The Context Deck is opened only from the tray menu, so it has no route through the application's own
+// interface, and reaching it from outside would mean driving the user's tray icon. Its geometry is asserted
+// from inside instead, with the same rule the external check applies to the pages, and that assertion runs in
+// the release chain on every build. Measured before it was written: a freshly shown deck is 1640x1392 where
+// 820x696 times this display's scaling is exactly that, and giving the assertion a wrong design size makes the
+// self-test fail with "Context Deck is 1640x1392 where its design size at this display scaling is 1600x1392".
+assert(includesAll(app, [
+  "internal static void AssertSurfaceGeometry(Form surface, Size designSize, string name)",
+  "private static string FindSiblingOverlapText(Control root)",
+  'AssertSurfaceGeometry(scaledDeck, new Size(820, 696), "Context Deck");',
+  "where its design size at this display scaling is",
+  "has overlapping controls: ",
+]), "A tray-only surface is no longer checked for scaled geometry or overlapping controls");// The keyboard order is measured from inside the application, because nothing outside it can read it here:
 // UI Automation reports every control of a Windows Forms application as ControlType.Pane on this machine (a
 // minimal application built the same way does too), AttachThreadInput is refused, and SendKeys needs a
 // foreground window the harness cannot take. The walk is a query against the control tree, it wraps so the

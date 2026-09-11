@@ -665,6 +665,69 @@ internal sealed partial class VibeMicForm : Form
         if (uiResourceTestMode) Shown += delegate { BeginInvoke(new Action(RunPageResourceTest)); };
     }
 
+    // Asserts that a surface is laid out at the display scaling, and that nothing inside it overlaps.
+    //
+    // The Context Deck and Capture & Ask are opened only from the tray menu, so they have no route through the
+    // application's own interface: reaching them from outside would mean driving the user's own tray icon. The
+    // rule the external geometry check applies to the pages and the dialogs is applied here instead, which also
+    // means the release chain checks these two surfaces on every build rather than when someone measures by
+    // hand. Measured before asserting: a freshly shown Context Deck is 1640x1392 where 820x696 times this
+    // display's scaling is exactly that, so the expectation is evidence and not arithmetic.
+    internal static void AssertSurfaceGeometry(Form surface, Size designSize, string name)
+    {
+        if (surface == null) throw new InvalidOperationException(name + " was not constructed");
+        float scale = UiDisplayScale.ForControl(surface);
+        int expectedWidth = (int)Math.Round(designSize.Width * scale);
+        int expectedHeight = (int)Math.Round(designSize.Height * scale);
+        if (Math.Abs(surface.Width - expectedWidth) > 2 || Math.Abs(surface.Height - expectedHeight) > 2)
+        {
+            throw new InvalidOperationException(name + " is " + surface.Width + "x" + surface.Height +
+                " where its design size at this display scaling is " + expectedWidth + "x" + expectedHeight);
+        }
+        string overlap = FindSiblingOverlapText(surface);
+        if (overlap.Length > 0)
+            throw new InvalidOperationException(name + " has overlapping controls: " + overlap);
+    }
+
+    // Two sibling controls overlapping by more than a couple of pixels. The threshold matches the external
+    // check: touching edges are not an overlap, and a one-pixel rounding difference is not a defect.
+    private static string FindSiblingOverlapText(Control root)
+    {
+        foreach (Control container in AllDescendants(root))
+        {
+            var children = new List<Control>();
+            foreach (Control child in container.Controls)
+            {
+                if (!child.Visible || child.Width <= 0 || child.Height <= 0) continue;
+                children.Add(child);
+            }
+            for (int first = 0; first < children.Count; first++)
+            {
+                for (int second = first + 1; second < children.Count; second++)
+                {
+                    Rectangle a = children[first].Bounds;
+                    Rectangle b = children[second].Bounds;
+                    int overlapX = Math.Min(a.Right, b.Right) - Math.Max(a.Left, b.Left);
+                    int overlapY = Math.Min(a.Bottom, b.Bottom) - Math.Max(a.Top, b.Top);
+                    if (overlapX > 2 && overlapY > 2)
+                    {
+                        return TabOrderControlName(children[first]) + " x " + TabOrderControlName(children[second]) +
+                            " " + overlapX + "x" + overlapY;
+                    }
+                }
+            }
+        }
+        return "";
+    }
+
+    private static string TabOrderControlName(Control control)
+    {
+        string label = control.Text;
+        if (string.IsNullOrWhiteSpace(label)) label = control.Name;
+        if (string.IsNullOrWhiteSpace(label)) label = control.GetType().Name;
+        return label.Length > 24 ? label.Substring(0, 24) : label;
+    }
+
     // Walks every page's keyboard order and logs it, so the order is measured rather than assumed.
     //
     // This exists because no external instrument on this machine can read it: UI Automation reports every
@@ -2926,8 +2989,22 @@ internal sealed partial class VibeMicForm : Form
                     deckScrollHost.DisplayRectangle.Height <= deckScrollHost.ClientSize.Height)
                     throw new InvalidOperationException(
                         "Context Deck content is clipped instead of scrollable at 200% DPI");
-                deck.Hide();
+deck.Hide();
             }
+            // Scaling is checked separately from the compact-work-area behaviour above: that test fits the deck
+            // into a simulated 1366x728 area on purpose, so its size there says nothing about the display
+            // scaling. A freshly shown deck is fitted to the real work area of the monitor it opens on.
+            using (var scaledDeck = new ContextDeckForm())
+            {
+                scaledDeck.Show();
+                Application.DoEvents();
+                AssertSurfaceGeometry(scaledDeck, new Size(820, 696), "Context Deck");
+                scaledDeck.Hide();
+            }
+            // Capture & Ask is the one surface still unmeasured: it is opened only from the tray menu, and its
+            // service needs instance state (the state root, the focus-target service, the recording gate), so
+            // this static test cannot construct it. Two ways to close it: drive the tray icon, which touches the
+            // user's taskbar, or assert it from an instance-scoped test if one is added.
             System.Reflection.MethodInfo deckRecordingGuard = typeof(VibeMicForm).GetMethod(
                 "ContextDeckOpeningBlockedByRecording", System.Reflection.BindingFlags.Static |
                 System.Reflection.BindingFlags.NonPublic);
