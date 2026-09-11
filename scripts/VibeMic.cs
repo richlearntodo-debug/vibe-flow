@@ -6415,7 +6415,13 @@ internal sealed partial class VibeMicForm : Form
             int column = i % 2;
             int row = i / 2;
             int x = 24 + column * 224;
-            int y = 50 + row * 39;
+            // The card title above is an auto-sized label whose measured height lands exactly on the old
+            // first-row position (y=50), leaving no margin: one run in thirteen had it measure 6-8 px taller
+            // and collide with these rows (reported by the interface matrix as [常用按键] x [●] 18x6px and
+            // two more). The rows start 10 px lower so the measured variance cannot reach them; the card is
+            // 178 px tall and they end at 162. The underlying reason the title's measurement moves is not
+            // established, so this is margin rather than a proven fix.
+            int y = 60 + row * 39;
             var chip = NewLabel("●", 7f, FontStyle.Bold, i == 0 ? violet : i < 4 ? cyan : green);
             chip.Location = new Point(x, y + 2);
             chip.Size = new Size(18, 24);

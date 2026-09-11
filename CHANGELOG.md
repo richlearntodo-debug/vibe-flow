@@ -76,6 +76,8 @@
 
 - Added an interface matrix to the release gate: the host is launched once per theme (浅色 / 深色 / 跟随系统) and per window size (default and 1366×768), all six pages are walked, and the run fails on any overlapping control, any text that does not fit its box, or a theme that did not actually take effect. The theme is verified from the captured pixels rather than trusted from the flag, and a machine with no interactive desktop is reported as skipped instead of passing quietly. This gate runs inside `BUILD_RELEASE.ps1`, so CI gets it as well. It exists because the dark theme shipped unable to start and the pages collided at 125% display scaling — neither had ever been looked at by an automated run. The host also accepts `--ui-theme <light|dark|system>` so a theme no longer has to be set by editing a configuration file first.
 
+- Fixed a rare collision on the home page's 常用按键 card, found by the new interface matrix on its first release-chain run: the card title (an auto-sized label whose normal measured height bottoms out exactly at the first row's y=50) measured 6–8 px taller in that run, so it overlapped the row indicator, the 录音 key and its description. The rows now start 10 px lower, which is more than the observed variance and still inside the card. Honest scope: the failure was seen once in roughly 47 case runs and could not be reproduced in 12 further runs before the change, so this is margin against a measured variance rather than a proven cure for whatever moves the title's measurement; the gate stays strict so a recurrence is reported rather than hidden.
+
 ## 1.5.0 - 2026-09-02
 
 - Replaced custom-shortcut text entry with a guarded keyboard recorder. Users
