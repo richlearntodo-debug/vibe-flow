@@ -4354,6 +4354,7 @@ internal sealed partial class VibeMicForm : Form
                     "A gesture layer edit did not reach the bridge document or its revision");
             RunFavoriteAppSelfTests();
             RunUiFontSelfTests();
+            RunThemePaletteSelfTests();
             RunHomeLayoutSelfTests();
             RunFeedbackOutletSelfTests();
             Console.WriteLine("Vibe Flow host self-test passed.");
@@ -4414,10 +4415,24 @@ internal sealed partial class VibeMicForm : Form
     {
         Color accent = state == "error" ? coral : state == "recovering" || state == "processing" ? cyan :
             state == "connecting" ? amber : state == "completed" || state == "ready" ? green : violet;
-        return darkTheme
-            ? Color.FromArgb(accent.R + 62, accent.G + 62, accent.B + 62)
-            : Color.FromArgb(accent.R, accent.G, accent.B);
+        if (!darkTheme) return Color.FromArgb(accent.R, accent.G, accent.B);
+        // Lightened for dark cards, and clamped. Adding a fixed 62 to each channel overflowed 255 for the
+        // brighter accents — in the dark palette violet's blue is 213, amber's and coral's red are 205 —
+        // and Color.FromArgb throws on a channel outside 0..255. The home page builds a status border in
+        // its constructor, so choosing 深色, or 跟随系统 on a Windows that uses dark apps, meant the
+        // application did not start at all: measured, VibeFlow.exe exited with 0xE0434352 and the .NET
+        // Runtime event named StatusBorder as the faulting frame.
+        return Color.FromArgb(LightenChannel(accent.R), LightenChannel(accent.G), LightenChannel(accent.B));
     }
+
+    // The dark theme's lightening step for one channel, kept inside the byte range.
+    internal static int LightenChannel(int channel)
+    {
+        return Math.Min(255, Math.Max(0, channel + DarkBorderLighten));
+    }
+
+    // How far the dark theme lifts a status border away from its accent.
+    internal const int DarkBorderLighten = 62;
 
     private void BuildShell()
     {
@@ -24340,6 +24355,28 @@ internal sealed partial class VibeMicForm : Form
             throw new InvalidOperationException("The bounded message lifetimes no longer follow the shared tokens");
         // The state rule keeps its own contract: an operation still in flight must not
         // auto-hide. That is asserted by LiveHudUiTests against LiveHudDurationMilliseconds.
+    }
+
+    // The dark theme's status borders lighten their accent by a fixed step. That step used to overflow a
+    // channel — the dark palette's violet, amber and coral all exceed 193 in one channel — and
+    // Color.FromArgb throws on a value outside 0..255, so the application could not start at all in dark
+    // mode: the home page builds a status border in its constructor. The clamp is pinned here over the
+    // whole byte range, including the three values that used to throw.
+    private static void RunThemePaletteSelfTests()
+    {
+        if (LightenChannel(213) != 255 || LightenChannel(205) != 255 || LightenChannel(196) != 255 ||
+            LightenChannel(174) != 236 || LightenChannel(0) != DarkBorderLighten ||
+            LightenChannel(-100) != 0 || LightenChannel(400) != 255)
+            throw new InvalidOperationException("The dark theme's border lightening leaves the byte range");
+        for (int channel = -20; channel <= 275; channel++)
+        {
+            int lightened = LightenChannel(channel);
+            if (lightened < 0 || lightened > 255)
+                throw new InvalidOperationException(
+                    "A lightened channel of " + channel + " became " + lightened);
+            // The value that used to be built inline has to be accepted by the color type now.
+            Color.FromArgb(lightened, lightened, lightened);
+        }
     }
 
     // The interface's font resolution has to be able to say "this family is not here": that is the

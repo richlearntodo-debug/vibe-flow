@@ -14,13 +14,18 @@
 # Run it locally; CI has no interactive desktop to show a window on:
 #   powershell -File scripts\check-ui-geometry.ps1 -Exe .\VibeMic.exe -OutDir $env:TEMP\geom
 param(
-    [Parameter(Mandatory = $true)][string]$Exe,
+    # Required only when this script starts the application; measuring a running one does not need it.
+    [string]$Exe = "",
     [Parameter(Mandatory = $true)][string]$OutDir,
     [int]$TimeoutMilliseconds = 25000,
     # Optional "WxH". A small screen and a high scaling factor both end up as a window that cannot be
     # as large as the layout assumes, so the geometry can be measured against a forced size instead of
     # only against whatever this machine's display happens to allow.
-    [string]$ForceSize = ""
+    [string]$ForceSize = "",
+    # Measure an application that is already running instead of starting a smoke instance. Needed for
+    # anything the smoke path cannot show: smoke mode runs on its own configuration, so the theme matrix
+    # has to look at the installed application, which reads the user's own configuration.
+    [int]$ProcessId = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -278,10 +283,26 @@ $pages = @(
     @{ Name = "06-settings";   Label = (ConvertFrom-CodePoints @(0x8BBE, 0x7F6E)) }
 )
 
-$process = Start-Process -FilePath $Exe -ArgumentList "--ui-smoke" -PassThru
+$process = $null
+if ($ProcessId -le 0) {
+    if ([string]::IsNullOrWhiteSpace($Exe)) {
+        throw "Pass -Exe to start a smoke instance, or -ProcessId to measure one that is already running."
+    }
+    $process = Start-Process -FilePath $Exe -ArgumentList "--ui-smoke" -PassThru
+}
 $report = New-Object System.Collections.ArrayList
+$startedByUs = $false
 try {
-    $main = Wait-ForTopWindow $process.Id $windowPrefix $true
+    if ($ProcessId -gt 0) {
+        # An application that is already running: measured as it is, and deliberately not stopped at the
+        # end — it belongs to the user, not to this script.
+        $main = Wait-ForTopWindow $ProcessId $windowPrefix $true
+        $startedByUs = $false
+    }
+    else {
+        $main = Wait-ForTopWindow $process.Id $windowPrefix $true
+        $startedByUs = $true
+    }
     Start-Sleep -Seconds 3
     if (-not [string]::IsNullOrWhiteSpace($ForceSize)) {
         $parts = $ForceSize -split 'x'
@@ -318,7 +339,9 @@ try {
 }
 finally {
     Start-Sleep -Milliseconds 400
-    if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+    if ($startedByUs -and $process -ne $null -and -not $process.HasExited) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    }
 }
 $report | Set-Content -LiteralPath (Join-Path $OutDir "geometry.txt") -Encoding UTF8
 $report | ForEach-Object { Write-Host $_ }

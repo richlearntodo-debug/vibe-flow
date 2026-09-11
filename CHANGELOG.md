@@ -60,6 +60,9 @@
 
 - Fixed the two drawn elements that did not follow the display scaling, because they are painted rather than laid out: the sidebar's navigation icon was a 34×24 bitmap and the remote illustration draws in 112×440 design units with a cap on how far it grows. Both stayed at their design size while the control around them doubled, so at 200% the icons looked shrunken and the illustration looked lost in a card twice its size. The icon surface is now scaled and its drawing transformed, and the illustration is told the display ratio by the form that owns it. Verified by screenshot at 200%.
 
+- Fixed the dark theme being unable to start the application at all. Its status borders lightened the accent by a fixed 62 per channel with no clamp, and the dark palette's violet (blue 213), amber and coral (red 205) all exceed 193 — `Color.FromArgb` throws on a channel outside 0..255, and the home page builds a status border in its constructor. Measured: `VibeFlow.exe` exited with `0xE0434352` and the .NET Runtime event named `StatusBorder` as the faulting frame, so choosing 深色 — or 跟随系统 on a Windows that uses dark apps, which is the common case on a dark desktop — meant the application would not launch at all. The lightening step is clamped now, and a self-test walks the whole byte range including the three values that used to throw.
+- Verified the three theme settings on the installed build: 深色 and 跟随系统 render dark (measured background luminance 35) and 浅色 renders light (249), with all six pages building and no overlapping or clipped controls at 200% display scaling. This is the theme matrix that had been carried as unverified — it was unverified because the dark path could not run.
+
 ## 1.5.0 - 2026-09-02
 
 - Replaced custom-shortcut text entry with a guarded keyboard recorder. Users

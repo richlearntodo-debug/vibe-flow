@@ -3477,3 +3477,65 @@ ScaleLayoutTree 之后 Size 变成 304x68，但 Region 仍是 152x34
 | 遥控器示意图 | `RemoteVisual` 按 112×440 设计单位绘制，且内部缩放**上限写死 1.15** | 上限改为 `1.15 × DesignScaleFactor`，由拥有它的窗体在 4 处构造点注入 `DesignScaleFactor = DesignScale()` |
 
 **200% 复验**：导航图标与文字同比例；快捷键页的遥控器示意图填满卡片（修复前明显偏小）；六页 `overlaps=0 / clipped=0`。门禁钉住 `ScaleTransform`、放大后的位图尺寸、`DesignScaleFactor` 的字段与注入顺序。
+
+## 2026-09-11 主题矩阵：深色主题**根本无法启动**（一个 P0）
+
+原「未验证：深色 / 跟随系统」这一项，一测就发现它不是"没验过"，而是**坏到起不来**。
+
+### 现象与根因
+
+把 `theme` 改成 `dark` 后，已安装的 `VibeFlow.exe` **启动即退出**：
+
+```
+退出码 = -532462766 = 0xE0434352（未处理的 .NET 异常）
+事件日志 CLR20r3 + Application Error: VibeFlow.exe, 异常代码 0xe0434352
+```
+
+.NET Runtime 事件直接给出了异常类型与堆栈：
+
+```
+System.ArgumentException
+   在 System.Drawing.Color.CheckByte(Int32, System.String)
+   在 System.Drawing.Color.FromArgb(Int32, Int32, Int32, Int32)
+   在 VibeMicForm.StatusBorder(System.String)
+   在 VibeMicForm.BuildOverview()      ← 首页在构造函数里就建了状态边框
+   在 VibeMicForm.BuildPage(VibePageId)
+   在 VibeMicForm.ShowPage(Int32)
+   在 VibeMicForm..ctor(...)
+```
+
+代码就一行：
+
+```csharp
+return darkTheme
+    ? Color.FromArgb(accent.R + 62, accent.G + 62, accent.B + 62)   // ← 通道可超 255
+    : Color.FromArgb(accent.R, accent.G, accent.B);
+```
+
+深色调色板里 **violet 的蓝 213、amber 与 coral 的红 205**，`+62` 后分别到 275/267/267 —— `Color.FromArgb` 对超范围通道**抛异常**。首页在构造函数里就调用它，所以：**选「深色」，或在深色 Windows 上选「跟随系统」（本机 `AppsUseLightTheme=0`，属于常见情形），应用直接起不来。**
+
+也就是说：**深色主题从来没有可用过**。文档把它列为"未验证"是准确的，但没人跑过它，所以这个 P0 一直躺着。
+
+### 修复
+
+1. 抽成 `LightenChannel(int channel)`：`Math.Min(255, Math.Max(0, channel + DarkBorderLighten))`，`DarkBorderLighten = 62` 提为常量。
+2. 新增 `RunThemePaletteSelfTests()`：断言三个**当年会抛异常的值**（213/205/196 → 255）、边界（174→236、0→62、-100→0、400→255），并**遍历 -20..275 全范围**确认每个值都能被 `Color.FromArgb` 接受。
+3. 门禁：钉住 `LightenChannel`、常量、`StatusBorder` 的调用形式，并**反向断言 `accent.R + 62` 不得再出现**。
+
+> 顺带记一笔：新断言第一次也红了——我把 `LightenChannel(-40)` 写成了期望 0，实际是 22。**断言写错和代码写错一样要当场量清楚**，改的是断言不是代码。
+
+### 主题矩阵结果（200% 缩放下，已安装/仓库构建都测）
+
+| theme | 启动 | 背景平均亮度（三处采样） | 判定 |
+| --- | --- | --- | --- |
+| `system` | ✔ | 35 | 深色（本机 Windows 就是深色）✔ 符合跟随语义 |
+| `light` | ✔ | 249 | 浅色 ✔ |
+| `dark` | ✔ | 35 | 深色 ✔ |
+
+深色模式六页全部构建成功、几何检查 `overlaps=0 / clipped=0`，并逐页截图确认文字可读（不是"能渲染"就算过）。
+
+**用户配置已还原**：改动前备份、改后逐字段比对，最终与备份**完全一致**（`theme=light`，4 个 Profile、12 条映射、smartProfiles=true 不变）。
+
+### 工具顺带增强
+
+`scripts/check-ui-geometry.ps1` 新增 `-ProcessId`：直接测量**已经在运行**的应用（不再另起 smoke 实例）。这是主题矩阵的前提——smoke 模式跑在 `tmp\ui-smoke` 的独立配置上，读不到用户的主题。同时 `-Exe` 改为"仅在需要自行启动时必填"，并在缺参时给出可读的报错。

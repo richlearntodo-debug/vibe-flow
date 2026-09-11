@@ -941,6 +941,21 @@ assert(includesAll(app, [
 ]) && app.indexOf("remoteVisual = new RemoteVisual();") <
   app.indexOf("remoteVisual.DesignScaleFactor = DesignScale();"),
   "A drawn element stays at its design size while the interface around it scales");
+// The dark theme could not start at all. Its status borders lightened the accent with a fixed +62 per
+// channel and no clamp, while the dark palette's violet (blue 213), amber and coral (red 205) exceed 193 —
+// Color.FromArgb throws on a channel outside 0..255, and the home page builds a status border in its
+// constructor. Measured: VibeFlow.exe exited with 0xE0434352, and the .NET Runtime event named
+// StatusBorder as the faulting frame, so choosing 深色 — or 跟随系统 on a Windows that uses dark apps —
+// meant the application would not launch.
+assert(includesAll(app, [
+  "internal static int LightenChannel(int channel)",
+  "internal const int DarkBorderLighten = 62;",
+  "return Math.Min(255, Math.Max(0, channel + DarkBorderLighten));",
+  "return Color.FromArgb(LightenChannel(accent.R), LightenChannel(accent.G), LightenChannel(accent.B));",
+  "RunThemePaletteSelfTests();",
+  "The dark theme's border lightening leaves the byte range",
+]) && !app.includes("accent.R + 62"),
+  "The dark theme's status border can leave the byte range and stop the application from starting");
 // A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
 // shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
 // box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits
