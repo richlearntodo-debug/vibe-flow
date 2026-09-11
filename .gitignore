@@ -6,6 +6,9 @@ tmp/
 *.log
 *.bak
 input-bridge-log.txt
+input-bridge-log.txt.*
+self-test-report.txt
+input-bridge-health.json
 vibe-mic-config.json
 voxdeck-shortcuts.json
 remote-voice-config.json
@@ -58,6 +61,7 @@ scripts/*.ps1
 !scripts/capture-ui-screenshots.ps1
 !scripts/Install-VBCable.ps1
 !scripts/Get-StableCaptureBinary.ps1
+!scripts/Prepare-DevelopmentRuntime.ps1
 !scripts/Measure-HardwareAcceptance.ps1
 !scripts/Test-ReleaseLifecycle.ps1
 scripts/decode-atvv-audio.js

@@ -1,11 +1,11 @@
-# 言灵 · Vibe Flow Remote 1.5.0
+# 言灵 · Vibe Flow Remote 2.0.0 candidate
 
-Release date: 2026-09-02
+Candidate build date: 2026-09-05
 
 ## Release identity
 
-- Product version: `1.5.0`
-- Windows host/bridge file version: `1.5.0.0`
+- Product version: `2.0.0`
+- Windows host/bridge file version: `2.0.0.0`
 - Stable Capture file version: `1.2.1.0`
 - Configuration schema: `32`
 - Bridge configuration schema: `7`
@@ -67,4 +67,4 @@ Release date: 2026-09-02
 
 ## Release status
 
-V1.5.0 is the recommended public release. V1.4.0 is retained as an incomplete preview archive. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.
+V2.0.0 is an unsigned candidate, not a formal stable release. Automated builds and local UI flows have evidence, while the full RC003, Windows, DPI, VB-CABLE, browser, and installer lifecycle matrix remains explicitly unverified. V1.5.0 remains the recommended public release. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.

@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $packageUrl = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
+$officialSiteUrl = "https://vb-audio.com/Cable/"
 $expectedSha256 = "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb"
 $stateDirectory = if ([string]::IsNullOrWhiteSpace($StateDirectory)) {
     Join-Path $env:LOCALAPPDATA "Vibe Flow Remote\vb-cable"
@@ -68,8 +69,16 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath $zipPath)) {
-        Write-InstallState "downloading" "Downloading from the official VB-Audio URL"
-        Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath -UseBasicParsing
+        $bundledPackage = Join-Path $PSScriptRoot "..\tools\VBCABLE_Driver_Pack45.zip"
+        $bundledOk = (Test-Path -LiteralPath $bundledPackage) -and `
+            ((Get-FileHash -LiteralPath $bundledPackage -Algorithm SHA256).Hash.ToLowerInvariant() -eq $expectedSha256)
+        if ($bundledOk) {
+            Write-InstallState "downloading" "Using the bundled official VB-CABLE package (no network needed)"
+            Copy-Item -LiteralPath $bundledPackage -Destination $zipPath -Force
+        } else {
+            Write-InstallState "downloading" "Downloading from the official VB-Audio URL ($officialSiteUrl)"
+            Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath -UseBasicParsing
+        }
     }
 
     $actualSha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -88,7 +97,7 @@ try {
         Write-InstallState "verified" "Official installer signature is valid and pinned SHA-256 passed"
     }
 
-    Write-InstallState "installing" "Running the official VB-Audio installer"
+    Write-InstallState "installing" "Running the official VB-Audio installer (VB-CABLE is VB-Audio donationware, vb-audio.com/Cable/; donations are welcome)"
     $process = Start-Process -FilePath $setupPath -ArgumentList "/install" -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         Write-InstallState "installer_failed" "Official installer exit code: $($process.ExitCode)" $process.ExitCode
@@ -98,7 +107,7 @@ try {
     exit 0
 }
 catch {
-    try { Write-InstallState "error" $_.Exception.Message 1 } catch { }
+    try { Write-InstallState "error" ($_.Exception.Message + " Official page: $officialSiteUrl") 1 } catch { }
     Write-Error $_.Exception.Message
     exit 1
 }

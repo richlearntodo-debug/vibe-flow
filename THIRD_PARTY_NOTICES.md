@@ -2,7 +2,9 @@
 
 ## VB-CABLE
 
-VB-CABLE is developed and distributed by VB-Audio. It is not bundled with Vibe Flow. Users must download it from <https://vb-audio.com/Cable/> and comply with VB-Audio's license.
+VB-CABLE is developed and distributed by VB-Audio (origin: <https://www.vb-cable.com>, product page <https://vb-audio.com/Cable/>). **VB-CABLE is a donationware — all participations are welcome.**
+
+Starting with this build, Vibe Flow bundles the **unmodified official VB-CABLE driver package** (`VBCABLE_Driver_Pack45.zip`, pinned SHA-256 `b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb`) so a first-run install works offline. Bundling is permitted by VB-Audio under the "VB-CABLE Distribution with other product" terms on <https://vb-audio.com/Services/licensing.htm>, which require that end users can identify VB-CABLE as a VB-Audio application and remain able to donate/license it — Vibe Flow shows this notice during installation and links to the official page. If the bundled package is missing or fails verification, the installer falls back to the official download URL. Only the free VB-CABLE package is bundled; VB-CABLE A+B / C+D are never included.
 
 ## Microsoft reference assemblies
 

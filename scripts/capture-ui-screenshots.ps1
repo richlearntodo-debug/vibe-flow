@@ -330,17 +330,17 @@ $main = $process.MainWindowHandle
 Start-Sleep -Milliseconds 300
 $overviewLabel = ConvertFrom-CodePoints @(0x9996, 0x9875)
 $dictationLabel = ConvertFrom-CodePoints @(0x8BED, 0x97F3)
-$shortcutsLabel = ConvertFrom-CodePoints @(0x5FEB, 0x6377, 0x952E)
+$controlsLabel = ConvertFrom-CodePoints @(0x5FEB, 0x6377, 0x952E)
 $selfCheckLabel = ConvertFrom-CodePoints @(0x81EA, 0x68C0)
 $settingsLabel = ConvertFrom-CodePoints @(0x8BBE, 0x7F6E)
 $lightThemeLabel = ConvertFrom-CodePoints @(0x767D, 0x5929, 0x6A21, 0x5F0F)
 $darkThemeLabel = ConvertFrom-CodePoints @(0x591C, 0x95F4, 0x6A21, 0x5F0F)
 $systemThemeLabel = ConvertFrom-CodePoints @(0x8DDF, 0x968F, 0x20, 0x57, 0x69, 0x6E, 0x64, 0x6F, 0x77, 0x73)
 $screenshotActionLabel = ConvertFrom-CodePoints @(0x7CFB, 0x7EDF, 0x20, 0xB7, 0x20, 0x533A, 0x57DF, 0x622A, 0x56FE)
-$setupLabel = ConvertFrom-CodePoints @(0x6253, 0x5F00, 0x5165, 0x95E8, 0x6307, 0x5357)
+$setupLabel = ConvertFrom-CodePoints @(0x91CD, 0x65B0, 0x6253, 0x5F00, 0x9996, 0x6B21, 0x8BBE, 0x7F6E)
 $welcomePrefix = ConvertFrom-CodePoints @(0x9996, 0x6B21, 0x8BBE, 0x7F6E)
 $healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x4F7F, 0x7528)
-$upActionLabel = ConvertFrom-CodePoints @(0x4E0A, 0x65B9, 0x5411)
+$upActionLabel = ConvertFrom-CodePoints @(0x4FDD, 0x6301, 0x4E0A, 0x65B9, 0x5411, 0xFF08, 0x63A8, 0x8350, 0xFF09)
 $shortcutRecorderLabel = ConvertFrom-CodePoints @(0x5F55, 0x5236, 0x952E, 0x76D8, 0x5FEB, 0x6377, 0x952E)
 $bindApplicationsLabel = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x5E94, 0x7528)
 $configureUpTitle = ConvertFrom-CodePoints @(0x914D, 0x7F6E, 0x20, 0x4E0A, 0x952E)
@@ -348,7 +348,7 @@ $smartProfileDialogTitle = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x20, 0x53, 
 $pages = @(
     @{ Button = $overviewLabel; File = "01-overview.png" },
     @{ Button = $dictationLabel; File = "02-dictation.png" },
-    @{ Button = $shortcutsLabel; File = "03-shortcuts.png" },
+    @{ Button = $controlsLabel; File = "03-shortcuts.png" },
     @{ Button = $selfCheckLabel; File = "04-diagnostics.png" },
     @{ Button = $settingsLabel; File = "05-settings.png" }
 )
@@ -382,16 +382,21 @@ foreach ($page in $pages) {
     }
 }
 
+# The Quick Entries (Project Spaces) page was removed from the product; the
+# archived 02-projects.png illustration is no longer re-captured.
+
 # Capture the actual V1.5 configuration dialogs used by the illustrated guide.
-Invoke-Button $main $shortcutsLabel
-Invoke-Button $main $upActionLabel
-$actionPicker = Wait-ForProcessWindow $process.Id $configureUpTitle
-Save-Window $actionPicker (Join-Path $OutputDirectory "07-shortcut-actions.png")
-Invoke-Button $actionPicker $shortcutRecorderLabel
-$shortcutRecorder = Wait-ForProcessWindow $process.Id $shortcutRecorderLabel
-Save-Window $shortcutRecorder (Join-Path $OutputDirectory "08-shortcut-recorder.png")
-[VibeScreenshotNative]::PostMessage($shortcutRecorder, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-Start-Sleep -Milliseconds 350
+Invoke-Button $main $controlsLabel
+if (Test-ChildText $main $upActionLabel) {
+    Invoke-Button $main $upActionLabel
+    $actionPicker = Wait-ForProcessWindow $process.Id $configureUpTitle
+    Save-Window $actionPicker (Join-Path $OutputDirectory "07-shortcut-actions.png")
+    Invoke-Button $actionPicker $shortcutRecorderLabel
+    $shortcutRecorder = Wait-ForProcessWindow $process.Id $shortcutRecorderLabel
+    Save-Window $shortcutRecorder (Join-Path $OutputDirectory "08-shortcut-recorder.png")
+    [VibeScreenshotNative]::PostMessage($shortcutRecorder, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    Start-Sleep -Milliseconds 350
+}
 
 Invoke-Button $main $bindApplicationsLabel
 $smartProfileDialog = Wait-ForProcessWindow $process.Id $smartProfileDialogTitle 10000
@@ -402,8 +407,20 @@ Start-Sleep -Milliseconds 350
 Invoke-Button $main $settingsLabel
 Invoke-Button $main $setupLabel
 $wizard = Wait-ForProcessWindow $process.Id $welcomePrefix
-if ($CaptureFullOnboarding) {
-    $nextStep = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
+# The five-task wizard renders preview captions in --ui-smoke mode
+# ("预览下一任务"/"结束界面预览"); the production captions are
+# "完成本步，继续"/"打开首页". Detect which mode the running instance
+# uses and drive the persistent next-button handle accordingly so both
+# modes can be walked.
+$prodNext = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
+$smokeNext = ConvertFrom-CodePoints @(0x9884, 0x89C8, 0x4E0B, 0x4E00, 0x4EFB, 0x52A1)
+$previewCaptions = $false
+$nextButton = [IntPtr]::Zero
+try { $nextButton = Find-ChildButton $wizard $prodNext } catch { $previewCaptions = $true }
+if ($previewCaptions) { $nextButton = Find-ChildButton $wizard $smokeNext }
+function Invoke-ButtonHandle([IntPtr]$Button) {
+    [VibeScreenshotNative]::PostMessage($Button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    Start-Sleep -Milliseconds 650
 }
 Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
 if ($CaptureFullOnboarding) {
@@ -413,8 +430,7 @@ if ($CaptureFullOnboarding) {
     )
     Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[0])
     for ($step = 1; $step -lt $stepFiles.Count; $step++) {
-        Invoke-Button $wizard $nextStep
-        Start-Sleep -Milliseconds 180
+        Invoke-ButtonHandle $nextButton
         Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[$step])
     }
 }

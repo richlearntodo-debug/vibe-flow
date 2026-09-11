@@ -1,20 +1,20 @@
-# 言灵 · Vibe Flow Remote V1.5 快速开始
+# 言灵 · Vibe Flow Remote V2.0 候选版快速开始
 
-日常操作：**单击输入框，按住录音键说话，松开结束，检查文字后按确认键发送。**
+日常操作：**打开目标 APP，锁定并测试输入框，按住录音键说话，松开结束，检查文字后手动确认。**
 
 当前稳定模式遵循 RC003 的物理按键周期，单段约 `60 秒`；提前松开立即结束，不会自动创建第二个麦克风会话。
 
 ## 下载
 
-普通用户请下载 [V1.5.0 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe)。不要下载 GitHub 自动生成的源码 ZIP。[所有版本固定入口](docs/VERSION_ARCHIVE_ZH.md)。
+V2.0.0 当前是本地候选版，产物位于 `release/VibeFlow-Setup.exe`、`release/Vibe-Flow-Windows-x64.zip` 和 `release/SHA256SUMS.txt`，未发布、未签名且仍需真机验收。普通用户请继续下载 [V1.5.0 稳定安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe)。不要下载 GitHub 自动生成的源码 ZIP。
 
 ## 首次设置 5 项
 
 1. 确认 Windows 10/11、RC003 和按住说话方式；
 2. 配对 `MI RC` / RC003，并按方向键验证真实设备事件；
 3. 安装或检查 VB-CABLE，确认 `CABLE Input` 与 `CABLE Output`；
-4. 选择微信输入法、Typeless、豆包输入法、Windows 语音输入或其他工具，并完成真实转译；
-5. 选择是否随 Windows 启动，查看最终汇总。
+4. 选择微信输入法、Typeless、Windows 语音输入或其他工具，并完成真实转译；
+5. 选择后台行为；常用应用学习和 Smart Profiles 都可以稍后完成。
 
 ![首次设置](docs/images/00-setup-01-device.png)
 
@@ -33,10 +33,17 @@
 
 ![快捷键配置](docs/images/03-shortcuts.png)
 
-开机、返回和独立音量键没有稳定 Windows 事件，V1.5 不提供映射。录音键固定使用稳定链路，不参与自定义。
+开机、返回和独立音量键没有稳定 Windows 事件，V2.0 不提供映射。录音键固定使用稳定链路，不参与自定义。
+
+## 日常语音输入路径
+
+1. 打开或激活 ChatGPT 等目标 APP；
+2. 在“语音”页选择常用应用并学习它的输入框，或按提示手动点击输入框；
+3. 按住录音键说话，松开结束，等待语音工具处理并目视检查文字；
+4. 按确认键手动发送；Vibe Flow 不读取、不保存、不回填转写文字。
 
 ## 遇到问题
 
 打开“自检”，从第一项橙色或红色结果开始处理。反馈时导出诊断包；日志不包含录音或转译文字。
 
-[完整 V1.5 图文教程](docs/V1_5_USER_GUIDE_ZH.md)
+[完整 V2.0 候选版教程](docs/V2_0_USER_GUIDE_ZH.md) · [V1.5 稳定版教程](docs/V1_5_USER_GUIDE_ZH.md)

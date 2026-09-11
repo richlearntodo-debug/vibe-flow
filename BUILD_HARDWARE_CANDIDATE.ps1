@@ -16,8 +16,8 @@ $resolvedOutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $stableCapturePath = Join-Path ([IO.Path]::GetTempPath()) "VibeFlow-StableCapture-v1.2.1.exe"
 $stableCaptureSha256 = "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683"
 
-if ($version -ne "1.5.0") {
-    throw "Hardware candidate builder is pinned to V1.5.0; package.json reports $version."
+if ($version -ne "2.0.0") {
+    throw "Hardware candidate builder is pinned to V2.0.0; package.json reports $version."
 }
 if ($resolvedOutputRoot.StartsWith($installedRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Candidate output must not be inside the installed V1.0 directory: $installedRoot"
@@ -86,7 +86,27 @@ Copy-Item (Join-Path $root "docs\V1_3_PREVIEW_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_3_INPUT_ROUTING_ROOT_CAUSE_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_4_PREVIEW_ZH.md") $candidateDocs
 Copy-Item (Join-Path $root "docs\V1_5_PREVIEW_ZH.md") $candidateDocs
-Copy-Item (Join-Path $root "docs\images\*.png") $candidateImages
+$currentGuideImages = @(
+    "00-first-run.png",
+    "00-setup-01-device.png",
+    "00-setup-02-remote.png",
+    "00-setup-03-audio.png",
+    "00-setup-04-dictation.png",
+    "00-setup-05-ready.png",
+    "01-overview.png",
+    "02-dictation.png",
+    "03-shortcuts.png",
+    "04-diagnostics.png",
+    "05-settings.png",
+    "06-transcription-tools.png",
+    "07-shortcut-actions.png",
+    "08-shortcut-recorder.png",
+    "09-smart-profile-apps.png",
+    "vibe-flow-community.png"
+)
+foreach ($image in $currentGuideImages) {
+    Copy-Item (Join-Path $root ("docs\images\" + $image)) $candidateImages
+}
 
 $manifest = [ordered]@{
     product = "Vibe Flow Remote"

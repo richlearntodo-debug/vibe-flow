@@ -1,10 +1,10 @@
 {
   "name": "vibe-flow",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/open-ui.ps1",
+    "start": "cmd /c START_VIBE_FLOW.cmd",
     "test": "node scripts/validate.js",
     "serve": "npx --yes http-server . -p 4173 -c-1"
   }

@@ -1,6 +1,6 @@
-# Vibe Flow Remote v1.5 Architecture
+# Vibe Flow Remote v2.0 Candidate Architecture
 
-V1.5 keeps the validated V1.2.1 voice core frozen while extending the non-voice configuration and action-routing layers.
+V2.0 keeps the validated V1.2.1 voice core frozen while extending only the non-voice configuration, verified target, project context, screenshot, feedback, and action-routing layers.
 
 ## Scope
 

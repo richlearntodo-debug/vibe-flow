@@ -3,12 +3,13 @@
 本页保存每个公开版本的固定下载入口。链接不会随 `latest` 改变，适合安装、回退和问题复现。
 
 > [!IMPORTANT]
-> 普通用户推荐 **V1.5.0**，并下载 `VibeFlow-Setup.exe`。V1.4.0 是不完整预览归档；GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是应用。
+> 普通用户推荐已发布的 **V1.5.0**。V2.0.0 当前只是本地候选，没有公开固定下载入口；GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是应用。
 
 ## 版本总表
 
 | 版本 | 日期 | 状态与重点 | 安装版 EXE | 免安装 / 归档 | 校验 |
 | --- | --- | --- | --- | --- | --- |
+| V2.0.0 candidate | 2026-09-05 | **本地候选，未正式发布**。Project Spaces、Smart Focus、HUD/Deck、Capture & Ask、Browser Remote Lite 和五任务首次设置；仍需硬件、系统和安装生命周期验收。 | 不提供公开链接 | 不提供公开链接 | 本地 `release/SHA256SUMS.txt` |
 | **V1.5.0** | 2026-09-02 | **最新正式版，推荐**。合并 V1.4 的 Profile、应用目录、Browser Back、执行回执，并新增实体键盘快捷键录制与可选 Smart Profiles；稳定语音链路不变。 | [**下载 EXE**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/SHA256SUMS.txt) |
 | V1.4.0 | 2026-09-02 | **不完整预览版，仅归档**。已完成手动 Profile、应用发现、Browser Back 和执行回执，但缺少 V1.5 的快捷键录制与 Smart Profiles 完整体验；不建议日常使用。 | 不提供 | [下载预览 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.4.0/Vibe-Flow-v1.4.0-Incomplete-Preview.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.4.0/SHA256SUMS-v1.4.0.txt) |
 | V1.3.0 | 2026-09-02 | 本地验证基线，没有作为公共正式 Release 发布；相关改动已并入 V1.4/V1.5。 | 不提供 | 不提供 | - |

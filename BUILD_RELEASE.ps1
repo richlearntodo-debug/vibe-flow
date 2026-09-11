@@ -17,16 +17,13 @@ $signingPfx = if ($env:VIBE_FLOW_SIGN_PFX) { $env:VIBE_FLOW_SIGN_PFX.Trim() } el
 $timestampUrl = if ($env:VIBE_FLOW_TIMESTAMP_URL) { $env:VIBE_FLOW_TIMESTAMP_URL.Trim() } else { "http://timestamp.digicert.com" }
 $signingRequested = -not [string]::IsNullOrWhiteSpace($signingThumbprint) -or -not [string]::IsNullOrWhiteSpace($signingPfx)
 
-if ($releaseVersion -ne "1.5.0") {
-    throw "Formal release builder is pinned to V1.5.0; package.json reports $releaseVersion."
+if ($releaseVersion -ne "2.0.0") {
+    throw "Candidate release builder is pinned to V2.0.0; package.json reports $releaseVersion."
 }
 
-if (-not (Test-Path -LiteralPath $naudioCorePath) -or -not (Test-Path -LiteralPath $naudioWasapiPath)) {
-    & (Join-Path $root "RESTORE_BUILD_DEPS.ps1")
-}
 foreach ($dependency in @($naudioCorePath, $naudioWasapiPath)) {
     if (-not (Test-Path -LiteralPath $dependency)) {
-        throw "Required runtime dependency was not restored: $dependency"
+        throw "Required build dependency is missing: $dependency. Run RESTORE_BUILD_DEPS.ps1 separately after dependency download is approved."
     }
 }
 
@@ -85,6 +82,15 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $stableCapturePath = & (Join-Path $root "scripts\Get-StableCaptureBinary.ps1") -Destination $stableCapturePath
 if (-not (Test-Path -LiteralPath $stableCapturePath)) { throw "Pinned stable capture resolution failed." }
+& (Join-Path $root "scripts\Prepare-DevelopmentRuntime.ps1") -DestinationRoot $root `
+    -StableCapturePath $stableCapturePath -NAudioCorePath $naudioCorePath `
+    -NAudioWasapiPath $naudioWasapiPath
+
+& node (Join-Path $root "scripts\validate.js")
+if ($LASTEXITCODE -ne 0) { throw "Source validation failed." }
+& (Join-Path $root "scripts\tests\Test-ReleaseIdentity.ps1") -Root $root
+& (Join-Path $root "scripts\tests\Test-InstallerConfigMigration.ps1")
+& (Join-Path $root "scripts\tests\Test-DevelopmentRuntime.ps1")
 
 foreach ($test in @(
     @("VibeMic.exe", "--self-test"),
@@ -95,6 +101,8 @@ foreach ($test in @(
 }
 & $stableCapturePath --self-test
 if ($LASTEXITCODE -ne 0) { throw "Self-test failed: verified VibeMicAtvvCapture.exe" }
+& (Join-Path $root "scripts\tests\Test-InstallerRequirements.ps1")
+& (Join-Path $root "scripts\tests\Test-V2FeatureSuite.ps1")
 
 @("VibeMic.exe", "VoxDeckInputBridge.exe") |
     ForEach-Object { Invoke-VibeFlowCodeSign (Join-Path $root $_) }
@@ -125,6 +133,20 @@ Copy-Item (Join-Path $root "SECURITY.md") $packageDir
 Copy-Item (Join-Path $root "vibe-mic-config.default.json") $packageDir
 New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "scripts") | Out-Null
 Copy-Item (Join-Path $root "scripts\Install-VBCable.ps1") (Join-Path $packageDir "scripts")
+# Bundled official VB-CABLE driver package (VB-Audio donationware; bundling is
+# permitted per https://vb-audio.com/Services/licensing.htm "VB-CABLE
+# Distribution with other product"). The installer verifies the pinned
+# SHA-256 before use and falls back to the official download URL.
+$vbCablePackage = Join-Path $root "tools\VBCABLE_Driver_Pack45.zip"
+if (-not (Test-Path -LiteralPath $vbCablePackage)) {
+    throw "Bundled VB-CABLE package is missing: tools\VBCABLE_Driver_Pack45.zip"
+}
+$vbCableActual = (Get-FileHash -LiteralPath $vbCablePackage -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($vbCableActual -ne "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb") {
+    throw "Bundled VB-CABLE package SHA-256 mismatch"
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "tools") | Out-Null
+Copy-Item -LiteralPath $vbCablePackage -Destination (Join-Path $packageDir "tools")
 
 $packageDocs = Join-Path $packageDir "docs"
 $packageImages = Join-Path $packageDocs "images"
@@ -138,6 +160,18 @@ Copy-Item (Join-Path $root "docs\CODE_SIGNING_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\COMPATIBILITY_MATRIX_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\ISSUE_2_REGRESSION_ZH.md") $packageDocs
 Copy-Item (Join-Path $root "docs\RELEASE_QUALITY_GATE_ZH.md") $packageDocs
+foreach ($document in @(
+    "V2_0_USER_GUIDE_ZH.md",
+    "V2_0_CONFIGURATION_MIGRATION_ZH.md",
+    "V2_0_AUTOMATED_TEST_REPORT_ZH.md",
+    "V2_0_HARDWARE_TEST_MATRIX_ZH.md",
+    "V2_0_KNOWN_LIMITATIONS_ZH.md",
+    "V2_0_ROLLBACK_ZH.md",
+    "V2_0_RELEASE_NOTES_ZH.md",
+    "V2_0_INSTALLER_GUIDE_ZH.md"
+)) {
+    Copy-Item (Join-Path $root ("docs\" + $document)) $packageDocs
+}
 $currentGuideImages = @(
     "00-first-run.png",
     "00-setup-01-device.png",
@@ -185,6 +219,8 @@ $hashLines = @($installerPath, $zipPath) | ForEach-Object {
 }
 [System.IO.File]::WriteAllLines($checksumPath, $hashLines, [System.Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath $releaseBodySource -Destination $releaseBodyPath
+
+& (Join-Path $root "scripts\tests\Test-ReleaseArtifacts.ps1") -Root $root
 
 Write-Host "Built $installerPath"
 Write-Host "Built $zipPath"

@@ -1,11 +1,16 @@
-# Vibe Flow Remote / 言灵 1.5.0
+# Vibe Flow Remote / 言灵 2.0.0 candidate
 
 Vibe Flow turns a Xiaomi RC003 / MI RC Bluetooth voice remote into a Windows dictation and shortcut controller.
 
-The stable voice contract remains: **focus an editable field, hold Record to speak, release to finish, review the text, then press Center/Enter to send.** The pinned Capture binary uses recording kernel `v1.0.3`, voice profile `v11`, gain `1.0`, `speech` processing, a `180 ms` drain, and an approximately 60-second RC003 segment.
+The stable voice contract remains: **lock a verified editable target, hold Record to speak, release to finish, review the text, then press Center/Enter to send.** The pinned Capture binary uses recording kernel `v1.0.3`, voice profile `v11`, gain `1.0`, `speech` processing, a `180 ms` drain, and an approximately 60-second RC003 segment.
 
 ## Highlights
 
+- Open or activate user-selected apps through Quick Entries; arbitrary shell commands are not supported.
+- Learn and verify editable UI Automation targets with Smart Focus.
+- Inspect device, Profile, target, recording, and action states through a non-activating HUD and read-only Context Deck.
+- Preview and paste a user-triggered screenshot only after target validation; recording and sending remain manual.
+- Apply or undo the Browser Remote Lite template after reviewing every mapping difference; it is optional and does not change the recording path.
 - Record a custom keyboard shortcut by pressing the physical chord instead of typing key names.
 - Create, import, export, and manually switch shortcut Profiles.
 - Optionally bind Profiles to foreground applications with Smart Profiles; this is off by default.
@@ -15,7 +20,7 @@ The stable voice contract remains: **focus an editable field, hold Record to spe
 - Complete a five-task first-run setup and ten-item self-check.
 - Use Light, Dark, or Follow Windows themes.
 
-V1.4 is retained only as an incomplete preview archive. V1.5 merges and completes that shortcut workflow.
+V2.0.0 is an unsigned local candidate and has not completed the full hardware, Windows, DPI, and installer lifecycle matrix. V1.5.0 remains the latest published stable release.
 
 ## Voice and privacy
 
@@ -27,11 +32,10 @@ Supported providers include WeChat Input Method, Typeless, Doubao Input Method, 
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\RESTORE_BUILD_DEPS.ps1
-cmd /c BUILD_INPUT_BRIDGE.cmd
-cmd /c BUILD_VIBE_MIC.cmd
+powershell -ExecutionPolicy Bypass -File .\BUILD_DEVELOPMENT.ps1
 npm test
 ```
 
-Formal builds resolve the exact pinned v1.2.1 Capture binary by SHA-256; they do not rebuild or re-sign it.
+The development build assembles Host, Bridge, the exact pinned v1.2.1 Capture binary, and NAudio 2.2.1 into one runnable directory, then runs all three component self-tests. Formal and development builds never rebuild or re-sign Capture.
 
-See [QUICK_START_ZH.md](QUICK_START_ZH.md), the [V1.5 illustrated guide](docs/V1_5_USER_GUIDE_ZH.md), and the [version archive](docs/VERSION_ARCHIVE_ZH.md).
+See [QUICK_START_ZH.md](QUICK_START_ZH.md), the [V2 candidate guide](docs/V2_0_USER_GUIDE_ZH.md), the [V1.5 stable guide](docs/V1_5_USER_GUIDE_ZH.md), and the [version archive](docs/VERSION_ARCHIVE_ZH.md). Notes Deck is not part of the current Host surface; historical Notes files remain only as migration/archive evidence.

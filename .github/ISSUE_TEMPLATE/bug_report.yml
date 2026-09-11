@@ -12,8 +12,8 @@ body:
     id: version
     attributes:
       label: Vibe Flow 版本
-      description: 可在设置页右上角查看，例如 1.5.0。
-      placeholder: 1.5.0
+      description: 可在设置页右上角查看，例如 2.0.0 candidate 或 1.5.0。
+      placeholder: 2.0.0 candidate
     validations:
       required: true
   - type: input
