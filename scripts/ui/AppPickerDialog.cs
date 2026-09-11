@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
 // The redesigned Smart Focus entry point. It lists both what is running right now and what
@@ -9,19 +10,54 @@ using System.Windows.Forms;
 //
 // The only text field in the whole feature lives here and it is a filter: it narrows the
 // machine's own list, it never becomes user content and it is never stored.
+//
+// Every row carries an icon. Measured on this machine, many catalogue entries arrive with no icon at all — an
+// application whose executable has no icon resource, a packaged application resolved through its AppUserModelID,
+// a shortcut the shell draws an image for but the extractor cannot — and a list where some rows have a picture
+// and others have a blank gap reads as broken. The lookup order below ends in a generated tile, so there is no
+// empty slot; the tile is drawn from the name, which is also what makes it stable between openings.
 internal sealed class AppPickerDialog : Form
 {
     private readonly ListBox applications = new ListBox();
     private readonly TextBox filter = new TextBox();
+    private readonly Label filterPlaceholder = new Label();
+    private readonly Panel searchFrame = new Panel();
+    private readonly Panel listFrame = new Panel();
     private readonly Label hint = new Label();
+    private readonly Label emptyState = new Label();
     private readonly List<InstalledAppChoice> allChoices = new List<InstalledAppChoice>();
+    private readonly Dictionary<string, Image> iconCache =
+        new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+    private Label titleLabel;
+    private Label subtitleLabel;
+    private Button confirmButton;
+    private Button cancelButton;
     private bool rebuilding;
+    private int hoverIndex = -1;
+
+    // The palette mirrors the host's (violet 104,82,244 and the light surfaces) so the dialog belongs to the
+    // application instead of looking like a system dialog that happened to be called from it, and it follows the
+    // night theme, which this dialog did not do before.
+    private bool darkTheme;
+    private Color pageColor;
+    private Color cardColor;
+    private Color inkColor;
+    private Color mutedColor;
+    private Color lineColor;
+    private Color accentColor;
+    private Color rowSelected;
+    private Color rowHover;
 
     internal string SelectedProcessName { get; private set; }
     internal string SelectedLaunchTarget { get; private set; }
     internal string SelectedLaunchArguments { get; private set; }
 
     internal AppPickerDialog(IList<InstalledAppChoice> choices)
+        : this(choices, false)
+    {
+    }
+
+    internal AppPickerDialog(IList<InstalledAppChoice> choices, bool darkTheme)
     {
         // Its layout is built at 96 dpi at runtime, so it is scaled onto the display it opens on: measured
         // at 200%, this dialog drew its title with a doubled font inside a 1x box and cut its subtitle off.
@@ -31,102 +67,148 @@ internal sealed class AppPickerDialog : Form
         SelectedLaunchArguments = "";
         Text = "添加应用";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(560, 620);
-        Size = new Size(580, 660);
-        BackColor = Color.White;
+        MinimumSize = new Size(560, 640);
+        Size = new Size(600, 700);
         Font = new Font("Microsoft YaHei UI", 9.5f);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
+        ApplyTheme(darkTheme);
 
-        Controls.Add(new Label
+        titleLabel = new Label
         {
-            Text = "选择要添加的应用",
-            Location = new Point(20, 18),
-            Size = new Size(500, 30),
-            Font = new Font("Microsoft YaHei UI", 12.5f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(23, 29, 45)
-        });
-        Controls.Add(new Label
-        {
-            Text = "上面是正在运行的应用，下面是已安装的；筛选用不着记住名字，未运行的点「确定」会自动打开。",
-            Location = new Point(20, 50),
-            Size = new Size(530, 24),
-            ForeColor = Color.FromArgb(112, 120, 138)
-        });
-
-        var filterCaption = new Label
-        {
-            Text = "筛选",
-            Location = new Point(20, 82),
-            Size = new Size(40, 24),
-            ForeColor = Color.FromArgb(112, 120, 138)
+            Text = "添加应用",
+            Location = new Point(24, 20),
+            Size = new Size(300, 30),
+            Font = new Font("Microsoft YaHei UI", 13f, FontStyle.Bold),
+            BackColor = Color.Transparent
         };
-        Controls.Add(filterCaption);
+        Controls.Add(titleLabel);
 
-        filter.Location = new Point(64, 79);
-        filter.Size = new Size(496, 26);
-        filter.BorderStyle = BorderStyle.FixedSingle;
-        filter.TextChanged += delegate { ApplyFilter(); };
-        Controls.Add(filter);
+        subtitleLabel = new Label
+        {
+            Text = "从本机已安装的应用里选一个；正在运行的排在前面，未运行的选中后会自动打开。",
+            Location = new Point(24, 52),
+            Size = new Size(552, 24),
+            Font = new Font("Microsoft YaHei UI", 8.8f),
+            BackColor = Color.Transparent
+        };
+        Controls.Add(subtitleLabel);
 
-        applications.Location = new Point(20, 116);
-        applications.Size = new Size(540, 440);
+        // The search field: a borderless text box inside a rounded frame, with a glyph and a placeholder that
+        // disappears as soon as there is text. Filtering is live and takes no step of its own.
+        searchFrame.Location = new Point(24, 86);
+        searchFrame.Size = new Size(552, 40);
+        searchFrame.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = RoundedPath(new Rectangle(0, 0, searchFrame.Width - 1, searchFrame.Height - 1), 10))
+            using (var fill = new SolidBrush(cardColor))
+            using (var pen = new Pen(lineColor))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+            using (var glyphFont = new Font("Segoe MDL2 Assets", 11f))
+            using (var glyphBrush = new SolidBrush(mutedColor))
+                e.Graphics.DrawString("\uE721", glyphFont, glyphBrush, 12, 11);
+        };
+        Controls.Add(searchFrame);
+
+        filter.Location = new Point(40, 10);
+        filter.Size = new Size(498, 22);
+        filter.BorderStyle = BorderStyle.None;
+        filter.BackColor = cardColor;
+        filter.ForeColor = inkColor;
+        filter.TextChanged += delegate
+        {
+            filterPlaceholder.Visible = filter.Text.Length == 0;
+            ApplyFilter();
+        };
+        searchFrame.Controls.Add(filter);
+        filterPlaceholder.Text = "搜索应用名或进程名，例如 cursor / chrome";
+        filterPlaceholder.Location = new Point(42, 11);
+        filterPlaceholder.Size = new Size(470, 20);
+        filterPlaceholder.Font = new Font("Microsoft YaHei UI", 9.2f);
+        filterPlaceholder.BackColor = Color.Transparent;
+        filterPlaceholder.ForeColor = mutedColor;
+        filterPlaceholder.Cursor = Cursors.IBeam;
+        filterPlaceholder.Click += delegate { filter.Focus(); };
+        searchFrame.Controls.Add(filterPlaceholder);
+        // The text box is created first and paints an opaque background, so the placeholder has to be brought in
+        // front of it or it is never seen at all.
+        filterPlaceholder.BringToFront();
+
+        listFrame.Location = new Point(24, 138);
+        listFrame.Size = new Size(552, 448);
+        listFrame.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = RoundedPath(new Rectangle(0, 0, listFrame.Width - 1, listFrame.Height - 1), 10))
+            using (var fill = new SolidBrush(cardColor))
+            using (var pen = new Pen(lineColor))
+            {
+                e.Graphics.FillPath(fill, path);
+                e.Graphics.DrawPath(pen, path);
+            }
+        };
+        Controls.Add(listFrame);
+
+        applications.Location = new Point(2, 2);
+        applications.Size = new Size(548, 444);
+        applications.BorderStyle = BorderStyle.None;
+        applications.BackColor = cardColor;
         applications.IntegralHeight = false;
         applications.DrawMode = DrawMode.OwnerDrawFixed;
-        applications.ItemHeight = 48;
-        applications.DrawItem += delegate(object sender, DrawItemEventArgs e)
+        applications.ItemHeight = 54;
+        applications.DrawItem += DrawRow;
+        applications.MouseMove += delegate(object sender, MouseEventArgs e)
         {
-            e.DrawBackground();
-            if (e.Index < 0 || e.Index >= applications.Items.Count) return;
-            var item = applications.Items[e.Index] as InstalledAppChoice;
-            if (item == null) return;
-            bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            Color ink = selected ? Color.White : Color.FromArgb(23, 29, 45);
-            Color muted = selected ? Color.FromArgb(235, 235, 250) : Color.FromArgb(122, 130, 148);
-            using (var nameFont = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
-            using (var stateFont = new Font("Microsoft YaHei UI", 8.4f))
-            using (var nameBrush = new SolidBrush(ink))
-            using (var stateBrush = new SolidBrush(muted))
+            int index = applications.IndexFromPoint(e.Location);
+            if (index != hoverIndex)
             {
-                if (item.Icon != null) e.Graphics.DrawIcon(item.Icon, new Rectangle(e.Bounds.Left + 8, e.Bounds.Top + 8, 32, 32));
-                e.Graphics.DrawString((e.Index + 1).ToString("00") + "    " + item.DisplayName, nameFont, nameBrush, e.Bounds.Left + 50, e.Bounds.Top + 6);
-                e.Graphics.DrawString(item.Running ? "正在运行" : "未运行 · 选中后自动打开", stateFont, stateBrush, e.Bounds.Left + 50, e.Bounds.Top + 26);
+                hoverIndex = index;
+                applications.Invalidate();
+            }
+        };
+        applications.MouseLeave += delegate
+        {
+            if (hoverIndex != -1)
+            {
+                hoverIndex = -1;
+                applications.Invalidate();
             }
         };
         applications.DoubleClick += delegate { ConfirmSelection(); };
-        Controls.Add(applications);
+        listFrame.Controls.Add(applications);
 
-        hint.Location = new Point(20, 566);
-        // The box stops short of the confirm button, which starts at x=332: a 340 px box overlapped it by
-        // 28 px at every display scaling (measured with scripts/check-ui-geometry.ps1 -WindowTitle, which
-        // reports 56x44 px at 200%). The count text is short enough today that the two do not visibly
-        // touch, but a longer count would run under the button.
-        hint.Size = new Size(296, 22);
-        hint.ForeColor = Color.FromArgb(112, 120, 138);
+        // Drawn over the list rather than substituted for it, so the geometry never changes when a filter
+        // matches nothing.
+        emptyState.Text = "没有匹配的应用。换个词试试，或清掉筛选看全部。";
+        emptyState.Location = new Point(2, 190);
+        emptyState.Size = new Size(548, 26);
+        emptyState.TextAlign = ContentAlignment.MiddleCenter;
+        emptyState.Font = new Font("Microsoft YaHei UI", 9.2f);
+        emptyState.BackColor = Color.Transparent;
+        emptyState.Visible = false;
+        listFrame.Controls.Add(emptyState);
+
+        hint.Location = new Point(24, 600);
+        hint.Size = new Size(320, 22);
+        hint.Font = new Font("Microsoft YaHei UI", 8.8f);
+        hint.BackColor = Color.Transparent;
         Controls.Add(hint);
 
-        var confirm = new Button
-        {
-            Text = "确定",
-            Location = new Point(332, 562),
-            Size = new Size(104, 36),
-            FlatStyle = FlatStyle.System
-        };
-        confirm.Click += delegate { ConfirmSelection(); };
-        Controls.Add(confirm);
+        confirmButton = MakeButton("确定", new Point(352, 594), true);
+        confirmButton.Click += delegate { ConfirmSelection(); };
+        Controls.Add(confirmButton);
 
-        var cancel = new Button
-        {
-            Text = "取消",
-            Location = new Point(444, 562),
-            Size = new Size(104, 36),
-            FlatStyle = FlatStyle.System,
-            DialogResult = DialogResult.Cancel
-        };
-        Controls.Add(cancel);
-        AcceptButton = confirm;
-        CancelButton = cancel;
+        cancelButton = MakeButton("取消", new Point(472, 594), false);
+        cancelButton.DialogResult = DialogResult.Cancel;
+        Controls.Add(cancelButton);
+
+        AcceptButton = confirmButton;
+        CancelButton = cancelButton;
 
         if (choices != null)
         {
@@ -135,7 +217,194 @@ internal sealed class AppPickerDialog : Form
                 if (choice != null && !string.IsNullOrWhiteSpace(choice.ProcessName)) allChoices.Add(choice);
             }
         }
+        // Applied a second time now that every control exists. The first call established the palette the controls
+        // are created with; this one styles the buttons and frames, which did not exist yet when it ran — measured,
+        // the confirm button rendered as an unstyled system button because StyleButton ran while its field was null.
+        ApplyTheme(darkTheme);
         ApplyFilter();
+        filter.Focus();
+    }
+
+    // The host paints with its own palette; this dialog takes the same two sets of values so it does not stay
+    // white inside a night-themed application.
+    internal void ApplyTheme(bool dark)
+    {
+        darkTheme = dark;
+        pageColor = dark ? Color.FromArgb(25, 26, 31) : Color.FromArgb(247, 249, 252);
+        cardColor = dark ? Color.FromArgb(35, 37, 44) : Color.White;
+        inkColor = dark ? Color.FromArgb(229, 232, 239) : Color.FromArgb(18, 30, 54);
+        mutedColor = dark ? Color.FromArgb(153, 161, 177) : Color.FromArgb(112, 120, 138);
+        lineColor = dark ? Color.FromArgb(55, 59, 69) : Color.FromArgb(220, 226, 239);
+        accentColor = dark ? Color.FromArgb(150, 135, 255) : Color.FromArgb(104, 82, 244);
+        rowSelected = dark ? Color.FromArgb(52, 47, 88) : Color.FromArgb(238, 235, 255);
+        rowHover = dark ? Color.FromArgb(42, 44, 52) : Color.FromArgb(246, 247, 252);
+        BackColor = pageColor;
+        ForeColor = inkColor;
+        applications.BackColor = cardColor;
+        applications.ForeColor = inkColor;
+        filter.BackColor = cardColor;
+        filter.ForeColor = inkColor;
+        if (filterPlaceholder != null) filterPlaceholder.ForeColor = mutedColor;
+        if (hint != null) hint.ForeColor = mutedColor;
+        if (emptyState != null) emptyState.ForeColor = mutedColor;
+        if (titleLabel != null) titleLabel.ForeColor = inkColor;
+        if (subtitleLabel != null) subtitleLabel.ForeColor = mutedColor;
+        StyleButton(confirmButton, true);
+        StyleButton(cancelButton, false);
+        Invalidate(true);
+        if (searchFrame != null) searchFrame.Invalidate();
+        if (listFrame != null) listFrame.Invalidate();
+    }
+
+    private void StyleButton(Button button, bool primary)
+    {
+        if (button == null) return;
+        button.BackColor = primary ? accentColor : cardColor;
+        button.ForeColor = primary ? Color.White : inkColor;
+        button.FlatAppearance.BorderColor = primary ? accentColor : lineColor;
+        button.FlatAppearance.MouseOverBackColor = primary
+            ? ControlPaint.Light(accentColor, 0.12f) : rowHover;
+    }
+
+    private Button MakeButton(string text, Point location, bool primary)
+    {
+        var button = new Button
+        {
+            Text = text,
+            Location = location,
+            Size = new Size(104, 40),
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Microsoft YaHei UI", 9.4f, FontStyle.Bold),
+            Cursor = Cursors.Hand,
+            DialogResult = primary ? DialogResult.None : DialogResult.Cancel
+        };
+        button.FlatAppearance.BorderSize = 1;
+        return button;
+    }
+
+    private static GraphicsPath RoundedPath(Rectangle bounds, int radius)
+    {
+        var path = new GraphicsPath();
+        int diameter = Math.Max(2, radius * 2);
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    // One row: icon tile, name, and what the application is doing right now. Every measurement is taken from the
+    // row height instead of being a fixed pixel offset, because the row height is scaled for the display while a
+    // constant is not — at 200% the earlier fixed offsets left the icon and the two text lines bunched at the top
+    // of a doubled row.
+    private void DrawRow(object sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= applications.Items.Count) return;
+        var item = applications.Items[e.Index] as InstalledAppChoice;
+        if (item == null) return;
+
+        bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        int rowHeight = e.Bounds.Height;
+        int iconSize = Math.Max(20, rowHeight - 16);
+        int iconLeft = e.Bounds.Left + Math.Max(8, rowHeight / 6);
+        int iconTop = e.Bounds.Top + (rowHeight - iconSize) / 2;
+        int textLeft = iconLeft + iconSize + Math.Max(10, rowHeight / 5);
+
+        using (var background = new SolidBrush(selected ? rowSelected : e.Index == hoverIndex && !selected
+            ? rowHover : cardColor))
+            e.Graphics.FillRectangle(background, e.Bounds);
+        if (selected)
+        {
+            using (var bar = new SolidBrush(accentColor))
+                e.Graphics.FillRectangle(bar, e.Bounds.Left, e.Bounds.Top, Math.Max(3, rowHeight / 16), rowHeight);
+        }
+
+        Image icon = IconFor(item);
+        if (icon != null)
+        {
+            e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            e.Graphics.DrawImage(icon, new Rectangle(iconLeft, iconTop, iconSize, iconSize));
+        }
+
+        using (var nameFont = new Font("Microsoft YaHei UI", 10f, FontStyle.Bold))
+        using (var stateFont = new Font("Microsoft YaHei UI", 8.4f))
+        using (var nameBrush = new SolidBrush(inkColor))
+        using (var stateBrush = new SolidBrush(item.Running ? Color.FromArgb(10, 164, 104) : mutedColor))
+        {
+            e.Graphics.DrawString(item.DisplayName, nameFont, nameBrush, textLeft,
+                e.Bounds.Top + rowHeight * 0.16f);
+            string state = item.Running ? "●  正在运行" : "已安装 · 选中后自动打开";
+            e.Graphics.DrawString(state, stateFont, stateBrush, textLeft, e.Bounds.Top + rowHeight * 0.52f);
+        }
+
+        using (var pen = new Pen(lineColor))
+            e.Graphics.DrawLine(pen, textLeft, e.Bounds.Bottom - 1, e.Bounds.Right - 8, e.Bounds.Bottom - 1);
+    }
+
+    // The icon for a row, cached by process name. The order is deliberate: what the catalogue already resolved,
+    // then the executable of the process itself, then the launch target, and finally a tile generated from the
+    // name — which is what guarantees that no row is left with an empty slot.
+    private Image IconFor(InstalledAppChoice item)
+    {
+        Image cached;
+        if (iconCache.TryGetValue(item.ProcessName, out cached)) return cached;
+        Image resolved = null;
+        try
+        {
+            if (item.Icon != null) resolved = item.Icon.ToBitmap();
+            if (resolved == null)
+            {
+                string executable = InstalledAppCatalog.ExecutableForProcess(item.ProcessName);
+                Icon fromProcess = InstalledAppCatalog.IconForExecutable(executable);
+                if (fromProcess != null) resolved = fromProcess.ToBitmap();
+            }
+            if (resolved == null)
+            {
+                Icon fromTarget = InstalledAppCatalog.IconForExecutable(item.LaunchTarget);
+                if (fromTarget != null) resolved = fromTarget.ToBitmap();
+            }
+        }
+        catch
+        {
+            resolved = null;
+        }
+        if (resolved == null) resolved = LetterTile(item.DisplayName);
+        iconCache[item.ProcessName] = resolved;
+        return resolved;
+    }
+
+    // A generated tile for an application whose icon cannot be read: its first character on a colour derived from
+    // its name, so the same application always gets the same tile.
+    private static Image LetterTile(string name)
+    {
+        const int size = 64;
+        var bitmap = new Bitmap(size, size);
+        string text = string.IsNullOrWhiteSpace(name) ? "?" : name.Trim().Substring(0, 1).ToUpperInvariant();
+        Color[] palette =
+        {
+            Color.FromArgb(104, 82, 244), Color.FromArgb(0, 153, 190), Color.FromArgb(10, 164, 104),
+            Color.FromArgb(229, 151, 39), Color.FromArgb(204, 70, 82), Color.FromArgb(80, 120, 220)
+        };
+        int hash = 0;
+        foreach (char character in name ?? "") hash = (hash * 31 + character) & 0x7fffffff;
+        Color fill = palette[hash % palette.Length];
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = RoundedPath(new Rectangle(0, 0, size - 1, size - 1), 16))
+            using (var brush = new SolidBrush(fill))
+                graphics.FillPath(brush, path);
+            using (var font = new Font("Microsoft YaHei UI", 26f, FontStyle.Bold))
+            using (var textBrush = new SolidBrush(Color.White))
+            using (var format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                graphics.DrawString(text, font, textBrush, new RectangleF(0, 0, size, size), format);
+            }
+        }
+        return bitmap;
     }
 
     // Filters the machine's own list in place. Running applications stay on top so the most
@@ -159,16 +428,20 @@ internal sealed class AppPickerDialog : Form
                 applications.Items.Add(choice);
             }
             applications.EndUpdate();
+            emptyState.Visible = applications.Items.Count == 0;
             if (applications.Items.Count == 0)
             {
-                hint.Text = "没有匹配的应用，换个词试试。";
-                hint.ForeColor = Color.FromArgb(196, 92, 78);
+                hint.Text = "共 " + allChoices.Count + " 个已安装 · 当前筛选没有结果";
+                hint.ForeColor = mutedColor;
+                applications.SelectedIndex = -1;
                 return;
             }
             int restored = previous == null ? -1 : applications.Items.IndexOf(previous);
             applications.SelectedIndex = restored >= 0 ? restored : 0;
-            hint.Text = "共 " + applications.Items.Count + " 个可选";
-            hint.ForeColor = Color.FromArgb(112, 120, 138);
+            hint.Text = needle.Length == 0
+                ? "共 " + allChoices.Count + " 个已安装的应用"
+                : "显示 " + applications.Items.Count + " / " + allChoices.Count + " 个应用";
+            hint.ForeColor = mutedColor;
         }
         finally
         {
@@ -182,7 +455,7 @@ internal sealed class AppPickerDialog : Form
         if (choice == null || string.IsNullOrWhiteSpace(choice.ProcessName))
         {
             hint.Text = "请先在上面的列表里选择一个应用。";
-            hint.ForeColor = Color.FromArgb(196, 92, 78);
+            hint.ForeColor = Color.FromArgb(204, 70, 82);
             return;
         }
         SelectedProcessName = choice.ProcessName;

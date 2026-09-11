@@ -5856,7 +5856,7 @@ deck.Hide();
         HostLog("FAVORITE PICKER choices=" + choices.Count + " running=" + runningNames.Count);
         string processName = "";
         string launchTarget = "";
-        using (var picker = new AppPickerDialog(choices))
+        using (var picker = new AppPickerDialog(choices, darkTheme))
         {
             if (picker.ShowDialog(this) != DialogResult.OK) return;
             processName = picker.SelectedProcessName;

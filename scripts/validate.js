@@ -369,8 +369,28 @@ assert(includesAll(read("scripts/check-ui-geometry.ps1"), [
   '"dialog: overlaps="',
   '"dialog: clipped="',
 ]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), ["control.Margin = new Padding("]) &&
-  includesAll(read("scripts/ui/AppPickerDialog.cs"), ["hint.Size = new Size(296, 22);"]),
+  includesAll(read("scripts/ui/AppPickerDialog.cs"), ["hint.Size = new Size(320, 22);"]),
   "The dialogs cannot be measured, or an anchored control keeps an unscaled margin");
+// The picker's rows carry an icon, the list filters live, and the dialog follows the night theme. Measured before
+// the rewrite: many catalogue entries arrive with Icon == null, so rows alternated between a picture and a blank
+// gap; the lookup now ends in a tile generated from the name, so no row is left empty. The dialog was hard-coded
+// white, so it stayed white inside a night-themed application. Its filter was driven from outside with WM_SETTEXT
+// and read back: no match shows the empty-state line and "当前筛选没有结果", "chrome" shows "显示 1 / 95 个应用",
+// and clearing brings the placeholder back.
+assert(includesAll(read("scripts/ui/AppPickerDialog.cs"), [
+  "internal AppPickerDialog(IList<InstalledAppChoice> choices, bool darkTheme)",
+  "internal void ApplyTheme(bool dark)",
+  "private Image IconFor(InstalledAppChoice item)",
+  "private static Image LetterTile(string name)",
+  "InstalledAppCatalog.ExecutableForProcess(item.ProcessName)",
+  "InstalledAppCatalog.IconForExecutable(item.LaunchTarget)",
+  "if (resolved == null) resolved = LetterTile(item.DisplayName);",
+  "private void DrawRow(object sender, DrawItemEventArgs e)",
+  "emptyState.Visible = applications.Items.Count == 0;",
+  'filterPlaceholder.Text = "搜索应用名或进程名，例如 cursor / chrome"',
+  "filterPlaceholder.BringToFront();",
+]) && includesAll(app, ["new AppPickerDialog(choices, darkTheme)"]),
+  "The application picker lost its icon fallback, its live filter or its theme");
 // The minimum window size is a design measurement too. Left unscaled, the window could be dragged down to
 // 880x500 device pixels at 200% — 440x250 logical, below anything the layout was built for, with the
 // sidebar alone taking more than half of it. It scales now, and the diagnostic reports it so the value is
