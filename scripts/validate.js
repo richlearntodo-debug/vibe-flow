@@ -928,6 +928,19 @@ assert(includesAll(app, [
 ]) && app.indexOf("BuildPage((VibePageId)currentPageIndex);") <
   app.indexOf("ScaleLayoutTree(content, DesignScale());"),
   "A page built on navigation is not scaled to the display, so its layout no longer matches its fonts");
+// Two things are drawn rather than laid out, so scaling the control tree does not scale them: the
+// sidebar's navigation icon is a bitmap drawn in 34x24 design units, and the remote illustration draws in
+// 112x440 design units and caps how far it grows. Both stayed at their design size while their container
+// doubled — measured at 200%: the icons looked shrunken and the illustration looked lost in a card twice
+// its size. The icon surface is scaled and the illustration is told the display ratio by its owner.
+assert(includesAll(app, [
+  "graphics.ScaleTransform(scale, scale);",
+  "var bitmap = new Bitmap(Math.Max(1, (int)Math.Round(34 * scale)),",
+  "public float DesignScaleFactor = 1f;",
+  "1.15f * Math.Max(1f, DesignScaleFactor)",
+]) && app.indexOf("remoteVisual = new RemoteVisual();") <
+  app.indexOf("remoteVisual.DesignScaleFactor = DesignScale();"),
+  "A drawn element stays at its design size while the interface around it scales");
 // A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
 // shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
 // box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits

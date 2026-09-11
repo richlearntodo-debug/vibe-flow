@@ -58,6 +58,8 @@
 - Fixed rounded status badges being clipped to their original size once the layout scales. A rounded region is cut from the control's size, so a control resized afterwards keeps the old shape and its text is drawn outside the visible area — at 200% the profile badges (手动模式 / 安全直通 / 未开启) rendered as a small box with the text cut off. The region is now rebuilt on resize, with the corner radius taken from the design value so the corners keep their proportions. Found by screenshot: neither the overlap rule nor the text-fits rule can see a control clipped by its own region.
 - The geometry check now declares itself DPI aware. Windows virtualizes window rectangles for an unaware process, so at 150% the script read a 1920×1260 window as 1280×840 and allocated its capture bitmap from the virtualized size — at 200% the screenshots showed only the top-left quarter of the window. Measurements and captures are physical pixels now, and the script's window size matches the app's own diagnostic exactly (2528×1408 at 200%).
 
+- Fixed the two drawn elements that did not follow the display scaling, because they are painted rather than laid out: the sidebar's navigation icon was a 34×24 bitmap and the remote illustration draws in 112×440 design units with a cap on how far it grows. Both stayed at their design size while the control around them doubled, so at 200% the icons looked shrunken and the illustration looked lost in a card twice its size. The icon surface is now scaled and its drawing transformed, and the illustration is told the display ratio by the form that owns it. Verified by screenshot at 200%.
+
 ## 1.5.0 - 2026-09-02
 
 - Replaced custom-shortcut text entry with a guarded keyboard recorder. Users

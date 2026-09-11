@@ -6199,6 +6199,7 @@ internal sealed partial class VibeMicForm : Form
         }
 
         remoteVisual = new RemoteVisual();
+        remoteVisual.DesignScaleFactor = DesignScale();
         remoteVisual.Location = new Point(688, 4);
         remoteVisual.Size = new Size(246, 314);
         remoteVisual.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -6968,6 +6969,7 @@ internal sealed partial class VibeMicForm : Form
         canvasState.TextAlign = ContentAlignment.MiddleCenter;
 
         var previewRemote = new RemoteVisual();
+        previewRemote.DesignScaleFactor = DesignScale();
         previewRemote.Location = new Point(330, 78);
         previewRemote.Size = new Size(300, 474);
         previewRemote.IsActive = true;
@@ -8444,6 +8446,7 @@ internal sealed partial class VibeMicForm : Form
         remoteHint.Size = new Size(130, 24);
         remoteHint.TextAlign = ContentAlignment.MiddleRight;
         var previewRemote = new RemoteVisual();
+        previewRemote.DesignScaleFactor = DesignScale();
         previewRemote.Location = new Point(20, 58);
         previewRemote.Size = new Size(316, 386);
         previewRemote.IsActive = true;
@@ -8733,6 +8736,7 @@ internal sealed partial class VibeMicForm : Form
         previewHint.Location = new Point(24, 50);
         previewHint.Size = new Size(276, 24);
         var previewRemote = new RemoteVisual();
+        previewRemote.DesignScaleFactor = DesignScale();
         previewRemote.Location = new Point(10, 72);
         previewRemote.Size = new Size(304, 370);
         previewRemote.IsActive = true;
@@ -9955,9 +9959,13 @@ internal sealed partial class VibeMicForm : Form
         return stack;
     }
 
-    private static Bitmap CreateNavigationIcon(string icon, Color color, bool active)
+    private Bitmap CreateNavigationIcon(string icon, Color color, bool active)
     {
-        var bitmap = new Bitmap(34, 24);
+        // Drawn in 34x24 design units on a surface scaled by the display ratio: a fixed bitmap stayed
+        // 34x24 while its button doubled, so the icons looked progressively smaller as the scaling grew.
+        float scale = DesignScale();
+        var bitmap = new Bitmap(Math.Max(1, (int)Math.Round(34 * scale)),
+            Math.Max(1, (int)Math.Round(24 * scale)));
         using (Graphics graphics = Graphics.FromImage(bitmap))
         using (var pen = new Pen(color, active ? 2.05f : 1.75f))
         using (var soft = new SolidBrush(Color.FromArgb(active ? 42 : 18, color)))
@@ -9966,6 +9974,7 @@ internal sealed partial class VibeMicForm : Form
             graphics.Clear(Color.Transparent);
             graphics.SmoothingMode = SmoothingMode.AntiAlias;
             graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            graphics.ScaleTransform(scale, scale);
             pen.StartCap = LineCap.Round;
             pen.EndCap = LineCap.Round;
             pen.LineJoin = LineJoin.Round;
@@ -25126,6 +25135,11 @@ internal sealed class RemoteVisual : Control
     public bool ShowCallouts;
     public string HighlightedControl = "";
     public float AnimationPhase;
+    // How much the display is scaled, told by the form that owns this control. The drawing below is in
+    // 112x440 design units and caps how far it grows, so without this the remote illustration stayed at
+    // its design size while the card around it doubled — measured at 200%: the illustration looked lost
+    // in a card twice its size.
+    public float DesignScaleFactor = 1f;
     public RemoteVisual()
     {
         AnimationPhase = 0f;
@@ -25142,7 +25156,8 @@ internal sealed class RemoteVisual : Control
         e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
         e.Graphics.CompositingQuality = CompositingQuality.HighQuality;
 
-        float scale = Math.Min(1.15f, Math.Max(0.48f, (Height - 12f) / DesignHeight));
+        float scale = Math.Min(1.15f * Math.Max(1f, DesignScaleFactor),
+            Math.Max(0.48f, (Height - 12f) / DesignHeight));
         int bodyWidth = (int)Math.Round(DesignWidth * scale);
         int x = Width / 2 - bodyWidth / 2;
         Func<int, int> sx = delegate(int value) { return x + (int)(value * scale); };
