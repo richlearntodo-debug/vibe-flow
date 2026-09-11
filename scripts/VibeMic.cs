@@ -86,6 +86,8 @@ internal sealed partial class VibeMicForm : Form
     // The keyboard-order diagnostic is a measurement, and a measurement that runs twice reads like two
     // pages of data.
     private bool tabOrderLogged;
+    // Set from --ui-theme by Main; empty in normal use.
+    private static string themeOverride = "";
     private readonly List<Button> navButtons = new List<Button>();
     private readonly Label[] overviewStatusValues = new Label[5];
     private readonly Label[] overviewStatusGlyphs = new Label[5];
@@ -329,6 +331,17 @@ internal sealed partial class VibeMicForm : Form
         bool background = Array.Exists(args, delegate(string arg) { return arg.Equals("--background", StringComparison.OrdinalIgnoreCase); });
         bool uiResourceTest = Array.Exists(args, delegate(string arg) { return arg.Equals("--ui-resource-test", StringComparison.OrdinalIgnoreCase); });
         bool uiSmoke = uiResourceTest || Array.Exists(args, delegate(string arg) { return arg.Equals("--ui-smoke", StringComparison.OrdinalIgnoreCase); });
+        // --ui-theme <light|dark|system>: lets the automated interface check launch the application in each
+        // theme. The theme used to be reachable only by editing the configuration, which is why the dark
+        // theme shipped unable to start: nothing ever ran it.
+        for (int themeIndex = 0; themeIndex < args.Length - 1; themeIndex++)
+        {
+            if (args[themeIndex].Equals("--ui-theme", StringComparison.OrdinalIgnoreCase))
+            {
+                themeOverride = (args[themeIndex + 1] ?? "").Trim();
+                break;
+            }
+        }
         bool createdNew;
         using (var instance = new Mutex(true, uiSmoke ? "Local\\VibeMicUiSmoke" : "Local\\VibeMic", out createdNew))
         {
@@ -442,6 +455,15 @@ internal sealed partial class VibeMicForm : Form
             config.startBridgeOnLaunch = false;
             config.minimizeToTray = false;
             File.WriteAllText(configPath, new JavaScriptSerializer().Serialize(config), Encoding.UTF8);
+        }
+        // An explicitly requested theme, so the interface can be verified in every theme without editing a
+        // configuration file first. Verification only: nothing passes this flag in normal use, and an
+        // unknown value is ignored rather than written anywhere.
+        if (!string.IsNullOrWhiteSpace(themeOverride))
+        {
+            string requested = themeOverride.Trim().ToLowerInvariant();
+            if (requested == "light" || requested == "dark" || requested == "system")
+                config.theme = requested;
         }
         InitializeProjectSpaces();
         InitializeBrowserRemoteLite();

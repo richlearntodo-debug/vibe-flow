@@ -56,6 +56,7 @@ const requiredFiles = [
   "scripts/features/SnippetStore.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
+  "scripts/check-ui-matrix.ps1",
   "scripts/ui/UiFonts.cs",
   "scripts/ui/UiDisplayScale.cs",
   "scripts/ui/LiveHudForm.cs",
@@ -241,6 +242,27 @@ const capture = read("scripts/VibeMicAtvvCapture.cs");
 const bridge = read("scripts/VoxDeckInputBridge.cs");
 const hostBuild = read("BUILD_VIBE_MIC.cmd");
 const release = read("BUILD_RELEASE.ps1");
+// The interface matrix is what the release chain gates the interface on: it launches the host once per theme
+// and window size, walks all six pages, and fails on overlapping controls, clipped text, or a theme that did
+// not take effect. It exists because the dark theme shipped unable to start and the pages collided at 125%
+// scaling — neither had ever been looked at by a run. The theme is taken from the captured pixels rather
+// than trusted from the flag, and a machine with no interactive desktop is reported as skipped rather than
+// passing quietly.
+const interfaceMatrix = read("scripts/check-ui-matrix.ps1");
+assert(includesAll(interfaceMatrix, [
+  "foreach ($theme in $Themes)",
+  "foreach ($size in $Sizes)",
+  "$expected = if ($appsLight -eq 0) { 'dark' } else { 'light' }",
+  "$observed = if ($luminance -lt 100) { 'dark' } else { 'light' }",
+  "skipped (no desktop)",
+  "if ($failures -gt 0) {",
+]) && includesAll(release, ["scripts\\check-ui-matrix.ps1", 'throw "Interface matrix failed."']) &&
+  includesAll(read("scripts/check-ui-geometry.ps1"), ["[string]$Theme = \"\"", "[string]$ExeArguments = \"--ui-smoke\""]) &&
+  includesAll(app, [
+    'args[themeIndex].Equals("--ui-theme", StringComparison.OrdinalIgnoreCase)',
+    'if (requested == "light" || requested == "dark" || requested == "system")',
+  ]),
+  "The interface is not gated per theme and window size, so a whole theme can ship unable to start");
 const candidateBuild = read("BUILD_HARDWARE_CANDIDATE.ps1");
 const dependencyRestore = read("RESTORE_BUILD_DEPS.ps1");
 const captureBuild = read("BUILD_VIBE_MIC_CAPTURE.cmd");

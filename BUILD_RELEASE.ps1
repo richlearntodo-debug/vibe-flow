@@ -104,6 +104,13 @@ if ($LASTEXITCODE -ne 0) { throw "Self-test failed: verified VibeMicAtvvCapture.
 & (Join-Path $root "scripts\tests\Test-InstallerRequirements.ps1")
 & (Join-Path $root "scripts\tests\Test-V2FeatureSuite.ps1")
 
+# The interface matrix: launch the host once per theme and window size, walk all six pages, and fail on any
+# overlapping control, clipped text, or theme that did not take effect. It runs here because it needs a
+# desktop and a built host, which is what this script has just produced. It exists because the dark theme
+# shipped unable to start and the pages collided at 125% scaling: neither was ever looked at by a run.
+& (Join-Path $root "scripts\check-ui-matrix.ps1")
+if ($LASTEXITCODE -ne 0) { throw "Interface matrix failed." }
+
 @("VibeMic.exe", "VoxDeckInputBridge.exe") |
     ForEach-Object { Invoke-VibeFlowCodeSign (Join-Path $root $_) }
 

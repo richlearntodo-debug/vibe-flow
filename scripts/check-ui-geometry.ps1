@@ -28,7 +28,13 @@ param(
     [int]$ProcessId = 0,
     # Measure one window of that process by title instead of sweeping the six pages. Used for the dialogs,
     # which are opened by the flow being driven and are not pages of the main window.
-    [string]$WindowTitle = ""
+    [string]$WindowTitle = "",
+    # Start the application in a specific theme. The theme matrix needs this: the theme used to be
+    # reachable only by editing a configuration file, which is exactly why the dark theme shipped unable to
+    # start — no automated run had ever launched it.
+    [string]$Theme = "",
+    # What to pass the application when this script starts it.
+    [string]$ExeArguments = "--ui-smoke"
 )
 
 $ErrorActionPreference = "Stop"
@@ -291,7 +297,9 @@ if ($ProcessId -le 0) {
     if ([string]::IsNullOrWhiteSpace($Exe)) {
         throw "Pass -Exe to start a smoke instance, or -ProcessId to measure one that is already running."
     }
-    $process = Start-Process -FilePath $Exe -ArgumentList "--ui-smoke" -PassThru
+    $launchArguments = $ExeArguments
+    if (-not [string]::IsNullOrWhiteSpace($Theme)) { $launchArguments = ($launchArguments + " --ui-theme " + $Theme).Trim() }
+    $process = Start-Process -FilePath $Exe -ArgumentList $launchArguments -PassThru
 }
 $report = New-Object System.Collections.ArrayList
 $startedByUs = $false

@@ -3785,3 +3785,44 @@ AppPickerDialog 的计数标签「共 95 个可选」与「确定」按钮**盒�
 #### 读取该诊断时的注意点（已写入门禁与本节）
 
 日志**跨运行累加**：只取最后一次的连续 6 行；`wrap: true` 是让"stops"有意义的前提。
+
+## 2026-09-11 发布前工作（1/3）：把界面矩阵做成闸门
+
+### 做了什么
+
+新增 `scripts/check-ui-matrix.ps1`：**每个主题 × 每个窗口尺寸**启动一次宿主、走完六页、逐例断言"0 重叠 / 0 裁切 / 主题真的生效"，任一例失败即整体失败。
+
+- 主题：`light` / `dark` / `system`；尺寸：默认 与 `1366x768`（用几何检查现成的 `-ForceSize`）。
+- **主题从像素判定，不信标志位**：取首页截图的背景亮度判断实际是深色还是浅色；`system` 则先读注册表 `AppsUseLightTheme` 得出应然值再比对。理由：一个"声明在跑深色、其实在渲染浅色"的结果，正是这道闸门要防的那类假通过。
+- **无桌面环境如实记为 skipped**，不失败也不静默通过（CI runner 若无交互桌面，会打印 `skipped (no desktop)`）。
+- 宿主新增 `--ui-theme <light|dark|system>`：主题不再只能靠改配置文件才能切——**这正是深色主题当年能"启动即崩"还活了几个月的原因：没有任何自动运行碰过它**。
+
+### 实测（本机，200% 缩放）
+
+```
+theme/size        pages  overlaps  clipped  theme      exit  result
+light/default         6         0        0  light         0  ok
+light/1366x768        6         0        0  light         0  ok
+dark/default          6         0        0  dark          0  ok
+dark/1366x768         6         0        0  dark          0  ok
+system/default        6         0        0  dark          0  ok
+system/1366x768       6         0        0  dark          0  ok
+interface matrix: 6 case(s) passed
+```
+
+（本机 Windows 应用主题为深色，所以 `system` 判为 dark ✔ 符合跟随语义。）
+
+### 接进闸门与 CI
+
+- `BUILD_RELEASE.ps1` 在特性套件之后调用矩阵，失败即 `throw "Interface matrix failed."`；
+- **CI 因此自动获得该闸门**——`.github/workflows/validate.yml` 的 "Build release" 步骤就是跑 `BUILD_RELEASE.ps1`。
+- `validate.js` 已钉住：矩阵脚本必须存在、必须从像素判主题、必须有 skipped 分支、必须被发布链调用；检查脚本必须有 `-Theme` / `-ExeArguments`；宿主必须解析 `--ui-theme`。
+
+### 顺带纠正我上一轮评估里的一处不准确
+
+我在评估里把"安装升级卸载生命周期"列为未验证。**实际上它已被 CI 覆盖**：`validate.yml` 里有三步 `Test-ReleaseLifecycle.ps1`（干净安装+启动恢复+卸载、未配置的干净安装+卸载、V1.5 升级两次+卸载），在 `windows-latest` 上跑。所以那一项的真实状态是"**CI 已覆盖、本机/真机未跑**"，不是"没做"。
+
+### 仍未做（本项内）
+
+- **CI 上的矩阵未实测**：我无法从这里跑 GitHub runner，只能保证它接进了发布链。若runner 无交互桌面，会打印 skipped 而不是假通过（这一点已验证分支逻辑）。
+- DPI 轴无法在 CI 上切换（runner 缩放固定），矩阵覆盖的是"主题 × 窗口尺寸"；DPI 轴靠本机 200% 下跑同一套走查来覆盖。
