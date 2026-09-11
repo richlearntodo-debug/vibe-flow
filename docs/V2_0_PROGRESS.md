@@ -5324,3 +5324,46 @@ string[] keys = { "确认键", "Home", "Home:short", "Home:long", "TV", "功能�
 
 快捷键页底部提示改为 ✔：**「电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。…」** ✔
 （原来只说"电源键可配置" ✗，没有告诉用户**"必须先指派动作"** ✔ —— 这正是"按了没反应"时最需要看到的一句话 ✔。）验证：文字判据 ✔、几何 `no overlapping / no clipped` ✔、self-test ✔。
+
+## 2026-09-12 **症状的最后一环找到了** ✔：电源键曾被**语音兜底抢走** ✗（本机日志为证 ✔）
+
+### 本机桥日志里的真实记录（`input-bridge-log.txt`，2026-09-12 02:14:33 ✔）
+
+```
+02:14:33.717 Voice raw VK fallback vk=0xFF scan=0x5E
+02:14:33.718 Key 录音键 DOWN vk=0xFF scan=0x5E source=raw_input
+02:14:33.720 RC003 RAW KEY DOWN vk=0xFF scan=0x5E flags=0x02 action_routed=False
+02:14:33.956 Voice raw VK fallback vk=0xFF scan=0x5E
+02:14:33.958 Key 录音键 UP vk=0xFF scan=0x5E source=raw_input
+```
+
+**这是本机自己的证据** ✔（不是推断 ✔）：`VK 0xFF / scan 0x5E`（MiVibe 硬件表里**电源键**的形态 ✔）被 `IsVoiceRawCandidate`（4109 ✔）当作**录音键的原始形态** ✗ 并路由成了「录音键」✗ → 也就是说，**按键确实到达了我们的栈** ✔，但被**语音兜底**吃掉了 ✗。
+
+### 为什么兜底会把它让出来（关键不变量 ✔）
+
+两处调用都是这个形状 ✔：
+
+```csharp
+if (mapping == null && IsVoiceRawCandidate(virtualKey, input.MakeCode))   // 597 / 3223
+```
+
+而 `FindMapping`（748 ✔）**不检查 `enabled`** ✗：只要 `vk` 与 `scan` 匹配就返回 ✔（`if (expectedScan < 0 || expectedScan == scanCode) return mapping;` ✔）。所以：
+
+- **映射表里有 power 映射** ⇒ `mapping != null` ✔ ⇒ **语音兜底被跳过** ✔ ⇒ 电源键走自己的映射 ✔✔
+  - 未指派 ⇒ 动作为 `none` ⇒ **按键什么也不做** ✔（不再意外触发录音 ✔）
+  - 已指派 ⇒ 执行动作 ✔ 且 `suppress` 生效（不再传给 Windows ✔）
+- 若**没有** power 映射（本轮之前的世界 ✗）⇒ 兜底命中 ⇒ **按键被当成录音键** ✗ —— 这就是"电源键不能用"的**最后一环** ✔
+
+### 结论
+
+**无需再改代码** ✔ —— 本轮的两处修正（`DefaultRemoteMappings` 的 `电源键=none` ✔ + 投影键表加入「电源键」✔）已经让上面的第一条路径成立 ✔。本轮新增一条门禁，钉住**"兜底只能在没有映射时生效"**这个不变量 ✔（`mapping == null &&` 的两处调用 ✔ + `IsVoiceRawCandidate` 的判定式 ✔ + power 映射必须存在 ✔）。
+
+### 你按键时应该看到什么（可对照 ✔）
+
+在 `input-bridge-log.txt` 里期望出现的是 ✔：
+
+```
+Key 电源键 DOWN vk=0xFF scan=0x5E source=raw_input
+```
+
+而**不再**是 `Key 录音键 DOWN vk=0xFF scan=0x5E` ✗。**如果仍显示"录音键"** ✗，那就说明运行中的桥没有读到新配置（例如安装版的 `voxdeck-shortcuts.json` 未更新 ✔），我会据此继续查 ✔。

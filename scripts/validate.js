@@ -1092,7 +1092,29 @@ assert(includesAll(app, [
   'new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")',
   "Keyboard shortcut recorder normalization invariant failed",
 ]), "Physical keyboard shortcut recording or its strict validation is incomplete");
-// Why the power key did nothing even after being assigned an action: the profile projection rebuilds the mapping
+// The power key and the record key share the same raw form, and this machine's own bridge log shows what that used to
+// mean. On 02:14 the log recorded a press as:
+//
+//   Voice raw VK fallback vk=0xFF scan=0x5E
+//   Key 录音键 DOWN vk=0xFF scan=0x5E source=raw_input
+//
+// so VK 0xFF / scan 0x5E — the ACPI power key, per MiVibe-Remote's hardware map — was being routed to the record
+// key. IsVoiceRawCandidate treats that pair as a raw form of the microphone key, because RC003 has emitted the power
+// form in place of F5 across Bluetooth reconnects.
+//
+// The escape is that the fallback only runs when no mapping matched. FindMapping does not consult `enabled`: it
+// returns whenever vk and scan match, so with a power mapping in the table the key routes to it and never reaches the
+// voice fallback — unassigned it does nothing, assigned it runs and Windows is suppressed. This pins the ordering that
+// makes that true, because a fallback that jumped ahead of the mapping would take the key back.
+assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
+  "if (mapping == null && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
+  "if (mapping == null && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
+  "return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);",
+  "if (expectedScan < 0 || expectedScan == scanCode)",
+]) && includesAll(app, [
+  // The power mapping has to exist for the mapping to win over the fallback at all.
+  'ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "power", "电源键", "0xFF", "0x5E",',
+]), "The record-key fallback can take the power key again, or the power mapping that outranks it is gone");// Why the power key did nothing even after being assigned an action: the profile projection rebuilds the mapping
 // table from a fixed key list, and 电源键 was not in it. An assignment was therefore rebuilt away on the next
 // projection, GetBridgeMapping fell back to the key's default, and the generated mapping stayed passthrough for ever.
 // Two places carry the key now, and the default is "none" on purpose: an unassigned power key must leave Windows'
