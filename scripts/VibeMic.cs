@@ -728,30 +728,55 @@ internal sealed partial class VibeMicForm : Form
         return label.Length > 24 ? label.Substring(0, 24) : label;
     }
 
-    // Logs a form's size before and after it is shown, with the autoscale baseline it carries at each point and
-    // what the design size at this display's scaling would be. Construction versus post-show is the pair that
-    // separates "Windows Forms scaled it" from "UiDisplayScale scaled it" from "both did".
-    private void LogSurfaceScaling(string name, Form surface, Size designSize)
+    // Checks a form's scaling and reports it, before and after it is shown.
+    //
+    // Two families, and the measurement is what separates them. A form carrying a design baseline
+    // (AutoScaleDimensions) is scaled by Windows Forms, which scales the *client area* and leaves the frame
+    // alone — so its window comes out one frame smaller than the design window times the scaling. A form without
+    // one is scaled by UiDisplayScale, which scales the window itself. Both were measured on this machine: with
+    // the frame accounted for, every wired form matches its design size times the display scaling.
+    private void CheckSurfaceScaling(string name, Form surface, Size designSize)
     {
-        if (surface == null) { HostLog("UI DISPLAYSCALE " + name + "=not_constructed"); return; }
+        if (surface == null) { return; }
         try
         {
-            HostLog("UI DISPLAYSCALE " + name + " constructed=" + surface.Width + "x" + surface.Height +
-                " baseline=" + surface.AutoScaleDimensions.Width + "x" + surface.AutoScaleDimensions.Height +
-                " mode=" + surface.AutoScaleMode);
+            Size constructed = surface.Size;
+            Size baseline = surface.AutoScaleDimensions.ToSize();
             surface.Show();
             Application.DoEvents();
             float scale = UiDisplayScale.ForControl(surface);
-            HostLog("UI DISPLAYSCALE " + name + " shown=" + surface.Width + "x" + surface.Height +
-                " baseline=" + surface.AutoScaleDimensions.Width + "x" + surface.AutoScaleDimensions.Height +
-                " scale=" + scale.ToString("0.00") +
-                " designTimesScale=" + (int)Math.Round(designSize.Width * scale) + "x" +
-                (int)Math.Round(designSize.Height * scale) +
-                " ratio=" + ((float)surface.Width / Math.Max(1, designSize.Width)).ToString("0.00"));
-        }
-        catch (Exception ex)
-        {
-            HostLog("UI DISPLAYSCALE " + name + " failed error=" + SafeLogValue(ex.Message));
+            // Which family this form belongs to is a measured fact, not a property: a form that is already larger
+            // than its design size at the end of its constructor has been scaled by Windows Forms, which scales
+            // the client area and leaves the frame alone; a form still at its design size there is scaled by
+            // UiDisplayScale, which scales the window. The autoscale baseline does not distinguish them — the
+            // Context Deck carries one and is still scaled by this code, which is why its client area is not the
+            // value to compare.
+            bool autoscaledByWindowsForms = constructed.Width > designSize.Width + 4 ||
+                constructed.Height > designSize.Height + 4;
+            Size frame = new Size(surface.Width - surface.ClientSize.Width,
+                surface.Height - surface.ClientSize.Height);
+            Size expectedClient = new Size(
+                (int)Math.Round((designSize.Width - frame.Width) * scale),
+                (int)Math.Round((designSize.Height - frame.Height) * scale));
+            Size expectedWindow = new Size((int)Math.Round(designSize.Width * scale),
+                (int)Math.Round(designSize.Height * scale));
+            Size actual = autoscaledByWindowsForms ? surface.ClientSize : surface.Size;
+            Size expected = autoscaledByWindowsForms ? expectedClient : expectedWindow;
+            bool matches = Math.Abs(actual.Width - expected.Width) <= 2 && Math.Abs(actual.Height - expected.Height) <= 2;
+            HostLog("UI DISPLAYSCALE " + name + "=" + (matches ? "ok" : "MISMATCH") +
+                " constructed=" + constructed.Width + "x" + constructed.Height +
+                " shown=" + surface.Width + "x" + surface.Height +
+                " client=" + surface.ClientSize.Width + "x" + surface.ClientSize.Height +
+                " frame=" + frame.Width + "x" + frame.Height +
+                " compared=" + (autoscaledByWindowsForms ? "client" : "window") +
+                " actual=" + actual.Width + "x" + actual.Height +
+                " expected=" + expected.Width + "x" + expected.Height +
+                " scale=" + scale.ToString("0.00"));
+            if (!matches)
+            {
+                throw new InvalidOperationException(name + " is " + actual.Width + "x" + actual.Height +
+                    " where its design size at this display scaling is " + expected.Width + "x" + expected.Height);
+            }
         }
         finally
         {
@@ -778,18 +803,29 @@ internal sealed partial class VibeMicForm : Form
         // tell one scaling from two — measured, Browser Remote Lite's design size times two is the same number
         // as the working area clamp. The size at construction and the size after being shown can tell them
         // apart, together with the autoscale baseline Windows Forms records.
-        LogSurfaceScaling("ContextDeck", new ContextDeckForm(), new Size(820, 696));
+        CheckSurfaceScaling("ContextDeck", new ContextDeckForm(), new Size(820, 696));
         // LiveHudForm's design size is 400x160 (its constructor), not the 200x80 this diagnostic first assumed:
         // the wrong baseline made a correct form look like it had been scaled four times.
-        LogSurfaceScaling("LiveHud", new LiveHudForm(), new Size(400, 160));
+        CheckSurfaceScaling("LiveHud", new LiveHudForm(), new Size(400, 160));
         try
         {
-            LogSurfaceScaling("AppPicker", new AppPickerDialog(BuildInstalledAppChoicesForDiagnostic()),
+            CheckSurfaceScaling("AppPicker", new AppPickerDialog(BuildInstalledAppChoicesForDiagnostic()),
                 new Size(580, 660));
         }
         catch (Exception ex)
         {
             HostLog("UI DISPLAYSCALE AppPicker=unavailable error=" + SafeLogValue(ex.Message));
+        }
+        try
+        {
+            // The callbacks are only invoked on user interaction, and the constructor fills in defaults for the
+            // ones it needs, so nulls are enough to construct it for measurement.
+            CheckSurfaceScaling("BrowserRemoteLite",
+                new BrowserRemoteLiteForm(null, null, null, null, null, null, false), new Size(840, 720));
+        }
+        catch (Exception ex)
+        {
+            HostLog("UI DISPLAYSCALE BrowserRemoteLite=unavailable error=" + SafeLogValue(ex.Message));
         }
 
         CaptureAskForm probe = null;
@@ -809,15 +845,16 @@ internal sealed partial class VibeMicForm : Form
             probe.Show();
             Application.DoEvents();
             float probeScale = UiDisplayScale.ForControl(probe);
-            int expectedWidth = (int)Math.Round(780 * probeScale);
-            int expectedHeight = (int)Math.Round(700 * probeScale);
-            bool matches = Math.Abs(probe.Width - expectedWidth) <= 2 && Math.Abs(probe.Height - expectedHeight) <= 2;
-            // Reported, not asserted, while the cause is being dealt with: this surface is scaled twice, once by
-            // Windows Forms' own autoscale (its constructor's content is present before the form loads) and once
-            // by UiDisplayScale at load. The result is clamped to the working area, so it fills the screen
-            // instead of taking its design size. The line is deliberately loud and in every smoke log, including
-            // the interface matrix's, rather than left out until it is fixed.
-            HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "delta") +
+            // Same measured rule as the other forms: this one is already larger than its design size when its
+            // constructor returns, so Windows Forms scaled it and its *client area* is what has to match — its
+            // window is one unscaled frame smaller than the design window times the scaling.
+            Size probeFrame = new Size(probe.Width - probe.ClientSize.Width,
+                probe.Height - probe.ClientSize.Height);
+            int expectedWidth = (int)Math.Round((780 - probeFrame.Width) * probeScale);
+            int expectedHeight = (int)Math.Round((700 - probeFrame.Height) * probeScale);
+            bool matches = Math.Abs(probe.ClientSize.Width - expectedWidth) <= 2 &&
+                Math.Abs(probe.ClientSize.Height - expectedHeight) <= 2;
+            HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "MISMATCH") +
                 " shown=" + probe.Width + "x" + probe.Height +
                 " expected=" + expectedWidth + "x" + expectedHeight +
                 " difference=" + (probe.Width - expectedWidth) + "x" + (probe.Height - expectedHeight) +
@@ -825,10 +862,17 @@ internal sealed partial class VibeMicForm : Form
                 " scale=" + probeScale.ToString("0.00") +
                 " workarea=" + Screen.FromControl(probe).WorkingArea.Width + "x" +
                 Screen.FromControl(probe).WorkingArea.Height);
+            if (!matches)
+            {
+                throw new InvalidOperationException("Capture & Ask is " + probe.ClientSize.Width + "x" +
+                    probe.ClientSize.Height + " where its design client size at this display scaling is " +
+                    expectedWidth + "x" + expectedHeight);
+            }
         }
         catch (Exception ex)
         {
-            HostLog("UI TRAY SURFACE probe failed error=" + SafeLogValue(ex.Message));
+            HostLog("UI TRAY SURFACE captureAsk failed error=" + SafeLogValue(ex.Message));
+            throw;
         }
         finally
         {

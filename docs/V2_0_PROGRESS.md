@@ -4286,3 +4286,39 @@ probe shown       = 2536x1416   scale=2.00  expected(780x700x2)=1560x1400
 - **Browser Remote Lite** 的构造/显示测量（判据同上，需先测后改）；
 - 把 `captureAsk=ok` 从"报告"改成**断言**（现在报 `delta` 并附客户端区尺寸；等 Browser Remote Lite 一并量清、判据统一后再断言）；
 - 矩阵里 `1366x768`/`880x500` 两档在 200% 下实际被夹到 1760×1000（缩放下限 ✔ 行为正确但**标签在高缩放下名不副实**），需在文档/输出里说明。
+
+## 2026-09-11 收口：五个窗体的缩放**全部改为自动断言**，并修掉 Browser Remote Lite 的同类缺陷
+
+### 结论表（每次 smoke 运行都会打印并断言，12 例界面矩阵因此各跑一遍）
+
+```
+ContextDeck=ok       constructed=820x696  shown=1640x1392  compared=window  expected=1640x1392
+LiveHud=ok           constructed=400x160  shown=800x320    compared=window  expected=800x320
+AppPicker=ok         constructed=580x660  shown=1160x1320  compared=window  expected=1160x1320
+BrowserRemoteLite=ok constructed=1654x1369 shown=1654x1369 compared=client expected=1628x1298
+captureAsk=ok        client=1508x1258     expected=1508x1258
+```
+
+（两个 `client` 家族的 window 都比"设计窗口×缩放"小一个 `frame`：Browser 26×71、CaptureAsk 26×71 ✔）
+
+### 判别规则：**用测量，不用属性**
+
+"该比客户端区还是窗口尺寸"不能靠属性判断 ✗ —— 实测 Context Desk **带着** `AutoScaleDimensions` 却仍是被 `UiDisplayScale` 缩放的（它的客户端区不是应比对象 ✗）。真正的判别是**构造结束时是否已经大于设计尺寸**：
+
+- 已大于 → **Windows Forms 缩放过它** → 比**客户端区**（WinForms 缩放客户端区、不缩放边框）
+- 仍等于设计 → **UiDisplayScale 缩放它** → 比**窗口尺寸**
+
+### Browser Remote Lite：**上一轮的撤回是错的**，本轮改回并验证
+
+上一轮我把它改了又撤回，理由是"改后 1654×1369 既不是设计×2、也不是夹取值，无法判定" ✗ —— **那个理由基于我自己搞错的设计尺寸**：我用了从实测值反推的 1268×708 ✗，而它的真实设计是 **840×720**（`BrowserRemoteLiteForm.cs:64`）✔。
+
+按真实设计重算：1654×1369 的**客户端区 1628×1298** = 设计客户端 (814×649) × 2 ✔✔ **本来就是正确的** → 因此**移除 `UiDisplayScale.Apply` 是正确的修复**，本轮已改回并断言通过 ✔
+
+**教训（第二次同类）**：这两轮里我有两次判断失误都源于**自己推断的"设计尺寸"**（LiveHud 200×80 ✗、Browser 1268×708 ✗）。**设计尺寸必须从代码读，不能从实测值反推** ✗。
+
+### item 3 收口状态
+
+- **尺寸轴**：3 主题 × 4 尺寸 = 12 例全过并进门禁 ✔（其中 `1366x768`/`880x500` 在 200% 下被缩放下限夹到 1760×1000 ✔ 行为正确，标签在高缩放下名不副实，已在文档说明）
+- **界面覆盖**：15 个（13 外部实测 + ContextDeck 应用内断言 + 本轮把 CaptureAsk/BrowserRemoteLite/其它窗体纳入**每次 smoke 的缩放断言**）
+- **修掉两个真实的高 DPI 缺陷**：Capture & Ask 铺满屏幕（本轮前一轮修）、Browser Remote Lite 同类（本轮修）
+- `validate` ✔ self-test ✔ 发布链 ✔ 装机 51/51 ✔

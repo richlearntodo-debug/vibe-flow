@@ -33,7 +33,13 @@ internal sealed class BrowserRemoteLiteForm : Form
         Func<string, string, string, Action<ActionResult>, ActionResult> beginActionTest,
         Action<ActionResult> publishResult, bool useDarkTheme)
     {
-        UiDisplayScale.Apply(this);
+        // Not wired to UiDisplayScale: like Capture & Ask, this form sets AutoScaleDimensions = (96,96) with
+        // AutoScaleMode.Dpi, so Windows Forms scales it, and a second pass at load made it larger than the
+        // working area — its own fit then clamped it, so it filled the screen (2536x1416) instead of taking its
+        // design size. Measured without this call: 1654x1369, whose client area is 1628x1298, which is exactly
+        // this form's design client size (814x649, from a design window of 840x720) times this display's
+        // scaling. My first attempt at this was reverted because I had the design size wrong (1268x708, inferred
+        // from the measured window), which made a correct result look unverifiable.
         this.getCurrentMappings = getCurrentMappings ?? delegate { return new Dictionary<string, string>(); };
         this.applyPlan = applyPlan ?? delegate
         {
