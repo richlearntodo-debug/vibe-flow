@@ -13767,10 +13767,13 @@ deck.Hide();
                 Action<ActionResult> showActionFeedback = delegate(ActionResult result)
                 {
                     currentWizardFeedback = result;
+                    // The visible line says what happened; the code a support conversation needs lives in the tooltip,
+                    // not appended to the sentence. It read "! 还没有收到刚才的方向键 · ONBOARDING-CHECK-REQUIRED",
+                    // which turns a plain instruction into something that looks like a crash report.
                     wizardFeedback.Text = result == null ? "" :
                         (result.State == ActionState.Success ? "✓  " :
                          result.State == ActionState.Running || result.State == ActionState.Checking ? "…  " : "!  ") +
-                        result.Message + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " · " + result.ErrorCode);
+                        result.Message;
                     wizardFeedback.ForeColor = result == null ? muted :
                         result.State == ActionState.Success ? green :
                         result.State == ActionState.Running || result.State == ActionState.Checking ? cyan :
@@ -13779,7 +13782,8 @@ deck.Hide();
                         (result.State == ActionState.Warning || result.State == ActionState.Error ||
                          result.State == ActionState.Canceled) &&
                         (!string.IsNullOrWhiteSpace(result.ErrorReason) || !string.IsNullOrWhiteSpace(result.RecoveryAction));
-                    feedbackTip.SetToolTip(wizardFeedback, result == null ? "" : result.OverlayDetailText());
+                    feedbackTip.SetToolTip(wizardFeedback, result == null ? "" : result.OverlayDetailText() +
+                        (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : "\r\n" + result.ErrorCode));
                 };
                 Action<string, bool> showFeedback = delegate(string message, bool success)
                 {

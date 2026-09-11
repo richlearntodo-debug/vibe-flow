@@ -1148,7 +1148,14 @@ assert(includesAll(app, [
   'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
-]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The wizard's status line showed the error code: "! 还没有收到刚才的方向键 · ONBOARDING-CHECK-REQUIRED". A plain
+// instruction with a support identifier stapled to it reads like a crash report, so the line carries the message and
+// the code moved to the tooltip, where a support conversation can still find it.
+assert(includesAll(app, [
+  'result.Message;',
+  '(string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : "\\r\\n" + result.ErrorCode)',
+]) && !app.includes('result.Message + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " · " + result.ErrorCode)'),
+  "The wizard's status line is showing its error code again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
