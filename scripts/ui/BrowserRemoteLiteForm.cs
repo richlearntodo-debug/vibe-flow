@@ -6,6 +6,11 @@ using System.Windows.Forms;
 
 internal sealed class BrowserRemoteLiteForm : Form
 {
+    // A themed ListView ignores BackColor for its items area while visual styles are on; turning the theme off
+    // for that one control is the documented way to make its colours apply.
+    [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern int SetWindowTheme(IntPtr handle, string subApplicationName, string subIdList);
+
     private readonly Func<Dictionary<string, string>> getCurrentMappings;
     private readonly Func<BrowserRemotePlan, ActionResult> applyPlan;
     private readonly Func<ActionResult> undoPlan;
@@ -266,6 +271,19 @@ internal sealed class BrowserRemoteLiteForm : Form
         stateLabel.BackColor = darkTheme ? Color.FromArgb(38, 40, 48) : Color.FromArgb(238, 241, 248);
         differences.BackColor = surface;
         differences.ForeColor = ink;
+        // A themed ListView ignores BackColor for its items area while visual styles are on, so in dark mode the
+        // rows stayed white with black text — readable, but a light table on a dark page (measured: the row area
+        // sampled as light while the surface colour was (35,37,44)). Turning the theme off for this one control is
+        // the documented way to make its colours apply. Accessing Handle creates it if the form is not shown yet.
+        try
+        {
+            IntPtr listHandle = differences.Handle;
+            if (listHandle != IntPtr.Zero) SetWindowTheme(listHandle, "", "");
+            // The column header is a separate SysHeader32 window and keeps its own light strip above the dark rows.
+            // Turning its theme off was tried and measured: the header stayed light (240,240,240), so that call was
+            // removed rather than kept as dead code. Colouring it needs custom draw.
+        }
+        catch { }
         rightChoice.BackColor = darkTheme ? Color.FromArgb(31, 33, 39) : Color.White;
         rightChoice.ForeColor = ink;
         functionLongChoice.BackColor = rightChoice.BackColor;

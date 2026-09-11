@@ -379,7 +379,15 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
+// A themed ListView ignores BackColor for its items area, so in dark mode the table rows stayed white on a dark
+// page. Measured before the fix: rows light, surface colour (35,37,44); after turning the control's theme off:
+// rows (35,37,44). Its column header is a separate SysHeader32 window and stays light even with theming off
+// (measured 240,240,240), which is recorded as needing custom draw rather than left implied as fixed.
+assert(includesAll(read("scripts/ui/BrowserRemoteLiteForm.cs"), [
+  "private static extern int SetWindowTheme(IntPtr handle, string subApplicationName, string subIdList);",
+  'SetWindowTheme(listHandle, "", "");',
+  "Colouring it needs custom draw.",
+]), "The dark-mode table fix is gone, so the rows would render light on a dark page again");// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
 // device-level filter is not healthy the record key can reach whatever application is in front, and this is the
 // project's top release concern. It is shown only when that is actually the case, and the step was captured after
 // the change to confirm the line renders and the rest of the step is unchanged.
