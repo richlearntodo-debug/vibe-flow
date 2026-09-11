@@ -174,7 +174,7 @@ RC003 录音输入
 | --- | --- | --- |
 | `docs/images/01-overview.png` | 1280 x 840 | `9C7416C5C0FD16883B2D1ABC5383EF00A48D64EC64E1059EA447FC1631FBD8B4` |
 | `docs/images/03-shortcuts.png` | 1280 x 840 | `3125477C4995EEF5D7617C1BAC25E7FB5D489442DCFA14C52CD593D26B509429` |
-| `docs/images/04-diagnostics.png` | 1280 x 840 | `5296986636AABC865A315315BC23521ED1136284871CCDD248871B2C878EB2C1` |
+| `docs/images/04-diagnostics.png` | 1280 x 840 | `FB8ADB33F7A3AEEB95AC336ED50DD2DB094A515E0DE68A54BE3520A939483397` |
 | `docs/images/05-settings.png` | 1280 x 840 | `8CF9A02883E1EE9955D9DDEC21B19E0D0EDB0326050FF9A9CB1BB7AD817C8142` |
 
 Computer Use 首次检查 `VibeMic.exe --ui-smoke` 首页时，后续导航检测到用户并发输入且窗口被最小化，因此安全停止，没有抢回焦点。改动后重新构建并启动独立 smoke 实例，已实际巡视 1280 x 840 的首页、快捷键、语音、自检和设置五页；没有点击配置、修复或硬件测试动作。首页“松开结束录音”和快捷键页录音键“固定稳定链路”已实际可见。自检如实显示本机另一个安装目录实例及本目录 Bridge 未运行导致的 2 项错误，没有伪造成功。动态录音结束状态、首次设置和 100–200% DPI 仍未检查。
