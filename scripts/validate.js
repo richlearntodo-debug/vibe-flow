@@ -392,7 +392,8 @@ assert(includesAll(read("scripts/ui/AppPickerDialog.cs"), [
   "new AppPickerDialog(choices, darkTheme, HostLog)",
   // The workflow rows now carry the application's own logo, through the same shared lookup: measured, this machine
   // has 91 real icons out of 95 catalogue entries, and the picker had them while this list drew a status dot.
-  "Image rowIcon = AppIcons.For(card.ProcessName, card.Title, \"\", null, out iconSource);",
+  // The workflow rows now pass the catalogue's icon, which is what gives them real logos.
+  "InstalledAppCatalog.IconForProcess(card.ProcessName), out iconSource);",
   "AppIcons.DrawTile(e.Graphics, rowIcon,",
 ]) && includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
   "internal static class AppIcons",
@@ -1960,7 +1961,35 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The design review's last recommendation was a search. It is already satisfied where it is needed: the action
+// Three faults reported on the workflow page, all rooted in the second section rather than in its styling.
+//
+// The logos: the rows asked the running process for its executable, which returns nothing for an application that is
+// installed and not running, so most rows fell back to a generated letter tile although the catalogue already holds
+// the real icon — 91 of 95 entries on this machine. They consult the catalogue by process name first now. Verified by
+// looking: cursor, chrome and msedge render their own logos, and only the smoke test's own application keeps a tile.
+//
+// The section heading carried an icon glyph that rendered as a small meaningless mark, and the heading and the rows
+// underneath it were about a feature name ("工作流") rather than about what still needs doing. The heading is plain
+// text, says 还需要处理, and the sentence under each row — 「键位 … · 工作流 未设置 · 语音工具 …」 — is gone: it
+// repeated what the state already says, in the vocabulary of the configuration file.
+//
+// The two sections did not share a left edge. The second section's heading sat 18 px left of the first one's content
+// and its rows sat 36 px left of the first one's rows; both now use the favourites panel's own columns. Moving the
+// heading introduced a four-pixel overlap with the summary, which the geometry check caught and the width fixed.
+assert(includesAll(app, [
+  "InstalledAppCatalog.IconForProcess(card.ProcessName), out iconSource);",
+  'var title = NewLabel("还需要处理", 11.5f, FontStyle.Bold, ink);',
+  "title.Location = new Point(44, top + 12);",
+  "title.Size = new Size(190, 28);",
+  "iconPanel.Location = new Point(40, 5);",
+  "title.Location = new Point(84, 9);",
+]) && includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
+  // The lookup lives in the catalogue, not in the host: it is the catalogue that holds the icons.
+  "internal static Icon IconForProcess(string processName)",
+  "catalogueIcons[name] = entry.Icon;",
+]) && !app.includes('SectionTitle("应用工作流"') && !app.includes("detail.Text = card.Actual") &&
+  !app.includes("var detail = NewLabel(card.Actual"),
+  "A workflow row lost its catalogue logo, regained the sentence under it, or the two sections drifted apart again");// The design review's last recommendation was a search. It is already satisfied where it is needed: the action
 // picker — the only list in the application long enough to need one, with every shortcut action in it — carries a
 // live search box that filters as the user types and reselects the current choice. The other pages hold at most
 // thirteen controls, and the application picker gained its own filter earlier in this session. No application-wide
@@ -2182,9 +2211,10 @@ assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
 // something, the action taken from the card model, dispatched through the same handler.
 assert(includesAll(app, [
   "BuildCurrentWorkflowCards", "WORKFLOW CARDS cards=",
-  "WorkflowCards.Summarize(cards)", '"应用工作流"',
+  "WorkflowCards.Summarize(cards)", '"还需要处理"',
   // The section sits inside the workflow page's application card now, so the method that renders it changed name;
-  // the contract did not: the rows exist only there, one line each, with the model's own action.
+  // the contract did not: the rows exist only there, one line each, with the model's own action. Its heading reads
+  // 还需要处理 rather than naming the feature, because the rows are about what still needs doing.
   "AddWorkflowStatusSection", "AddWorkflowStatusRow", "HandleSelfCheckAction(card.Action)",
   'else if (action == "workflow-profile")', 'else if (action == "workflow-target")',
 ]) && !app.includes("AddSelfCheckRow(workflows") &&

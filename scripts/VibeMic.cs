@@ -7158,16 +7158,25 @@ deck.Hide();
         divider.Size = new Size(924, 1);
         divider.BackColor = line;
         card.Controls.Add(divider);
-        var title = NewLabel("应用工作流", 9.6f, FontStyle.Bold, ink);
-        title.Location = new Point(42, top + 12);
-        title.Size = new Size(200, 24);
+        // A plain sub-heading, not SectionTitle: the icon glyph that helper draws rendered as a small meaningless
+        // mark in front of the title here. The heading also lost the word 工作流, because the rows below it are
+        // about what still needs doing rather than about a feature name.
+        var title = NewLabel("还需要处理", 11.5f, FontStyle.Bold, ink);
+        // 26 matches the favourites panel's own left edge and its empty-state heading, so the two sections of the
+        // card line up instead of starting at slightly different places.
+        // 44 = the card's 18 px inset plus the favourites panel's own 26 px content inset: the two sections share
+        // one left edge, which is what "the two lists are not aligned" was about.
+        title.Location = new Point(44, top + 12);
+        // 190 keeps the heading's box clear of the summary, which starts at 240: at 200 wide the shift to 44 ran four
+        // pixels into it, and the geometry check reported the overlap.
+        title.Size = new Size(190, 28);
         var summary = NewLabel(summaryText, 8.7f, FontStyle.Regular, muted);
-        summary.Location = new Point(240, top + 12);
+        summary.Location = new Point(240, top + 14);
         summary.Size = new Size(682, 24);
         summary.TextAlign = ContentAlignment.MiddleRight;
         card.Controls.Add(title);
         card.Controls.Add(summary);
-        for (int i = 0; i < pending.Count; i++) AddWorkflowStatusRow(card, pending[i], top + 42 + i * 52);
+        for (int i = 0; i < pending.Count; i++) AddWorkflowStatusRow(card, pending[i], top + 46 + i * 44);
     }
 
     // One application, one line. The state chip and the action both come from the card model, so the line cannot
@@ -7185,16 +7194,21 @@ deck.Hide();
         string gap = card.Gaps.Count > 0 ? card.Gaps[0] : "";
         bool unverified = string.Equals(gap, WorkflowCards.GapTargetUnverified, StringComparison.Ordinal);
         Color statusColor = card.State == "pass" ? green : unverified ? cyan : amber;
-        // The application's own icon, on a subtle tile. This row used to show a status dot where the logo belongs,
-        // which is what "many applications have no logo" turned out to be about: the picker had icons for 91 of this
-        // machine's 95 applications, and this list had none at all. The tile matters because several application
-        // icons carry transparency for a white or a dark background and read as absent when drawn straight onto a
-        // card. The state is still carried by the label's colour.
+        // The application's own icon, looked up in the machine's catalogue first.
+        //
+        // This row asked the *running process* for its executable, which returns nothing for an application that is
+        // installed and not running, so most rows fell back to a generated letter tile even though the catalogue
+        // already holds the real icon — 91 of 95 entries on this machine. The catalogue is consulted first now, and
+        // the tile remains only as the last resort. The tile background matters because several application icons
+        // carry transparency for a white or a dark background and read as absent when drawn straight onto a card.
         string iconSource;
-        Image rowIcon = AppIcons.For(card.ProcessName, card.Title, "", null, out iconSource);
+        Image rowIcon = AppIcons.For(card.ProcessName, card.Title, "",
+            InstalledAppCatalog.IconForProcess(card.ProcessName), out iconSource);
         Color iconTile = darkTheme ? Color.FromArgb(45, 47, 56) : Color.FromArgb(243, 245, 250);
         var iconPanel = new Panel();
-        iconPanel.Location = new Point(4, 6);
+        // 40 and 84 are the favourites panel's own row columns (its tile and its text), so the two lists share one
+        // left edge instead of starting 36 px apart.
+        iconPanel.Location = new Point(40, 5);
         iconPanel.Size = new Size(30, 30);
         iconPanel.BackColor = Color.Transparent;
         iconPanel.Paint += delegate(object sender, PaintEventArgs e)
@@ -7203,23 +7217,21 @@ deck.Hide();
                 iconTile, 8);
         };
         var title = NewLabel(card.Title, 9.4f, FontStyle.Bold, ink);
-        title.Location = new Point(44, 3);
-        title.Size = new Size(288, 22);
+        title.Location = new Point(84, 9);
+        title.Size = new Size(240, 22);
         title.AutoEllipsis = true;
+        // The state sits on one line with the name, and the sentence that used to run underneath it — 「键位 … ·
+        // 工作流 未设置 · 语音工具 …」 — is gone: it repeated what the state already says in the vocabulary of the
+        // configuration file rather than of the user.
         var state = NewLabel(WorkflowCards.ShortGapLabel(gap), 8.4f, FontStyle.Bold, statusColor);
-        state.Location = new Point(342, 3);
+        state.Location = new Point(330, 10);
         state.Size = new Size(200, 22);
-        var detail = NewLabel(card.Actual, 8f, FontStyle.Regular, muted);
-        detail.Location = new Point(44, 24);
-        detail.Size = new Size(658, 19);
-        detail.AutoEllipsis = true;
         row.Controls.Add(iconPanel);
         row.Controls.Add(title);
         row.Controls.Add(state);
-        row.Controls.Add(detail);
         if (!string.IsNullOrEmpty(card.Action))
         {
-            var action = SecondaryButton(card.ActionText, new Point(762, 3), new Size(144, 38));
+            var action = SecondaryButton(card.ActionText, new Point(762, 2), new Size(144, 36));
             action.Font = new Font("Microsoft YaHei UI", 8.3f, FontStyle.Bold);
             action.Click += delegate { HandleSelfCheckAction(card.Action); };
             row.Controls.Add(action);
@@ -9795,7 +9807,7 @@ deck.Hide();
             : favorites.selectedProcess;
         int panelHeight = FavoriteAppsPanel.MeasureHeight(favorites.apps.Count,
             !string.IsNullOrWhiteSpace(pendingFavoriteProcess));
-        int sectionHeight = pending == null || pending.Count == 0 ? 0 : 42 + pending.Count * 52 + 8;
+        int sectionHeight = pending == null || pending.Count == 0 ? 0 : 46 + pending.Count * 40 + 8;
         var card = NewCard(new Point(34, y), new Size(960, panelHeight + 36 + sectionHeight));
         card.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Control panel = FavoriteAppsPanel.Build(favorites.apps, selected, pendingFavoriteProcess,
