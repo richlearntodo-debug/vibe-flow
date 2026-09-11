@@ -1150,7 +1150,24 @@ assert(includesAll(app, [
   '"电源键", "", false);',
   // The save path writes shortKey, so this is the pair that has to agree with the projection.
   'EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey)',
-]), "The power card is wired to the wrong slot, or the key it saves no longer matches the projection entry");// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
+]), "The power card is wired to the wrong slot, or the key it saves no longer matches the projection entry");// Suppression of a non-voice RC003 key is not something the low-level hook may do, and the log now says so.
+//
+// The hook's passthrough branch is deliberate: returning 1 there cancels the Raw Input packet that the action is
+// executed from, so an enabled non-voice mapping — the power key among them — always continues to Windows on that
+// path. The only thing that can suppress such a key is the signed RC003 filter, through the mask built by
+// BuildRc003FilterSuppressionMask, and that filter is not installed here. So suppress=true in the generated mapping is
+// intent that only the filter can carry out in user mode.
+//
+// This was misread once: the single label "delivery=native_passthrough" looked like it contradicted the mapping's
+// suppress=true, and I said as much before reading the branch. The label names both facts now, so the next reader
+// does not have to rediscover them.
+assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
+  "delivery=native_passthrough suppress=filter_only",
+  "Interlocked.Increment(ref hookCandidatePassthroughCount);",
+  "if (mapping == null || !mapping.enabled || !mapping.suppress ||",
+  "mask[scanCode] = 1;",
+]) && !read("scripts/VoxDeckInputBridge.cs").includes('delivery=native_passthrough revision='),
+  "The routing log no longer says that suppression is the filter's job, or the hook or filter mask changed shape");// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
 // GestureLayerKeys and stopped there, and the page builds its cards from explicit calls — so the key was mappable in
 // the generated configuration while the user had no way to assign it. The page's own copy also still listed it among
 // the unsupported controls.

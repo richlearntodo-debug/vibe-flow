@@ -5450,3 +5450,32 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 **最关键的一条** ✔：卡片行点击走 `EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey)` ✔ → 保存写的是 **`shortKey`** ✔ = 「电源键」 ✔ = **我加进 Profile 投影的那个键** ✔ → 整条链**首尾一致** ✔。
 
 **新增门禁** ✔：钉住上面整套接线（签名三行 + 电源键调用两行 + `EditGestureLayerAction` 的 `shortKey` 传递 ✔），理由写清「**看起来对 ≠ 接对了**」✗ —— 接错的症状会是"指派保存到了别处"✗，而那种故障只会出现在真实使用里 ✗。
+
+## 2026-09-12 实机测试结果 ✔ + **纠正我自己的一个错误结论** ✗：`delivery=native_passthrough` 不是"没吞键"
+
+### 实机回执（用户测试，安装版 ✔）
+
+```
+03:28:32.585 Action receipt button=电源键 trigger=单击 action=open-url:…platform.deepseek.com/usage success=True ✔
+03:30:44.954 Action receipt button=电源键 trigger=双击 action=task-switcher success=True ✔
+```
+配置 ✔：`enabled=true / suppress=true / mode=shortlong`；短按=DeepSeek 用量页 ✔、长按=Bilibili ✔、双击=任务切换 ✔。
+日志里 `Key 电源键 DOWN` **8 次** ✔ —— **电源键在真机上已可用** ✔（此前只会出现「录音键」✗）。
+
+### 我上一条结论**错了** ✗（本轮纠正 ✔）
+
+我曾说"配置写着 `suppress=true`、运行日志是 `native_passthrough` ⇒ 配置与运行时不符" ✗。**读代码后不成立** ✔：
+
+- `delivery=native_passthrough`（714/735 ✔）**只是执行路径的标签** ✔，不是"有没有吞键"的状态 ✗
+- 钩子里对**非语音键**必须放行 ✔（427-438 ✔）：注释写明「**returning 1 here prevents Windows from delivering the corresponding WM_INPUT packet** … Let the event continue so device-scoped Raw Input can execute the action」✔ —— 即**吞掉就等于取消执行动作所依赖的输入包** ✗
+- 能吞非语音键的**只有签名 RC003 过滤器** ✔（`BuildRc003FilterSuppressionMask` 546-556 ✔：把 `enabled + suppress + keyboard` 的扫描码写进掩码 ✔），而**本机未安装该过滤器** ✗（443-449 行注释亦如此 ✔）
+
+**准确表述** ✔：非语音键（含电源键）的 `suppress=true` 是**意图** ✔，在**没有签名过滤器的机器上无法落实** ✗ —— 按键**仍会传给 Windows** ✗，但按 MiVibe 的实测与我们的观察，它**轻触无系统动作** ✔，所以目前无实际影响 ✔。若你的 Windows 对该键有动作 ✗，唯一可行的用户态替代就是 MiVibe 那套**系统级扫描码重映射** ✔（已记录为按需后备 ✔，未实现 ✔）。
+
+### 本轮改了什么（让下一个读日志的人不必再踩一次 ✗）
+
+1. 两处路由日志的标签由 `delivery=native_passthrough` 改为 **`delivery=native_passthrough suppress=filter_only`** ✔
+2. 在首个日志点上方写明原因（钩子为何不能吞、谁才能吞 ✔）
+3. **门禁** ✔：钉住新标签 ✔、钩子的放行分支 ✔、过滤器掩码的判定 ✔，并**禁止**旧标签回来 ✗
+
+验证：两处标签逐行确认 ✔、桥 self-test ✔、`validate` ✔。

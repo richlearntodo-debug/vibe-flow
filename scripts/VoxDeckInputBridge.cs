@@ -711,7 +711,13 @@ internal static class VoxDeckInputBridge
             Interlocked.Increment(ref rawActionEdgeCount);
             Log("RC003 action routed source=raw_input button=" + actionName +
                 " edge=" + (keyUp ? "up" : "down") +
-                " delivery=native_passthrough revision=" +
+                // The label matters: this path executes the action and deliberately lets the native event through,
+                // because a low-level hook that returned 1 here would cancel the Raw Input packet the action is
+                // executed from. For a non-voice key, suppressing it is therefore only possible through the signed
+                // RC003 filter (see BuildRc003FilterSuppressionMask); without that filter installed, an enabled
+                // mapping with suppress=true still reaches Windows. Measured on a machine without the filter: the
+                // power key routes here with delivery=native_passthrough, which says exactly that.
+                " delivery=native_passthrough suppress=filter_only revision=" +
                 (config == null ? "" : config.revision ?? ""));
             return true;
         }
@@ -726,7 +732,7 @@ internal static class VoxDeckInputBridge
         Interlocked.Increment(ref rawActionEdgeCount);
         Log("RC003 action routed source=raw_input button=" + mapping.labelOrName() +
             " edge=" + (keyUp ? "up" : "down") +
-            " delivery=native_passthrough revision=" +
+            " delivery=native_passthrough suppress=filter_only revision=" +
             (config == null ? "" : config.revision ?? ""));
         return true;
     }
