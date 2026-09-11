@@ -4372,11 +4372,8 @@ internal sealed partial class VibeMicForm : Form
         logo.Size = new Size(48, 48);
 
         var brand = NewLabel("言灵", 19f, FontStyle.Bold, ink);
-        brand.Location = new Point(82, 23);
-        brand.AutoSize = true;
         var sub = NewLabel("VIBE FLOW · V" + ProductRelease, 7.4f, FontStyle.Bold, violet);
-        sub.Location = new Point(84, 58);
-        sub.AutoSize = true;
+        sub.Margin = new Padding(2, 0, 0, 0);
 
         var navigation = new FlowLayoutPanel();
         navigation.Location = new Point(0, UiDesignTokens.SidebarHeaderHeight);
@@ -4447,8 +4444,7 @@ internal sealed partial class VibeMicForm : Form
         sidebarFooter.Controls.Add(connectionBadge);
 
         sidebar.Controls.Add(logo);
-        sidebar.Controls.Add(brand);
-        sidebar.Controls.Add(sub);
+        sidebar.Controls.Add(NewLabelStack(new Point(82, 23), 2, brand, sub));
         sidebar.Controls.Add(navigation);
         sidebar.Controls.Add(sidebarFooter);
 
@@ -6070,11 +6066,21 @@ internal sealed partial class VibeMicForm : Form
         Label filterWarning = null;
         if (!overviewBridge.FilterHealthy)
         {
-            filterWarning = NewLabel("!  RC003 设备级按键隔离未就绪；麦克风音频仍可用，但前台应用可能收到录音键。请打开“自检”查看。",
+            // Wrapped, not clipped: a fixed 610 px box was tuned for 100%, and at 125% the sentence needs
+            // more width than it has, so it was cut off mid-word (measured with
+            // scripts/check-ui-geometry.ps1). The wording is short enough to fit one line at 125% while
+            // keeping the distinction the honesty gate requires: audio still works AND the foreground
+            // application may receive the record key.
+            filterWarning = NewLabel("!  RC003 按键隔离未就绪；麦克风音频仍可用，但前台应用可能收到录音键，详见「自检」。",
                 8.4f, FontStyle.Bold, amber);
             filterWarning.Name = "rc003FilterWarning";
             filterWarning.Location = new Point(52, 190);
-            filterWarning.Size = new Size(610, 24);
+            // Wrapped, not clipped: a fixed 610 px box was tuned for 100%, and at 125% the same sentence
+            // needs about 750 px, so it was cut off mid-word (measured with
+            // scripts/check-ui-geometry.ps1). MaximumSize makes the label wrap within the card and grow
+            // downwards instead of truncating.
+            filterWarning.AutoSize = true;
+            filterWarning.MaximumSize = new Size(620, 0);
         }
 
         remoteVisual = new RemoteVisual();
@@ -6083,8 +6089,8 @@ internal sealed partial class VibeMicForm : Form
         remoteVisual.Anchor = AnchorStyles.Top | AnchorStyles.Right;
 
         hero.Controls.Add(heroStateLabel);
-        hero.Controls.Add(heroTitle);
-        hero.Controls.Add(heroSubtitle);
+        heroSubtitle.Margin = new Padding(2, 0, 0, 0);
+        hero.Controls.Add(NewLabelStack(new Point(50, 62), 6, heroTitle, heroSubtitle));
         hero.Controls.Add(bridgeButton);
         hero.Controls.Add(scan);
         hero.Controls.Add(openShortcuts);
@@ -9742,11 +9748,8 @@ internal sealed partial class VibeMicForm : Form
     private void AddPageTitle(string title, string subtitle)
     {
         var a = NewLabel(title, 24f, FontStyle.Bold, ink);
-        a.Location = new Point(42, 24);
-        a.AutoSize = true;
         var b = NewLabel(subtitle, 10f, FontStyle.Regular, muted);
-        b.Location = new Point(45, 67);
-        b.AutoSize = true;
+        b.Margin = new Padding(3, 0, 0, 0);
         var release = NewLabel("V" + ProductRelease, 8.3f, FontStyle.Bold, green);
         release.Location = new Point(Math.Max(760, content.ClientSize.Width - 146), 29);
         release.Size = new Size(104, 30);
@@ -9754,8 +9757,8 @@ internal sealed partial class VibeMicForm : Form
         release.TextAlign = ContentAlignment.MiddleCenter;
         release.BackColor = StatusSurface("ready");
         ApplyRoundedRegion(release, 6);
-        content.Controls.Add(a);
-        content.Controls.Add(b);
+        // Staked by a container, not by a fixed y: see NewLabelStack for the measurement behind this.
+        content.Controls.Add(NewLabelStack(new Point(42, 24), 4, a, b));
         content.Controls.Add(release);
     }
 
@@ -9794,6 +9797,41 @@ internal sealed partial class VibeMicForm : Form
         label.ForeColor = color;
         label.BackColor = Color.Transparent;
         return label;
+    }
+
+    // A vertical stack of labels whose spacing follows the height the current display scaling really
+    // renders, instead of an absolute y offset tuned at 100%. A 27 pt line is about 47 px tall at 100%
+    // and about 59 px at 125%, so every page's title ran into the line beneath it (measured with
+    // scripts/check-ui-geometry.ps1 at 125%: all six pages, plus the sidebar mark). Reading a label's
+    // Bottom before it is parented does not help either — it returns the framework's default height of
+    // 23 px while the label renders 42 px (measured), which is why an earlier attempt at this made the
+    // overlap worse. A TopDown flow panel asks each child for its preferred size at render time, so the
+    // stack is correct at every scaling.
+    private static FlowLayoutPanel NewLabelStack(Point location, int gap, params Label[] labels)
+    {
+        var stack = new FlowLayoutPanel();
+        stack.Location = location;
+        stack.FlowDirection = FlowDirection.TopDown;
+        stack.WrapContents = false;
+        stack.AutoSize = true;
+        stack.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        stack.BackColor = Color.Transparent;
+        stack.Margin = new Padding(0);
+        stack.Padding = new Padding(0);
+        stack.TabStop = false;
+        for (int index = 0; index < labels.Length; index++)
+        {
+            Label label = labels[index];
+            if (label == null) continue;
+            // AutoSize is what makes the container measure the text at the current scaling. Without it
+            // a label keeps WinForms' default 100x23 box: measured at 125%, every stacked label came
+            // back as 100x23 and its text was cut off, which is exactly the "squashed interface" shape
+            // a user reports.
+            label.AutoSize = true;
+            label.Margin = new Padding(label.Margin.Left, 0, 0, index == labels.Length - 1 ? 0 : gap);
+            stack.Controls.Add(label);
+        }
+        return stack;
     }
 
     private static Bitmap CreateNavigationIcon(string icon, Color color, bool active)

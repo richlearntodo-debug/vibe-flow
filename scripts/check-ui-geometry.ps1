@@ -52,8 +52,105 @@ public static class DpiNative
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
+    // Clipping detection: a label that is not auto-sized keeps whatever box it was given, and text
+    // wider than that box is silently cut off. Overlap detection cannot see this, so the rendered text
+    // extent is measured against the control's own client width.
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr handle);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr handle, IntPtr deviceContext);
+    [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr deviceContext, IntPtr handle);
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern bool GetTextExtentPoint32W(IntPtr deviceContext, string text, int length, out SIZE size);
+    [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern int DrawTextW(IntPtr deviceContext, string text, int length, ref RECT rectangle, uint format);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateFontIndirectW(ref LOGFONT logFont);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool SystemParametersInfoW(uint action, uint param, ref NONCLIENTMETRICS metrics, uint flags);
+    [StructLayout(LayoutKind.Sequential)] public struct SIZE { public int cx; public int cy; }
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct LOGFONT
+    {
+        public int lfHeight; public int lfWidth; public int lfEscapement; public int lfOrientation;
+        public int lfWeight; public byte lfItalic; public byte lfUnderline; public byte lfStrikeOut;
+        public byte lfCharSet; public byte lfOutPrecision; public byte lfClipPrecision;
+        public byte lfQuality; public byte lfPitchAndFamily;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string lfFaceName;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NONCLIENTMETRICS
+    {
+        public int cbSize; public int iBorderWidth; public int iScrollWidth; public int iScrollHeight;
+        public int iCaptionWidth; public int iCaptionHeight; public LOGFONT lfCaptionFont;
+        public int iSmCaptionWidth; public int iSmCaptionHeight; public LOGFONT lfSmCaptionFont;
+        public int iMenuWidth; public int iMenuHeight; public LOGFONT lfMenuFont;
+        public LOGFONT lfStatusFont; public LOGFONT lfMessageFont;
+        public int iPaddedBorderWidth;
+    }
 }
 '@
+
+# How tall must this control be to show its text at its current width?
+#
+# Measuring a single line's width is not enough, and it is actively misleading: a paragraph label is
+# allowed to be narrower than its text because it wraps, so a width comparison flagged every wrapped
+# paragraph (measured: a 2701 px sentence in an 880 px label, which renders fine over several lines).
+# What matters is whether the text fits the box it was given for the width it has, which is exactly
+# DrawText with DT_CALCRECT and word breaking. WM_GETFONT is not reliable on Windows Forms controls
+# (measured: it returns 0 for a Label), so the shell's message font stands in when it is unavailable,
+# which keeps the height estimate close and the result an approximation — hence the tolerance.
+function Get-TextHeight([IntPtr]$Handle, [string]$Text, [int]$Width) {
+    if ([string]::IsNullOrWhiteSpace($Text) -or $Width -le 0) { return 0 }
+    $font = [DpiNative]::SendMessage($Handle, 0x0031, [IntPtr]::Zero, [IntPtr]::Zero)   # WM_GETFONT
+    $created = [IntPtr]::Zero
+    if ($font -eq [IntPtr]::Zero) {
+        $metrics = New-Object DpiNative+NONCLIENTMETRICS
+        $metrics.cbSize = [Runtime.InteropServices.Marshal]::SizeOf([type][DpiNative+NONCLIENTMETRICS])
+        if ([DpiNative]::SystemParametersInfoW(0x0029, [uint32]$metrics.cbSize, [ref]$metrics, 0)) {  # SPI_GETNONCLIENTMETRICS
+            $created = [DpiNative]::CreateFontIndirectW([ref]$metrics.lfMessageFont)
+            $font = $created
+        }
+    }
+    if ($font -eq [IntPtr]::Zero) { return 0 }
+    $deviceContext = [DpiNative]::GetDC($Handle)
+    if ($deviceContext -eq [IntPtr]::Zero) {
+        if ($created -ne [IntPtr]::Zero) { [void][DpiNative]::DeleteObject($created) }
+        return 0
+    }
+    $previous = [DpiNative]::SelectObject($deviceContext, $font)
+    try {
+        $rectangle = New-Object DpiNative+RECT
+        $rectangle.L = 0; $rectangle.T = 0; $rectangle.R = $Width; $rectangle.B = 0
+        # DT_CALCRECT 0x0400 | DT_WORDBREAK 0x0010 | DT_NOPREFIX 0x0800
+        [void][DpiNative]::DrawTextW($deviceContext, $Text, $Text.Length, [ref]$rectangle, 0x00000410 -bor 0x00000800)
+        return ($rectangle.B - $rectangle.T)
+    }
+    finally {
+        [void][DpiNative]::SelectObject($deviceContext, $previous)
+        [void][DpiNative]::ReleaseDC($Handle, $deviceContext)
+        if ($created -ne [IntPtr]::Zero) { [void][DpiNative]::DeleteObject($created) }
+    }
+}
+
+# A control whose text does not fit the box it was given: it either needs more height at that width
+# (word-wrapped text that was cut off, or a single line that the control is too narrow for) or it is
+# taller than the space it was allocated.
+function Get-ClippedControls([IntPtr]$Root) {
+    $clipped = New-Object System.Collections.ArrayList
+    foreach ($handle in (Get-AllDescendants $Root)) {
+        if (-not [DpiNative]::IsWindowVisible($handle)) { continue }
+        $text = Get-WindowText $handle
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $client = New-Object DpiNative+RECT
+        [DpiNative]::GetClientRect($handle, [ref]$client) | Out-Null
+        $width = $client.Right - $client.Left
+        $height = $client.B - $client.T
+        if ($width -le 0 -or $height -le 0) { continue }
+        $needed = Get-TextHeight $handle $text $width
+        if ($needed -gt ($height + 3)) {
+            [void]$clipped.Add(("    [{0}] needs about {1}px of height at {2}px wide, has {3}px  class={4}" -f
+                $text, $needed, $width, $height, (Get-ClassName $handle)))
+        }
+    }
+    return $clipped
+}
 
 function Get-WindowText([IntPtr]$Handle) {
     $text = New-Object System.Text.StringBuilder 512
@@ -201,6 +298,9 @@ try {
         $overlaps = Get-SiblingOverlaps $main
         [void]$report.Add($page.Name + ": overlaps=" + $overlaps.Count)
         foreach ($line in $overlaps) { [void]$report.Add($line) }
+        $clipped = Get-ClippedControls $main
+        [void]$report.Add($page.Name + ": clipped=" + $clipped.Count)
+        foreach ($line in $clipped) { [void]$report.Add($line) }
         $size = Save-Window $main (Join-Path $OutDir ($page.Name + ".png"))
         [void]$report.Add("    captured " + $size)
     }
@@ -212,5 +312,9 @@ finally {
 $report | Set-Content -LiteralPath (Join-Path $OutDir "geometry.txt") -Encoding UTF8
 $report | ForEach-Object { Write-Host $_ }
 $total = ($report | Where-Object { $_ -match ": overlaps=([1-9][0-9]*)$" } | Measure-Object).Count
-if ($total -gt 0) { Write-Host ("pages with overlapping controls: " + $total); exit 1 }
-Write-Host "no overlapping sibling controls"
+$clippedTotal = ($report | Where-Object { $_ -match ": clipped=([1-9][0-9]*)$" } | Measure-Object).Count
+if ($total -gt 0 -or $clippedTotal -gt 0) {
+    Write-Host ("pages with overlapping controls: " + $total + ", pages with clipped text: " + $clippedTotal)
+    exit 1
+}
+Write-Host "no overlapping sibling controls and no clipped text"
