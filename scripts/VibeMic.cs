@@ -81,6 +81,9 @@ internal sealed partial class VibeMicForm : Form
     private Color surfaceBackground = Color.FromArgb(246, 249, 253);
     private Color inputBackground = Color.White;
     private bool darkTheme;
+    // The shortcut page's management menu. The page is rebuilt on every navigation, so the previous one is disposed
+    // as the new one is built rather than left behind on each visit.
+    private ContextMenuStrip profileMenuStrip;
     private readonly Panel content = new Panel();
     private Panel sidebarPanel;
     // The keyboard-order diagnostic is a measurement, and a measurement that runs twice reads like two
@@ -7553,16 +7556,32 @@ deck.Hide();
             if (choice != null) SwitchShortcutProfile(choice.Profile.id);
         };
         int profileActionsStart = config.smartProfilesEnabled ? 418 : 408;
-        var createProfile = SecondaryButton("新建", new Point(profileActionsStart, 77), new Size(72, 40));
-        createProfile.Click += delegate { CreateShortcutProfile(); };
-        var renameProfile = SecondaryButton("重命名", new Point(profileActionsStart + 82, 77), new Size(82, 40));
-        renameProfile.Click += delegate { RenameActiveShortcutProfile(); };
-        var deleteProfile = SecondaryButton("删除", new Point(profileActionsStart + 174, 77), new Size(72, 40));
-        deleteProfile.Click += delegate { DeleteActiveShortcutProfile(); };
-        var importProfile = SecondaryButton("导入", new Point(profileActionsStart + 256, 77), new Size(72, 40));
-        importProfile.Click += delegate { ImportShortcutProfile(); };
-        var exportProfile = SecondaryButton("导出", new Point(profileActionsStart + 338, 77), new Size(72, 40));
-        exportProfile.Click += delegate { ExportActiveShortcutProfile(); };
+        // The five management actions — 新建 / 重命名 / 删除 / 导入 / 导出 — were five equal-weight buttons beside 切换,
+        // so the routine action and the destructive one looked identical among seven buttons in one row. They live
+        // in a 管理 menu now, with 删除 last behind a separator (it still asks for confirmation). Each item calls the
+        // same named method the button called, so nothing about the behaviour changes. Measured before the change:
+        // seven buttons in this row; after it, two here and the feature button on the right.
+        if (profileMenuStrip != null)
+        {
+            // The page is rebuilt on every navigation, so the previous menu is disposed with it rather than left
+            // behind on each visit.
+            profileMenuStrip.Dispose();
+            profileMenuStrip = null;
+        }
+        profileMenuStrip = new ContextMenuStrip();
+        profileMenuStrip.Items.Add("新建快捷键 Profile", null, delegate { CreateShortcutProfile(); });
+        profileMenuStrip.Items.Add("重命名当前 Profile", null, delegate { RenameActiveShortcutProfile(); });
+        profileMenuStrip.Items.Add(new ToolStripSeparator());
+        profileMenuStrip.Items.Add("导入配置…", null, delegate { ImportShortcutProfile(); });
+        profileMenuStrip.Items.Add("导出当前配置…", null, delegate { ExportActiveShortcutProfile(); });
+        profileMenuStrip.Items.Add(new ToolStripSeparator());
+        profileMenuStrip.Items.Add("删除当前 Profile…", null, delegate { DeleteActiveShortcutProfile(); });
+        var manageProfiles = SecondaryButton("管理", new Point(profileActionsStart, 77), new Size(72, 40));
+        manageProfiles.Name = "profileManageButton";
+        manageProfiles.Click += delegate
+        {
+            profileMenuStrip.Show(manageProfiles, new Point(0, manageProfiles.Height));
+        };
         var browserRemote = SecondaryButton("浏览器遥控", new Point(830, 77), new Size(100, 40));
         browserRemote.Name = "browserRemoteLiteButton";
         browserRemote.Click += delegate { ShowBrowserRemoteLite(); };
@@ -7625,11 +7644,7 @@ deck.Hide();
         header.Controls.Add(profileLabel);
         header.Controls.Add(profilePicker);
         header.Controls.Add(switchProfile);
-        header.Controls.Add(createProfile);
-        header.Controls.Add(renameProfile);
-        header.Controls.Add(deleteProfile);
-        header.Controls.Add(importProfile);
-        header.Controls.Add(exportProfile);
+        header.Controls.Add(manageProfiles);
         header.Controls.Add(browserRemote);
         header.Controls.Add(effectiveBadge);
         header.Controls.Add(smartLabel);

@@ -4687,3 +4687,47 @@ P1：字号规范（消除 7.x pt ✗）→ 页面标题与导航统一（4 处�
 写法上踩了一次自己挖的坑 ✗：门禁用 `!app.includes("待复核")` 判"旧文案已消失"，结果被**我自己解释性注释里的引用**判失败 ✗ → 改成匹配**代码字面量**（`"\r\n进度已保存，待复核"`）✔ —— **判据要匹配代码，不要匹配散文** ✔。
 
 `validate` ✔、self-test ✔、几何实测（100% + 880×500 深色）✔。
+
+## 2026-09-11 P1-4：快捷键页按钮分级，危险动作收进「管理」菜单
+
+### 问题（实测截图）
+
+快捷键页 Profile 卡片一行里塞了 **7 个等权按钮**✗：`切换`（日常主操作 ✔）与 `删除`（危险 ✗）长得一模一样，紧挨着还有 新建/重命名/导入/导出 ✗ —— 没有主次 ✔，误点风险 ✔。
+
+### 改法
+
+| 之前 | 现在 |
+| --- | --- |
+| 切换 · 新建 · 重命名 · 删除 · 导入 · 导出 · 浏览器遥控（**7 个** ✗） | **切换**（主按钮 ✔）· **管理**（次按钮 ✔）… **浏览器遥控**（右侧功能入口 ✔）（**3 个** ✔） |
+
+「管理」展开菜单，五项**按语义分组** ✔：
+```
+新建快捷键 Profile
+重命名当前 Profile
+──────────────
+导入配置…
+导出当前配置…
+──────────────
+删除当前 Profile…        ← 危险动作放最后，并用分隔线隔开
+```
+- 每一项都调用**原来那个命名方法**（`CreateShortcutProfile` / `RenameActiveShortcutProfile` / `ImportShortcutProfile` / `ExportActiveShortcutProfile` / `DeleteActiveShortcutProfile` ✔）→ **行为零改变** ✔（无需重构 ✔）
+- **删除本来就有二次确认** ✔（`MessageBox`「删除"…"？此操作不会修改语音设置。」✔）→ 所以不需要额外上红色 ✗，用分组+置底表达危险即可 ✔
+- 菜单随页面重建而释放 ✔（页面每次导航都重建 ✗ → 否则每次访问泄漏一个 `ContextMenuStrip` ✗）
+
+### 决定性验证：**用键盘真实驱动菜单** ✔
+
+截图只能证明"按钮不见了"✗，不能证明"菜单项还能用" ✗。所以我写了一个探针：打开「管理」→ 发两次 `VK_DOWN` → 发 `VK_RETURN`，然后找它应该打开的窗口：
+
+```
+  found the 管理 button; opening it
+  windows opened by the menu: 2
+    class=WindowsForms10.Window.20808.app... text=[]      ← ToolStripDropDown
+    class=SysShadow text=[]
+  the menu item opened: [重命名快捷键 Profile]             ← 与原来的按钮行为一致
+  PASS: the menu item behaves like the button it replaced
+```
+
+（`VK_DOWN` 会自动跳过不可选的分隔线 ✔，所以两次下移正好落在第二项 ✔）
+
+**几何**：快捷键页 1280×840 **0 重叠 / 0 裁切** ✔；`validate` ✔、self-test ✔。
+**门禁**：钉住菜单的构造与五项的处理方法 ✔、`profileManageButton` ✔、菜单随重建释放 ✔，并**禁止**那五个等权按钮回来 ✔。

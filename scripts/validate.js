@@ -1958,7 +1958,24 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// P1 of the design review: one type scale, page titles that match the navigation, and one meaning per status
+// The shortcut page's profile row held seven equal-weight buttons, so 切换 (routine) and 删除 (destructive) looked
+// the same. The five management actions moved into a 管理 menu that calls the same named methods the buttons called,
+// which was verified by driving it: opening the menu and pressing Down twice then Enter opened the rename dialog.
+// The menu is disposed as the page is rebuilt, because the page is rebuilt on every navigation.
+assert(includesAll(app, [
+  'profileMenuStrip = new ContextMenuStrip();',
+  '"新建快捷键 Profile", null, delegate { CreateShortcutProfile(); }',
+  '"重命名当前 Profile", null, delegate { RenameActiveShortcutProfile(); }',
+  '"导入配置…", null, delegate { ImportShortcutProfile(); }',
+  '"导出当前配置…", null, delegate { ExportActiveShortcutProfile(); }',
+  '"删除当前 Profile…", null, delegate { DeleteActiveShortcutProfile(); }',
+  'manageProfiles.Name = "profileManageButton";',
+  "profileMenuStrip.Show(manageProfiles, new Point(0, manageProfiles.Height));",
+  "if (profileMenuStrip != null)",
+  "private ContextMenuStrip profileMenuStrip;",
+]) && !app.includes("SecondaryButton(\"删除\", new Point(profileActionsStart + 174, 77)") &&
+  !app.includes("SecondaryButton(\"新建\", new Point(profileActionsStart, 77)"),
+  "The shortcut page's management actions are equal-weight buttons again instead of one 管理 menu");// P1 of the design review: one type scale, page titles that match the navigation, and one meaning per status
 // colour.
 //
 // Fonts: the smallest UI text was 7.1-7.9 pt — roughly 10 px at 100% — which is below a comfortable reading size
