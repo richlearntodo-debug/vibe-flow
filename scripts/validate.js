@@ -910,6 +910,24 @@ assert(includesAll(app, [
   "The interface font check reports an absent family as installed, so it cannot detect the case that matters",
 ]) && hostBuild.includes('"%~dp0scripts\\ui\\UiFonts.cs"'),
   "The interface does not report or self-test which fonts and screen it renders with");
+// Pages are built on navigation, which is long after Windows Forms applied its one-time autoscale, so
+// their absolute coordinates never followed the display scaling while their fonts did: measured at 150%,
+// the home page's fact row sat on the subtitle, its button row was cut by the card and 检查连接 was
+// truncated, all while the window itself reported the same 1280x840 as at 100%. The pages and the shell
+// are now scaled explicitly, the scroll canvas with them, and the ordering matters: the scale runs after
+// the page is built.
+assert(includesAll(app, [
+  "private static void ScaleLayoutTree(Control parent, float scale)",
+  "private int ScaledDesign(int designPixels)",
+  "ScaleLayoutTree(content, DesignScale());",
+  "ScaleLayoutTree(this, scale);",
+  "sidebarPanel = sidebar;",
+  "case DockStyle.Left:",
+  '" sidebar=" + (sidebarPanel == null',
+  '" scroll=" + (content == null',
+]) && app.indexOf("BuildPage((VibePageId)currentPageIndex);") <
+  app.indexOf("ScaleLayoutTree(content, DesignScale());"),
+  "A page built on navigation is not scaled to the display, so its layout no longer matches its fonts");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths

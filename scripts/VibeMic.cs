@@ -82,6 +82,7 @@ internal sealed partial class VibeMicForm : Form
     private Color inputBackground = Color.White;
     private bool darkTheme;
     private readonly Panel content = new Panel();
+    private Panel sidebarPanel;
     private readonly List<Button> navButtons = new List<Button>();
     private readonly Label[] overviewStatusValues = new Label[5];
     private readonly Label[] overviewStatusGlyphs = new Label[5];
@@ -611,6 +612,10 @@ internal sealed partial class VibeMicForm : Form
         {
             Width = (int)Math.Round(1280 * scale);
             Height = (int)Math.Round(840 * scale);
+            // The shell (sidebar, footer, tray menu) is built in the constructor, before this, and its
+            // containers did not follow the scaling either: measured at 150%, the sidebar stayed 232 px
+            // wide while the pages grew by half.
+            ScaleLayoutTree(this, scale);
         }
         VibeWindowLayout.FitToWorkingArea(this, work, 32);
     }
@@ -625,6 +630,45 @@ internal sealed partial class VibeMicForm : Form
         }
         catch { }
         return 1f;
+    }
+
+    // A design measurement in device pixels at the current scaling.
+    private int ScaledDesign(int designPixels)
+    {
+        float scale = DesignScale();
+        return scale <= 1.01f ? designPixels : (int)Math.Round(designPixels * scale);
+    }
+
+    // Scales a freshly built page's geometry by the display scaling.
+    //
+    // Sizes are scaled only for controls that are not auto-sized: an auto-sized label measures itself
+    // from its font, which GDI+ already renders at the current DPI. Fonts are never touched for the same
+    // reason — scaling them here would apply the scaling twice.
+    private static void ScaleLayoutTree(Control parent, float scale)
+    {
+        if (parent == null || scale <= 1.01f) return;
+        foreach (Control child in parent.Controls)
+        {
+            child.Location = new Point(
+                (int)Math.Round(child.Left * scale), (int)Math.Round(child.Top * scale));
+            if (!child.AutoSize)
+            {
+                int width = (int)Math.Round(child.Width * scale);
+                int height = (int)Math.Round(child.Height * scale);
+                // A docked control ignores Size and takes its extent from the docked edge, so the one
+                // dimension that matters is set explicitly: the sidebar is docked left and stayed 232 px
+                // wide at 150% (measured from the app's own diagnostic) while everything around it grew.
+                switch (child.Dock)
+                {
+                    case DockStyle.Left:
+                    case DockStyle.Right: child.Width = width; break;
+                    case DockStyle.Top:
+                    case DockStyle.Bottom: child.Height = height; break;
+                    case DockStyle.None: child.Size = new Size(width, height); break;
+                }
+            }
+            ScaleLayoutTree(child, scale);
+        }
     }
 
     private uint CurrentWindowDpi()
@@ -651,7 +695,13 @@ internal sealed partial class VibeMicForm : Form
                 " workarea=" + work.Width + "x" + work.Height +
                 " dpi=" + dpi + " scale=" + Math.Round(dpi / 96.0, 2).ToString("0.00") +
                 " monitors=" + Screen.AllScreens.Length +
-                " window=" + Width + "x" + Height;
+                " window=" + Width + "x" + Height +
+                // Which containers follow the scaling and which do not: the two are easy to confuse when
+                // only the window size is visible, and this is the line a report carries.
+                " sidebar=" + (sidebarPanel == null ? "?" : sidebarPanel.Width + "x" + sidebarPanel.Height) +
+                " content=" + (content == null ? "?" : content.ClientSize.Width + "x" + content.ClientSize.Height) +
+                " scroll=" + (content == null ? "?" :
+                    content.AutoScrollMinSize.Width + "x" + content.AutoScrollMinSize.Height);
         }
         catch (Exception ex)
         {
@@ -4373,6 +4423,9 @@ internal sealed partial class VibeMicForm : Form
     {
         var sidebar = new Panel();
         sidebar.Dock = DockStyle.Left;
+        // Kept so the rendering diagnostic can report whether the shell containers follow the display
+        // scaling; the page area does, and the two are easy to confuse from the window size alone.
+        sidebarPanel = sidebar;
         sidebar.Width = 232;
         sidebar.BackColor = sidebarBackground;
         sidebar.Paint += delegate(object sender, PaintEventArgs e)
@@ -4572,11 +4625,20 @@ internal sealed partial class VibeMicForm : Form
         }
         content.SuspendLayout();
         content.AutoScrollPosition = Point.Empty;
+        // The scroll canvas has to cover the scaled page, not the 96-dpi design width, or the page is
+        // clipped instead of scrollable.
         content.AutoScrollMinSize = currentPageIndex == PageShortcuts ?
-            new Size(UiDesignTokens.ContentMinimumWidth, 790) :
-            new Size(UiDesignTokens.ContentMinimumWidth, UiDesignTokens.ContentMinimumHeight);
+            new Size(ScaledDesign(UiDesignTokens.ContentMinimumWidth), ScaledDesign(790)) :
+            new Size(ScaledDesign(UiDesignTokens.ContentMinimumWidth),
+                ScaledDesign(UiDesignTokens.ContentMinimumHeight));
         DisposePageControls();
         BuildPage((VibePageId)currentPageIndex);
+        // Pages are built here, on navigation — long after Windows Forms applied its one-time autoscale —
+        // so their absolute coordinates never followed the display scaling while their fonts did.
+        // Measured from the app's own numbers: the window reported 1280x840 at 100% and again at 150%,
+        // and at 150% the home page's fact row sat on the subtitle while the button row was cut by the
+        // card. Scaling each page as it is built keeps the design's proportions at every setting.
+        ScaleLayoutTree(content, DesignScale());
         content.ResumeLayout();
         ActiveControl = null;
     }
