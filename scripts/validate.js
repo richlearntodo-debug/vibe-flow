@@ -289,6 +289,21 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
+// The keyboard order is measured from inside the application, because nothing outside it can read it here:
+// UI Automation reports every control of a Windows Forms application as ControlType.Pane on this machine (a
+// minimal application built the same way does too), AttachThreadInput is refused, and SendKeys needs a
+// foreground window the harness cannot take. The walk is a query against the control tree, it wraps so the
+// count means "how many controls Tab can reach", and it tracks visits by control identity: the first version
+// keyed on the label and stopped at the first repeated one, reporting 1 reachable control on a page that
+// holds a column of identically named buttons. Its negative control is that it must never visit a control
+// whose TabStop is false.
+assert(includesAll(app, [
+  "private void LogTabOrderDiagnostic()",
+  'HostLog("UI TABORDER page=" + page + " stops=" + visited.Count',
+  "if (visited.Contains(current)) break;",
+  "visitedNonTabStop=",
+  "if (uiSmokeMode) LogTabOrderDiagnostic();",
+]), "The keyboard order is not measured, so it is only assumed");
 const cableInstaller = read("scripts/Install-VBCable.ps1");
 const stableCaptureResolver = read("scripts/Get-StableCaptureBinary.ps1");
 const hardwareAcceptanceTool = read("scripts/Measure-HardwareAcceptance.ps1");

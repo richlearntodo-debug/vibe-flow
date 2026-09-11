@@ -83,6 +83,9 @@ internal sealed partial class VibeMicForm : Form
     private bool darkTheme;
     private readonly Panel content = new Panel();
     private Panel sidebarPanel;
+    // The keyboard-order diagnostic is a measurement, and a measurement that runs twice reads like two
+    // pages of data.
+    private bool tabOrderLogged;
     private readonly List<Button> navButtons = new List<Button>();
     private readonly Label[] overviewStatusValues = new Label[5];
     private readonly Label[] overviewStatusGlyphs = new Label[5];
@@ -596,6 +599,111 @@ internal sealed partial class VibeMicForm : Form
             if (config.autoCheckUpdates) ScheduleAutomaticUpdateCheck();
         }
         if (uiResourceTestMode) Shown += delegate { BeginInvoke(new Action(RunPageResourceTest)); };
+    }
+
+    // Walks every page's keyboard order and logs it, so the order is measured rather than assumed.
+    //
+    // This exists because no external instrument on this machine can read it: UI Automation reports every
+    // control of a Windows Forms application as ControlType.Pane here (a minimal application built the same
+    // way does too), AttachThreadInput is refused, and SendKeys needs the window in front, which the harness
+    // cannot take. SelectNextControl needs none of that — it is a query against the control tree — and the
+    // walk carries its own control case: the settings page holds two read-only rows that are check boxes
+    // with TabStop=false, so a walk that visits them is measuring something other than the tab order.
+    private void LogTabOrderDiagnostic()
+    {
+        // Logged once: OnShown can run more than once, and a duplicated measurement reads like a second
+        // page's worth of data.
+        if (tabOrderLogged) return;
+        tabOrderLogged = true;
+        for (int page = 0; page < UiDesignTokens.PageCount; page++)
+        {
+            ShowPage(page);
+            // Visits are tracked by control identity, not by name. The first version keyed on the label and
+            // therefore stopped at the first repeated one: the 自检 page holds a column of buttons that all
+            // read "打开应用并学习", so that walk reported 1 reachable control where there are many — a
+            // plausible number that measured something other than the tab order.
+            var visited = new List<Control>();
+            var visitedNames = new List<string>();
+            var skipped = new List<string>();
+            Control current = this;
+            for (int step = 0; step < 500; step++)
+            {
+                // Wrapping is what makes the count meaningful: without it a walk that reaches the last
+                // control returns false and stops, so the total says nothing about whether more controls
+                // exist. With wrapping the walk continues through the whole order and ends when it returns to
+                // a control it has already seen, which is the number of controls Tab can actually reach.
+                if (!SelectNextControl(current, true, true, true, true)) break;
+                current = ActiveControl;
+                if (current == null) break;
+                if (visited.Contains(current)) break;
+                visited.Add(current);
+                visitedNames.Add(ControlNameForTabOrder(current));
+            }
+            // Every operable control that is deliberately out of the tab order, to prove the walk's reach.
+            foreach (Control control in AllDescendants(this))
+            {
+                if (control.TabStop || !IsOperableControl(control)) continue;
+                skipped.Add(ControlNameForTabOrder(control));
+            }
+            HostLog("UI TABORDER page=" + page + " stops=" + visited.Count +
+                " tabbableInTree=" + CountTabbableInTree(this) +
+                " skippedNonTabStop=" + skipped.Count +
+                " visitedNonTabStop=" + CountVisitedNotTabbable(visitedNames) +
+                " first=" + (visitedNames.Count > 0 ? visitedNames[0] : "-") +
+                " last=" + (visitedNames.Count > 0 ? visitedNames[visitedNames.Count - 1] : "-") +
+                " order=" + string.Join(" > ", visitedNames.ToArray()));
+        }
+        ShowPage(PageHome);
+    }
+
+    // How many controls in the tree are marked as tab stops. Logged beside the walk because the two can
+    // disagree, and a disagreement is information: the walk only reaches what can actually take focus, while
+    // this counts what asked to be in the order.
+    private int CountTabbableInTree(Control root)
+    {
+        int count = 0;
+        foreach (Control control in AllDescendants(root))
+        {
+            if (control.TabStop && IsOperableControl(control)) count++;
+        }
+        return count;
+    }
+
+    // Whether a control is something a mouse can operate, so something the keyboard should reach.
+    private static bool IsOperableControl(Control control)
+    {
+        return control is Button || control is TextBoxBase || control is ComboBox ||
+            control is CheckBox || control is RadioButton || control is ListControl ||
+            control is NumericUpDown || control is TrackBar;
+    }
+
+    // The names of visited controls that are not supposed to accept focus: any of these means the walk is
+    // reporting something other than the tab order.
+    private static int CountVisitedNotTabbable(List<string> visited)
+    {
+        int count = 0;
+        foreach (string name in visited) if (name.StartsWith("!", StringComparison.Ordinal)) count++;
+        return count;
+    }
+
+    private static string ControlNameForTabOrder(Control control)
+    {
+        string label = control.Text;
+        if (string.IsNullOrWhiteSpace(label)) label = control.Name;
+        if (string.IsNullOrWhiteSpace(label)) label = control.GetType().Name;
+        if (label.Length > 24) label = label.Substring(0, 24);
+        // The marker makes a visit to a deliberately unreachable control visible in the log rather than
+        // something that has to be inferred.
+        return (control.TabStop ? "" : "!") + label;
+    }
+
+    private static IEnumerable<Control> AllDescendants(Control root)
+    {
+        foreach (Control child in root.Controls)
+        {
+            yield return child;
+            foreach (Control nested in AllDescendants(child)) yield return nested;
+        }
     }
 
     private void ClampWindowToWorkingArea()
@@ -10311,6 +10419,11 @@ internal sealed partial class VibeMicForm : Form
         // garbled interface or a squeezed layout is answered by this line and by the exported
         // diagnostics, instead of by asking the user to describe their machine.
         HostLog("UI RENDER " + UiFonts.Describe() + " " + DescribeScreenGeometry());
+        // The keyboard order is measured from inside the application because nothing outside it can: UI
+        // Automation cannot see this application's controls on this machine (a minimal Windows Forms
+        // application reports the same), AttachThreadInput is refused, and SendKeys needs a foreground window
+        // the harness cannot take. This runs before the smoke-mode return so the capture run carries it.
+        if (uiSmokeMode) LogTabOrderDiagnostic();
         if (uiSmokeMode) return;
         if (!ConfigurationAllowsRuntimeServices(configurationWritesBlocked))
         {
