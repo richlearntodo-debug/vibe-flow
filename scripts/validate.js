@@ -928,6 +928,16 @@ assert(includesAll(app, [
 ]) && app.indexOf("BuildPage((VibePageId)currentPageIndex);") <
   app.indexOf("ScaleLayoutTree(content, DesignScale());"),
   "A page built on navigation is not scaled to the display, so its layout no longer matches its fonts");
+// A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
+// shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
+// box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits
+// rule can see a control clipped by its own region. The region is now rebuilt on resize.
+assert(includesAll(app, [
+  "private void ApplyRoundedRegion(Control control, int radius)",
+  "control.Resize += delegate",
+  "private void ApplyRoundedRegionCore(Control control, int designRadius)",
+  "int radius = ScaledDesign(designRadius);",
+]), "A rounded control is clipped to its original size after the layout is scaled");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths

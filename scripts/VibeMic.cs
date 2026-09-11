@@ -4558,9 +4558,26 @@ internal sealed partial class VibeMicForm : Form
         }
     }
 
-    private static void ApplyRoundedRegion(Control control, int radius)
+    private void ApplyRoundedRegion(Control control, int radius)
     {
         if (control == null || control.Width <= 0 || control.Height <= 0) return;
+        ApplyRoundedRegionCore(control, radius);
+        // The region is cut from the control's size, so a later resize leaves it at the old size and the
+        // control is clipped to it. That is exactly what the display scaling does to every status chip:
+        // measured at 200%, the profile badges showed a small box with their text cut off. Re-applying on
+        // resize keeps the corners correct without every caller having to remember, and the radius is
+        // taken from the design value each time so the corners keep their proportions too.
+        control.Resize += delegate
+        {
+            if (control.IsDisposed) return;
+            ApplyRoundedRegionCore(control, radius);
+        };
+    }
+
+    private void ApplyRoundedRegionCore(Control control, int designRadius)
+    {
+        if (control == null || control.Width <= 0 || control.Height <= 0) return;
+        int radius = ScaledDesign(designRadius);
         Region previous = control.Region;
         using (GraphicsPath path = RoundedControlPath(new Rectangle(0, 0, control.Width, control.Height), radius))
             control.Region = new Region(path);

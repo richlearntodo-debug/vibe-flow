@@ -51,6 +51,12 @@ public static class DpiNative
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
+    // The checker has to be DPI aware itself. Windows virtualizes window rectangles for an unaware
+    // process, so at 150% this script read a 1920x1260 window as 1280x840 and, worse, allocated its
+    // PrintWindow bitmap from the virtualized size — the 200% capture showed only the top-left quarter
+    // of the window. Declaring awareness makes both the measurements and the captures physical.
+    [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
     // Clipping detection: a label that is not auto-sized keeps whatever box it was given, and text
     // wider than that box is silently cut off. Overlap detection cannot see this, so the rendered text
@@ -86,6 +92,11 @@ public static class DpiNative
     }
 }
 '@
+
+# Declared before any window of this process is created, so the measurements and the captures below are
+# in physical pixels. Per-monitor-v2 first; system awareness is the fallback for older Windows.
+try { [void][DpiNative]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+try { [void][DpiNative]::SetProcessDPIAware() } catch { }
 
 # How tall must this control be to show its text at its current width?
 #
