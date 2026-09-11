@@ -2109,7 +2109,16 @@ assert(hostBuild.includes('"%~dp0scripts\\ui\\AppPickerDialog.cs"'),
 assert(includesAll(app, [
   "BeginFavoriteAppLearning", "CaptureFavoriteTarget", "SavePendingFavorite", "OpenFavoriteApp",
   "ActivateProcessWindow", "FAVORITE LEARN captured=true", "FAVORITE SAVE process=",
-  "FAVORITE OPEN process=", "没有学到输入框，请重试", "学习成功，点「保存」完成", "保存成功：以后按住录音键",
+  "FAVORITE OPEN process=", "没有学到输入框，请重试", "学习成功，点「保存」完成",
+  // Saving also makes the application current, so the acknowledgement says so; the old sentence claimed text would
+  // go into the application's input box while that still needed a separate 设为当前 click. The decision and the
+  // wording are pinned by the host self-test, whose failure message is asserted here too.
+  "ShouldMakeCurrentAfterSave", "FavoriteSaveMessage(saved, madeCurrent, processName)",
+  "return saved && !alreadyCurrent;",
+  "已添加并设为当前：以后按住录音键，文字都会进入 ",
+  '" madeCurrent=" + madeCurrent',
+  "Saving an application's input box no longer decides whether to make it current",
+  "The save acknowledgement no longer states what actually happened",
 ]) && app.indexOf("BeginFavoriteAppLearning();") > app.indexOf("voiceFocusTargetButton.Click"),
 "The voice page does not drive the learn / save / open flow");
 assert(includesAll(app, ["SavePendingFavorite", "FAVORITE SAVE blocked=true reason=no_successful_learning"]),

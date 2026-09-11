@@ -6004,6 +6004,28 @@ deck.Hide();
         }
     }
 
+    // Whether saving an application's learned input box should also make it the current one, and what the user is
+    // told about it.
+    //
+    // The acknowledgement has always said that text will now go into this application's input box, which was only
+    // true once the application was also current — and that needed a separate 「设为当前」 click the sentence never
+    // mentioned. Saving makes it current, so the sentence is true and the flow is one step shorter.
+    //
+    // Extracted so the host self-test can pin the decision: the live path needs a real application whose input box is
+    // clicked, which no test on this machine can supply.
+    internal static bool ShouldMakeCurrentAfterSave(bool saved, bool alreadyCurrent)
+    {
+        return saved && !alreadyCurrent;
+    }
+
+    internal static string FavoriteSaveMessage(bool saved, bool madeCurrent, string processName)
+    {
+        if (!saved) return "保存失败：请检查数据目录后重试";
+        return madeCurrent
+            ? "已添加并设为当前：以后按住录音键，文字都会进入 " + processName + " 的输入框"
+            : "已保存：以后按住录音键，文字都会进入 " + processName + " 的输入框";
+    }
+
     private void SavePendingFavorite(string processName)
     {
         if (pendingFavoriteTarget == null ||
@@ -6018,11 +6040,30 @@ deck.Hide();
         pendingFavoriteTarget = null;
         pendingFavoriteProcess = "";
         bool saved = SaveLearnedFavoriteTarget(descriptor, processName);
-        HostLog("FAVORITE SAVE process=" + SafeLogValue(processName) + " saved=" + saved);
+        bool madeCurrent = false;
+        if (saved)
+        {
+            FavoriteAppDocument favorites = favoriteAppStore.Load();
+            if (favorites != null)
+            {
+                string current = string.IsNullOrWhiteSpace(favorites.selectedProcess)
+                    ? FavoriteAppStore.SelectedProcess(favorites,
+                        focusTargetDocument == null ? "" : focusTargetDocument.DefaultTargetId,
+                        focusTargetDocument == null ? null : focusTargetDocument.Targets)
+                    : favorites.selectedProcess;
+                if (ShouldMakeCurrentAfterSave(saved,
+                    string.Equals(current, processName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    favorites.selectedProcess = processName;
+                    madeCurrent = favoriteAppStore.TrySave(favorites);
+                }
+            }
+        }
+        HostLog("FAVORITE SAVE process=" + SafeLogValue(processName) + " saved=" + saved +
+            " madeCurrent=" + madeCurrent);
         ShowPage(currentPageIndex);
-        ShowActionToast(null, saved
-            ? "保存成功：以后按住录音键，文字都会进入 " + processName + " 的输入框"
-            : "保存失败：请检查数据目录后重试", saved ? "success" : "error", false, saved ? 10000 : 12000);
+        ShowActionToast(null, FavoriteSaveMessage(saved, madeCurrent, processName),
+            saved ? "success" : "error", false, saved ? 10000 : 12000);
     }
 
     // 「打开」summons the application: start it when needed, bring its window forward and
@@ -25212,6 +25253,17 @@ deck.Hide();
 
     private static void RunFavoriteAppSelfTests()
     {
+        // Saving a learned input box also makes that application current, which the acknowledgement has always
+        // implied without it being true, and which removes the extra 「设为当前」 click. The live path needs a real
+        // application whose input box is clicked, so the decision and the wording are pinned here instead.
+        if (ShouldMakeCurrentAfterSave(false, false) || ShouldMakeCurrentAfterSave(true, true) ||
+            !ShouldMakeCurrentAfterSave(true, false))
+            throw new InvalidOperationException(
+                "Saving an application's input box no longer decides whether to make it current");
+        if (FavoriteSaveMessage(true, true, "cursor").IndexOf("已添加并设为当前", StringComparison.Ordinal) < 0 ||
+            FavoriteSaveMessage(true, false, "cursor").IndexOf("已添加并设为当前", StringComparison.Ordinal) >= 0 ||
+            FavoriteSaveMessage(false, false, "cursor").IndexOf("保存失败", StringComparison.Ordinal) < 0)
+            throw new InvalidOperationException("The save acknowledgement no longer states what actually happened");
         // The picker's running rows: a machine with no catalogue entry for an application used to
         // show the raw process name ("catprox", "windowsterminal") beside a blank gap. The label
         // precedence and the product's own process exclusion are pinned here.
