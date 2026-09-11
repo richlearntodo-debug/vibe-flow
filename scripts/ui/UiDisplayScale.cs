@@ -78,6 +78,14 @@ internal static class UiDisplayScale
         if (control == null || scale <= MinimumScale) return;
         control.Location = new Point(
             (int)Math.Round(control.Left * scale), (int)Math.Round(control.Top * scale));
+        // Margins are scaled as well. An anchored control is positioned by the layout engine from the
+        // distance to its edge, so an unscaled margin puts it too close to that edge once the parent has
+        // grown: measured at 200%, the application picker's count label ran 56x44 px into its 确定 button.
+        // A layout container uses the same margins for spacing, where keeping the proportion is what the
+        // scaled fonts need anyway.
+        control.Margin = new Padding(
+            (int)Math.Round(control.Margin.Left * scale), (int)Math.Round(control.Margin.Top * scale),
+            (int)Math.Round(control.Margin.Right * scale), (int)Math.Round(control.Margin.Bottom * scale));
         if (control.AutoSize) return;
         int width = (int)Math.Round(control.Width * scale);
         int height = (int)Math.Round(control.Height * scale);

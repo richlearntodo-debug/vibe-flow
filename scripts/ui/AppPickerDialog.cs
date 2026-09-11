@@ -98,7 +98,11 @@ internal sealed class AppPickerDialog : Form
         Controls.Add(applications);
 
         hint.Location = new Point(20, 566);
-        hint.Size = new Size(340, 22);
+        // The box stops short of the confirm button, which starts at x=332: a 340 px box overlapped it by
+        // 28 px at every display scaling (measured with scripts/check-ui-geometry.ps1 -WindowTitle, which
+        // reports 56x44 px at 200%). The count text is short enough today that the two do not visibly
+        // touch, but a longer count would run under the button.
+        hint.Size = new Size(296, 22);
         hint.ForeColor = Color.FromArgb(112, 120, 138);
         Controls.Add(hint);
 

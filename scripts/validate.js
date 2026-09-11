@@ -253,6 +253,19 @@ const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
 assert(screenshotScript.includes("SetProcessDpiAwarenessContext") &&
   screenshotScript.includes("SetProcessDPIAware"),
   "The screenshot script is not DPI aware, so its captures are clipped above 100%");
+// The dialogs are not pages, so the page sweep cannot see them. The check gained a mode that measures one
+// window by title, which is how the application picker was measured at 200% (1160x1320 = twice its design
+// size, so the scaling ran exactly once rather than twice) and how a box collision between its count label
+// and its confirm button was found — a collision that exists at every scaling, because the label's box
+// reached 28 px under the button.
+assert(includesAll(read("scripts/check-ui-geometry.ps1"), [
+  '[string]$WindowTitle = ""',
+  '"dialog=" + $WindowTitle',
+  '"dialog: overlaps="',
+  '"dialog: clipped="',
+]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), ["control.Margin = new Padding("]) &&
+  includesAll(read("scripts/ui/AppPickerDialog.cs"), ["hint.Size = new Size(296, 22);"]),
+  "The dialogs cannot be measured, or an anchored control keeps an unscaled margin");
 const cableInstaller = read("scripts/Install-VBCable.ps1");
 const stableCaptureResolver = read("scripts/Get-StableCaptureBinary.ps1");
 const hardwareAcceptanceTool = read("scripts/Measure-HardwareAcceptance.ps1");

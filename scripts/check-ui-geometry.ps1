@@ -25,7 +25,10 @@ param(
     # Measure an application that is already running instead of starting a smoke instance. Needed for
     # anything the smoke path cannot show: smoke mode runs on its own configuration, so the theme matrix
     # has to look at the installed application, which reads the user's own configuration.
-    [int]$ProcessId = 0
+    [int]$ProcessId = 0,
+    # Measure one window of that process by title instead of sweeping the six pages. Used for the dialogs,
+    # which are opened by the flow being driven and are not pages of the main window.
+    [string]$WindowTitle = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -317,6 +320,41 @@ try {
     $dpi = [DpiNative]::GetDpiForWindow($main)
     [void]$report.Add("window=" + ($mainRect.Right - $mainRect.Left) + "x" + ($mainRect.Bottom - $mainRect.Top) +
         "  dpi=" + $dpi + "  scale=" + [Math]::Round($dpi / 96.0, 2))
+    if (-not [string]::IsNullOrWhiteSpace($WindowTitle)) {
+        # One window, measured and captured: the dialogs are not pages, and the risk being checked is that a
+        # dialog is scaled twice (its contents existed before Windows Forms' autoscale) or not at all.
+        $target = [IntPtr]::Zero
+        foreach ($handle in @($main) + @(Get-AllDescendants $main)) { }
+        $script:foundWindow = [IntPtr]::Zero
+        $callback = [DpiNative+WindowCallback]{
+            param([IntPtr]$handle, [IntPtr]$parameter)
+            if ([DpiNative]::IsWindowVisible($handle) -and
+                (Get-WindowText $handle).StartsWith($WindowTitle, [StringComparison]::Ordinal)) {
+                $script:foundWindow = $handle
+                return $false
+            }
+            return $true
+        }
+        [void][DpiNative]::EnumWindows($callback, [IntPtr]::Zero)
+        $target = $script:foundWindow
+        if ($target -eq [IntPtr]::Zero) {
+            [void]$report.Add("dialog '" + $WindowTitle + "': window not found")
+        }
+        else {
+            $dialogRect = Get-Rect $target
+            [void]$report.Add("dialog=" + $WindowTitle + "  size=" + ($dialogRect.Right - $dialogRect.Left) + "x" +
+                ($dialogRect.Bottom - $dialogRect.Top))
+            $overlaps = Get-SiblingOverlaps $target
+            [void]$report.Add("dialog: overlaps=" + $overlaps.Count)
+            foreach ($line in $overlaps) { [void]$report.Add($line) }
+            $clipped = Get-ClippedControls $target
+            [void]$report.Add("dialog: clipped=" + $clipped.Count)
+            foreach ($line in $clipped) { [void]$report.Add($line) }
+            $size = Save-Window $target (Join-Path $OutDir "dialog.png")
+            [void]$report.Add("    captured " + $size)
+        }
+    }
+    else {
     foreach ($page in $pages) {
         $nav = [IntPtr]::Zero
         foreach ($handle in (Get-AllDescendants $main)) {
@@ -335,6 +373,7 @@ try {
         foreach ($line in $clipped) { [void]$report.Add($line) }
         $size = Save-Window $main (Join-Path $OutDir ($page.Name + ".png"))
         [void]$report.Add("    captured " + $size)
+    }
     }
 }
 finally {
