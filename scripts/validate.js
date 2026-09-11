@@ -1092,9 +1092,40 @@ assert(includesAll(app, [
   'new ShortcutChoice("录制键盘快捷键…", "shortcut:prompt")',
   "Keyboard shortcut recorder normalization invariant failed",
 ]), "Physical keyboard shortcut recording or its strict validation is incomplete");
+// The remote's power key (RC003). MiVibe-Remote proves it is reachable: Windows delivers it as the ACPI power key,
+// VK 0xFF / scan code E0 5E, and MiVibe reaches it by remapping that scan code system-wide — which needs
+// administrator rights and a restart. Our bridge has always recognised the pair (FindMapping's counterpart tests for
+// it and the filter mask reserves 0x5E); what was missing was a mapping and a row, so the key was recognised and
+// dropped. A low-level hook sees it as it is, so no remap is needed here.
+//
+// Six places had to change together, and three of them were tests that encoded the old decision: the host self-test
+// asserted the power mapping *absent*, the gesture-table self-test asserted eight keys, and this file forbade 电源键
+// on the page. Verified: both self-tests pass, validate passes, and a normal launch generates the mapping in all five
+// profiles of voxdeck-shortcuts.json with enabled=false, suppress=false and mode=passthrough — so nothing about the
+// key changes until the user assigns it an action.
+assert(includesAll(app, [
+  'ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "power", "电源键", "0xFF", "0x5E",',
+  '{ "power", "电源键", "" },',
+  "gestureTableKeys.Count != 9",
+  '!gestureTableKeys.Contains("power")',
+  'gestureTableKeys.Contains("voice")',
+  'GestureConfigKey("power", false) != "电源键"',
+  "Dictionary<string, object> generatedPower = FindGeneratedBridgeMapping(bridgeDocument, \"power\", \"keyboard\");",
+  'Convert.ToString(generatedPower["vk"]) != "0xFF"',
+  'Convert.ToString(generatedPower["scan"]) != "0x5E"',
+]) && includesAll(read("scripts/VoxDeckInputBridge.cs"), [
+  // The default table in the bridge is the fallback when no host document exists.
+  'name = "power", label = "电源键", vk = "0xFF", scan = "0x5E"',
+]) && includesAll(read("QUICK_START_ZH.md"), ["电源键（Windows 上报为 VK 0xFF / 扫描码 E0 5E）"]) &&
+  includesAll(read("docs/FEATURES_ZH.md"), ["电源键（VK 0xFF / 扫描码 E0 5E）提供配置入口"]) &&
+  includesAll(read("docs/GITHUB_RELEASE_BODY_ZH.md"), ["电源键（VK 0xFF / 扫描码 E0 5E）可作为支持按键"]),
+  "The power key lost one of the six places it has to be wired together, or a document claims it is unsupported");// The power key used to be forbidden here, recording the decision that the remote's power button had no stable
+// Windows event. It does: Windows delivers it as the ACPI power key, VK 0xFF / scan code E0 5E, which the bridge
+// already recognised. It is exposed now; Back and the volume keys still are not, because they are what MiVibe-Remote
+// needed an administrator helper and a three-key calibration for.
 assert(!mappingsPage.includes('"返回键"') && !mappingsPage.includes('"音量 +"') &&
-  !mappingsPage.includes('"音量 -"') && !mappingsPage.includes('"电源键"'),
-  "The active shortcut page exposes an unsupported physical control");
+  !mappingsPage.includes('"音量 -"') && mappingsPage.includes('"电源键"'),
+  "The active shortcut page exposes an unsupported physical control, or hides the supported power key");
 assert(includesAll(app, [
   "IsPersistableMappingAction", "PersistedMappingMatches", "MAPPING SAVE persisted=true",
   "Local application action did not survive config persistence and bridge generation",
@@ -2988,10 +3019,19 @@ for (const [name, document] of Object.entries({ readme, v15Guide, v2Guide, quick
     `${name} does not explain the current RC003 session limit`);
 }
 for (const [name, document] of Object.entries({ readme, v15Guide, v2Guide, quickStart, releaseNotes, githubReleaseBody })) {
-  assert(document.includes("开机、返回和独立音量键") &&
+  // Either the original sentence or the corrected one: the power key is supported now, so the sentence that listed it
+  // among the unsupported controls became "返回与独立音量键…". What must not disappear is the explanation that some
+  // controls are still unsupported.
+  assert((document.includes("开机、返回和独立音量键") ||
+    (document.includes("返回") && document.includes("独立音量"))) &&
     (document.includes("不提供") || document.includes("没有稳定")),
     `${name} does not explain unsupported RC003 controls`);
 }
+// The documents that describe the remote's controls name the power key as supported. The historical release notes and
+// the v1.5 guide keep their original wording, because they describe the versions they shipped with.
+assert(quickStart.includes("电源键") && githubReleaseBody.includes("电源键") &&
+  read("docs/FEATURES_ZH.md").includes("电源键"),
+  "The documents that describe the remote's controls no longer mention the supported power key");
 assert(includesAll(readme, [
   "docs/V2_0_USER_GUIDE_ZH.md", "docs/V1_5_USER_GUIDE_ZH.md", "docs/images/01-overview.png", "VibeFlow-Setup.exe",
   "Source code (zip/tar.gz)", "vibe-flow-community.png", "docs/VERSION_ARCHIVE_ZH.md",

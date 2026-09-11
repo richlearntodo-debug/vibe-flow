@@ -5321,6 +5321,10 @@ internal static class VoxDeckInputBridge
                 snippets = new BridgeSnippet[0],
                 mappings = new ShortcutMapping[]
                 {
+                    // The remote's power button: VK 0xFF / scan E0 5E, the ACPI power key. The bridge already recognised
+                    // that pair (FindMapping and the filter mask both know 0x5E) but no mapping existed, so the key was seen
+                    // and dropped. It stays unconfigured until the user assigns an action, so Windows keeps handling it.
+                    new ShortcutMapping { name = "power", label = "电源键", vk = "0xFF", scan = "0x5E", enabled = false, suppress = false, sourceType = "keyboard", mode = "passthrough", shortcut = "none" },
                     new ShortcutMapping { name = "voice", label = "录音键", vk = "F5", scan = "0x3F", enabled = true, suppress = true, mode = "suppress", shortcut = "" },
                     new ShortcutMapping { name = "home", label = "Home 键", vk = "Home", scan = "0x47", enabled = true, suppress = true, mode = "shortlong", shortShortcut = "win+d", longShortcut = "none", longPressMs = 650 },
                     new ShortcutMapping { name = "tv", label = "TV 键", vk = "Oemtilde", scan = "0x29", enabled = true, suppress = true, mode = "tap", shortcut = "task-switcher" },

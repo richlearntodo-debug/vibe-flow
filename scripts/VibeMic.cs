@@ -3812,6 +3812,10 @@ deck.Hide();
             Dictionary<string, object> generatedUp = FindGeneratedBridgeMapping(bridgeDocument, "up", "keyboard");
             Dictionary<string, object> generatedDown = FindGeneratedBridgeMapping(bridgeDocument, "down", "keyboard");
             Dictionary<string, object> generatedHome = FindGeneratedBridgeMapping(bridgeDocument, "home", "keyboard");
+            // The power key used to be asserted *absent* here, recording the old decision that the remote's power
+            // button had no stable Windows event. It does: VK 0xFF / scan E0 5E. It is generated now, with no action
+            // until the user assigns one, so it is not intercepted and Windows keeps handling the key as before.
+            Dictionary<string, object> generatedPower = FindGeneratedBridgeMapping(bridgeDocument, "power", "keyboard");
             string bridgeRevision = Convert.ToString(bridgeDocument["revision"]);
             if (generatedUp == null || Convert.ToString(generatedUp["shortcut"]) != "win+shift+s" ||
                 !Convert.ToBoolean(generatedUp["enabled"]) || Convert.ToString(generatedUp["mode"]) != "tap" ||
@@ -3819,8 +3823,10 @@ deck.Hide();
                 Convert.ToBoolean(generatedDown["suppress"]) || Convert.ToString(generatedDown["mode"]) != "passthrough" ||
                 generatedHome == null || Convert.ToString(generatedHome["shortShortcut"]) != "win+d" ||
                 Convert.ToString(generatedHome["longShortcut"]) != "shortcut:ctrl+shift+p" ||
-                FindGeneratedBridgeMapping(bridgeDocument, "power", "keyboard") != null ||
-                FindGeneratedBridgeMapping(bridgeDocument, "power", "hid") != null ||
+                generatedPower == null || Convert.ToString(generatedPower["vk"]) != "0xFF" ||
+                Convert.ToString(generatedPower["scan"]) != "0x5E" ||
+                Convert.ToBoolean(generatedPower["enabled"]) || Convert.ToBoolean(generatedPower["suppress"]) ||
+                Convert.ToString(generatedPower["mode"]) != "passthrough" ||
                 string.IsNullOrWhiteSpace(bridgeRevision) ||
                 Convert.ToInt32(bridgeDocument["version"]) != 7 ||
                 Convert.ToString(bridgeDocument["activeShortcutProfileId"]) != "general" ||
@@ -4818,15 +4824,17 @@ deck.Hide();
             var gestureTableKeys = new List<string>();
             for (int gestureIndex = 0; gestureIndex < GestureLayerKeys.GetLength(0); gestureIndex++)
                 gestureTableKeys.Add(GestureLayerKeys[gestureIndex, 0]);
-            if (gestureTableKeys.Count != 8 ||
+            if (gestureTableKeys.Count != 9 ||
                 !gestureTableKeys.Contains("home") || !gestureTableKeys.Contains("menu") ||
                 !gestureTableKeys.Contains("tv") || !gestureTableKeys.Contains("ok") ||
                 !gestureTableKeys.Contains("up") || !gestureTableKeys.Contains("down") ||
                 !gestureTableKeys.Contains("left") || !gestureTableKeys.Contains("right") ||
+                !gestureTableKeys.Contains("power") ||
                 gestureTableKeys.Contains("voice") ||
                 GestureConfigKey("home", false) != "Home:short" || GestureConfigKey("home", true) != "Home:long" ||
                 GestureConfigKey("menu", false) != "功能键:short" || GestureConfigKey("menu", true) != "功能键:long" ||
                 GestureConfigKey("up", false) != "上键" || GestureConfigKey("up", true) != "" ||
+                GestureConfigKey("power", false) != "电源键" || GestureConfigKey("power", true) != "" ||
                 GestureConfigKey("voice", false) != "")
                 throw new InvalidOperationException("The gesture layer table does not match the configurable physical keys");
             // The recommended table a fresh install receives. It is the only gesture content a new
@@ -8687,6 +8695,10 @@ deck.Hide();
     {
         { "up", "上键", "" },
         { "left", "左键", "" },
+        // The remote's power button. Windows delivers it as the ACPI power key — VK 0xFF, scan code E0 5E — and the
+        // bridge has always recognised that pair while nothing acted on it. It carries one layer, so its long and
+        // double rows read as unconfigured, exactly like the direction keys above.
+        { "power", "电源键", "" },
         { "home", "Home:short", "Home:long" },
         { "menu", "功能键:short", "功能键:long" },
         { "right", "右键", "" },
@@ -20899,6 +20911,14 @@ deck.Hide();
         // The record key never takes part in gesture layering: it stays on the stable hold-to-talk
         // chain, so no layer table can re-route voice input.
         mappings.Add(BridgeMapping("voice", "录音键", "F5", "0x3F", true, true, "suppress", ""));
+        // The remote's power button. Windows delivers it as the ACPI power key — VK 0xFF, scan code E0 5E — and this
+        // table never carried it, so the key was recognised by FindMapping's counterpart and then dropped. MiVibe
+        // Remote reaches the same key by remapping the scan code system-wide, which needs administrator rights and a
+        // restart; a low-level hook sees the key as it is, so no remap is needed here. The action comes from the
+        // user's 电源键 entry and defaults to none, so an unconfigured key is not intercepted and Windows keeps
+        // handling it exactly as before.
+        mappings.Add(ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "power", "电源键", "0xFF", "0x5E",
+            "电源键", "", "none", "none", ""));
         mappings.Add(ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "home", "Home 键", "Home", "0x47",
             "Home:short", "Home:long", "", GetBridgeMapping(sourceMappings, "Home", "win+d"), "none"));
         mappings.Add(ConfigurableBridgeMapping(sourceMappings, gestureOverrides, "tv", "TV 键", "Oemtilde", "0x29",
