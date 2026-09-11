@@ -276,6 +276,15 @@ internal sealed partial class VibeMicForm : Form
     [STAThread]
     private static void Main(string[] args)
     {
+        // Registered before anything else, including the installer helper paths that return before the
+        // window exists. They need it most: measured on this machine, `VibeFlow.exe --installer-config-migrate`
+        // terminated with an unhandled exception (0xE0434352), which makes the installer report
+        // "无法迁移或保护旧版配置，安装未完成" — and with the handlers registered only beside Application.Run,
+        // that crash left no report either.
+        AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+        {
+            CrashReports.Write("app_domain", e.ExceptionObject as Exception);
+        };
         int installerQueryIndex = Array.FindIndex(args, delegate(string arg)
         {
             return arg.Equals(InstallerConfigStartupQueryArgument, StringComparison.OrdinalIgnoreCase);
@@ -391,10 +400,6 @@ internal sealed partial class VibeMicForm : Form
                 }
                 catch { }
                 Application.Exit();
-            };
-            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
-            {
-                CrashReports.Write("app_domain", e.ExceptionObject as Exception);
             };
             Application.Run(new VibeMicForm(background, uiSmoke, uiResourceTest));
         }
@@ -1320,6 +1325,8 @@ internal sealed partial class VibeMicForm : Form
 
     private static int MigrateLegacyUserConfigForInstaller(string legacyRoot, string stateRoot)
     {
+        legacyRoot = NormalizeInstallerPath(legacyRoot);
+        stateRoot = NormalizeInstallerPath(stateRoot);
         MigrateLegacyUserConfig(legacyRoot, stateRoot, false);
         string destination = Path.Combine(stateRoot, "vibe-mic-config.json");
         string ignoredContent;
@@ -1328,6 +1335,53 @@ internal sealed partial class VibeMicForm : Form
             File.Exists(Path.Combine(legacyRoot, "vibe-mic-config.json")) ||
             File.Exists(Path.Combine(legacyRoot, "vibe-mic-config.json.bak"));
         return configExists ? 12 : 0;
+    }
+
+    // The installer hands over a path taken straight from the registry, and that value ends with a backslash;
+    // inside quotes the backslash escapes the closing quote, so the application is given a path containing a
+    // quote. Measured: every install over an existing installation failed its configuration migration with
+    // "路径中具有非法字符" and the installer told the user the old configuration could not be migrated, while a
+    // clean install was unaffected. These cases are pinned so the trimming cannot quietly disappear.
+    private static void RunInstallerPathSelfTests()
+    {
+        var cases = new List<string[]>();
+        cases.Add(new string[] { "\"C:\\Program Files\\Vibe Flow\\\"", "C:\\Program Files\\Vibe Flow" });
+        cases.Add(new string[] { "C:\\Program Files\\Vibe Flow\\", "C:\\Program Files\\Vibe Flow" });
+        cases.Add(new string[] { "  \"C:\\Program Files\\Vibe Flow\"  ", "C:\\Program Files\\Vibe Flow" });
+        cases.Add(new string[] { "\"C:\\Program Files\\Vibe Flow\"", "C:\\Program Files\\Vibe Flow" });
+        // A drive root keeps its separator; removing it would turn "C:\" into "C:" and change its meaning.
+        cases.Add(new string[] { "C:\\", "C:\\" });
+        cases.Add(new string[] { "C:/", "C:/" });
+        cases.Add(new string[] { "", "" });
+        foreach (string[] pair in cases)
+        {
+            string actual = NormalizeInstallerPath(pair[0]);
+            if (!string.Equals(actual, pair[1], StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Installer path normalization turned '" + pair[0] +
+                    "' into '" + actual + "' instead of '" + pair[1] + "'");
+            }
+        }
+    }
+
+    // Cleans a path that arrived from the installer's command line.
+    //
+    // A trailing separator inside quotes is the classic Windows command-line trap: `"...\Vibe Flow Remote\"`
+    // leaves the closing quote inside the argument, because `\"` is read as an escaped quote. The installer
+    // passes the previous install location straight from the registry, and that value ends in a backslash, so
+    // `VibeFlow.exe --installer-config-migrate` died inside Path.Combine with "路径中具有非法字符" and the
+    // installer reported that the old configuration could not be migrated — see the crash report this left,
+    // which is how the cause was found. Trimming quotes and separators is safe because a Windows path cannot
+    // contain a quote.
+    private static string NormalizeInstallerPath(string value)
+    {
+        string path = (value ?? "").Trim().Trim('"').Trim();
+        while (path.Length > 3 &&
+            (path.EndsWith("\\", StringComparison.Ordinal) || path.EndsWith("/", StringComparison.Ordinal)))
+        {
+            path = path.Substring(0, path.Length - 1);
+        }
+        return path;
     }
 
     private static void AddLegacyRootCandidate(List<string> roots, string candidate)
@@ -1629,6 +1683,9 @@ internal sealed partial class VibeMicForm : Form
 
     private static int QueryConfigStartupForInstaller(string path)
     {
+        // Same cleaning as the migration entry point: this path is assembled from a registry value by the
+        // installer, and that value ends with a separator.
+        path = NormalizeInstallerPath(path);
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return 11;
         try
         {
@@ -4582,6 +4639,7 @@ internal sealed partial class VibeMicForm : Form
             // complain — moving the call is the fix, not widening the gate.
             RunCrashReportSelfTests();
             RunFeedbackOutletSelfTests();
+            RunInstallerPathSelfTests();
             Console.WriteLine("Vibe Flow host self-test passed.");
             return 0;
         }

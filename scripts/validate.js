@@ -281,6 +281,24 @@ assert(includesAll(crashReports, [
   'crashTestRequested = Array.Exists(args, delegate(string arg) {',
 ]) && hostBuild.includes("CrashReports.cs"),
   "An unhandled exception leaves no report, so a crash from another machine cannot be diagnosed");
+// The installer passes a path taken straight from the registry, and that value ends with a backslash; inside
+// quotes, the terminating backslash escapes the closing quote and the application is handed a path containing
+// one. Measured: `VibeFlow.exe --installer-config-migrate "C:\...\Vibe Flow Remote\" "..."` died in
+// Path.Combine with "路径中具有非法字符" (a crash report from the new crash logging named the frame), so every
+// install over an existing installation told the user its old configuration could not be migrated, while a
+// clean install — which uses the application directory, with no trailing separator — was unaffected. Both
+// sides are pinned: the application trims quotes and separators, and the installer stops emitting one.
+assert(includesAll(app, [
+  "private static string NormalizeInstallerPath(string value)",
+  "legacyRoot = NormalizeInstallerPath(legacyRoot);",
+  "stateRoot = NormalizeInstallerPath(stateRoot);",
+  "path = NormalizeInstallerPath(path);",
+  "RunInstallerPathSelfTests();",
+  "private static void RunInstallerPathSelfTests()",
+  "Installer path normalization turned '",
+]) && hostBuild.includes("CrashReports.cs") &&
+  read("installer/VibeFlow.iss").includes("Result := RemoveBackslashUnlessRoot(Result);"),
+  "An installer path with a trailing separator can reach the migration entry point again");
 const interfaceMatrix = read("scripts/check-ui-matrix.ps1");
 assert(includesAll(interfaceMatrix, [
   "foreach ($theme in $Themes)",

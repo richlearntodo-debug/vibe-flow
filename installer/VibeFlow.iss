@@ -152,6 +152,11 @@ begin
   RegQueryStringValue(HKEY_CURRENT_USER,
     'Software\Microsoft\Windows\CurrentVersion\Uninstall\{99C65880-071A-4F75-9238-FA4E92A2E76D}_is1',
     'InstallLocation', Result);
+  { The registry value ends with a backslash. Passed on inside quotes, that backslash escapes the closing
+    quote, so the receiving application is handed a path containing a quote and fails: measured, the old
+    configuration was reported as unmigratable on every install over an existing installation, while a clean
+    install, which uses the application directory directly and has no trailing separator, worked. }
+  Result := RemoveBackslashUnlessRoot(Result);
 end;
 
 function LegacyConfigRoot: String;

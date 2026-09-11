@@ -3903,3 +3903,70 @@ Stack: ...
 
 - 「导出诊断」里那两行是**门禁钉住、但没有真正导出一次文件端到端验证**（导出走系统保存对话框，需要交互）；
 - 崩溃报告里没有内存/线程数等更深的运行时信息（够用于定位，不追求穷尽）。
+
+## 2026-09-11 一个发布级缺陷：**覆盖安装**时安装器报「无法迁移旧版配置」
+
+这是本轮（崩溃记录）顺带炸出来的：装完崩溃记录后我第一次跑完整链路，安装器返回 **exit 5**。用 `/?` 之外最可靠的办法——**让安装器自己写日志**（`/LOG=`）——拿到了真相：
+
+```
+Installation process succeeded.
+CurStepChanged raised an exception.
+Runtime error (at 46:353):
+无法迁移或保护旧版配置，安装未完成。请检查用户数据目录权限后重试。
+```
+
+**文件其实已经装好了**，是安装后那一步（`CurStepChanged` → `MigrateLegacyUserConfig`）失败了。
+
+### 定位过程（这次是崩溃记录直接帮上忙）
+
+`.iss` 里那一步是：
+
+```pascal
+Exec('{app}\VibeFlow.exe', '--installer-config-migrate ' + AddQuotes(LegacyConfigRoot) + ' ' + AddQuotes(UserDataDirectory), ...)
+Result := ResultCode = 0;
+```
+
+而 `LegacyConfigRoot` 取自注册表的 `InstallLocation`，**末尾带反斜杠**。于是命令行是：
+
+```
+--installer-config-migrate "C:\...\Vibe Flow Remote\" "C:\...\UserData"
+```
+
+`\"` 在 Windows 命令行里被解析成**转义引号** → 应用收到的路径里带一个引号 → `Path.Combine` 抛
+`System.ArgumentException: 路径中具有非法字符` ✔
+
+**我是靠刚做好的崩溃记录拿到这一条的**——但第一次没拿到，因为我把它注册在 `Application.Run` 旁边，而安装器这些入口在 `Application.Run` **之前**就 return 了。**于是把注册移到 `Main` 最开头**（这些入口最需要它），第二次复现就拿到了带 `MigrateLegacyUserConfigForInstaller` 帧的报告：
+
+```
+System.ArgumentException: 路径中具有非法字符
+  在 System.IO.Path.Combine(String path1, String path2)
+  在 VibeMicForm.MigrateLegacyUserConfigForInstaller(String legacyRoot, String stateRoot)
+```
+
+### 为什么 CI 和我都漏了它
+
+- **全新安装不受影响**：那时 `LegacyConfigRoot` 用应用目录（无尾分隔符）✔ —— 这正是它活下来的原因；
+- 它在**覆盖安装/升级**时才出现，而本机我是 18:16、18:33 连续装了两次（第二次就中招了）；
+- CI：**这个仓库的 CI 最后一次运行是 2026-09-03**（我通过 GitHub API 确认：最新 run #38，`main`，成功），而当前分支的提交**从未推送**（仓库规范禁止自动推送）——**今天（以及这 8 天）的所有改动都没有经过 CI**。所以"CI 已覆盖安装生命周期"这句安慰话，只对**推送过的**代码成立。
+
+### 修复（两侧都改）
+
+| 侧 | 改动 |
+| --- | --- |
+| 应用 | 新增 `NormalizeInstallerPath()`：去引号、去首尾空白、去掉除根目录外的尾分隔符；`--installer-config-migrate` 与 `--installer-config-startup-query` 两个入口都先清洗。理由：Windows 路径不可能含引号，清洗是安全的 |
+| 安装器 | `ReadPreviousInstallDirectory` 末尾调用 `RemoveBackslashUnlessRoot(Result)`，不再产生尾分隔符 |
+
+自测新增 `RunInstallerPathSelfTests()`：覆盖"引号+尾反斜杠""仅尾反斜杠""引号+两侧空白""仅引号"，以及**根目录 `C:\` 必须保留分隔符**（去掉会变成 `C:`，含义不同）。
+
+> 顺带一个 Inno 的坑：我在 `.iss` 注释里写了 `{app}`，Inno 会把它当常量展开/嵌套注释，直接**编译失败**（`Error on line 158 ... Identifier expected`）。注释里不要出现 `{`。
+
+### 验证（端到端）
+
+```
+安装器退出码 = 0
+安装日志中「无法迁移 / Runtime error / CurStepChanged raised」：没有再出现 ✔
+迁移崩溃崩溃报告数 = 0
+安装后应用启动正常，Capture 哈希未变
+```
+另外用 `cmd /c` 按安装器真实形状复现三种参数（无引号/有引号、有/无尾斜杠）**全部返回 0**。
+（中途一次"修复后仍失败"是我自己的测试姿势问题：`Start-Process -ArgumentList` 会自己加引号，我又预先加了引号 → 双重引号 ✗ 用 `cmd /c` 复现才是忠实的。）
