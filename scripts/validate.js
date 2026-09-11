@@ -253,6 +253,21 @@ const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
 assert(screenshotScript.includes("SetProcessDpiAwarenessContext") &&
   screenshotScript.includes("SetProcessDPIAware"),
   "The screenshot script is not DPI aware, so its captures are clipped above 100%");
+// The screenshot script no longer depends on UI Automation. Measured on this machine, UIA cannot see this
+// application's controls at all — a minimal Windows Forms application reports every control as
+// ControlType.Pane with focusable=False — so a lookup by ControlType.CheckBox finds nothing. The one UIA
+// step (unchecking a box before a capture) is now done through the window itself, and it verifies its own
+// effect: BM_GETCHECK reads the state, BM_CLICK toggles it and raises the application's event, and the state
+// is read again so a step that changed nothing throws instead of looking like it succeeded.
+assert(!screenshotScript.includes("Windows.Automation") &&
+  !screenshotScript.includes("UIAutomationClient") &&
+  includesAll(screenshotScript, [
+    "function Find-ChildCheckbox([IntPtr]$Parent, [string]$Text)",
+    "0x00F0",
+    "0x00F5",
+    'throw "Checkbox did not clear: $Text"',
+  ]),
+  "The screenshot script still depends on UI Automation, which cannot see this application's controls");
 // The dialogs are not pages, so the page sweep cannot see them. The check gained a mode that measures one
 // window by title, which is how the application picker was measured at 200% (1160x1320 = twice its design
 // size, so the scaling ran exactly once rather than twice) and how a box collision between its count label

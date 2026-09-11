@@ -9,7 +9,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
-Add-Type -AssemblyName UIAutomationClient
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -80,7 +79,7 @@ public static class VibeScreenshotNative
 
     // The capture has to be DPI aware itself: Windows virtualizes window rectangles for an unaware
     // process, so at 200% this script asked for a bitmap half the window's real size and the screenshots
-    // came out with their content clipped at the right edge — measured: a 2026x1416 wizard captured into
+    // came out with their content clipped at the right edge -- measured: a 2026x1416 wizard captured into
     // 1013x708. Declaring awareness makes the captured images physical.
     [DllImport("user32.dll")]
     public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
@@ -143,20 +142,38 @@ function Wait-ForChildText([IntPtr]$Parent, [string]$Text, [int]$TimeoutMillisec
     return $false
 }
 
-function Set-ChildCheckboxUnchecked([IntPtr]$Parent, [string]$Text) {
-    $window = [Windows.Automation.AutomationElement]::RootElement
-    $nameCondition = New-Object Windows.Automation.PropertyCondition(
-        [Windows.Automation.AutomationElement]::NameProperty, $Text)
-    $typeCondition = New-Object Windows.Automation.PropertyCondition(
-        [Windows.Automation.AutomationElement]::ControlTypeProperty, [Windows.Automation.ControlType]::CheckBox)
-    $element = $window.FindFirst([Windows.Automation.TreeScope]::Descendants,
-        (New-Object Windows.Automation.AndCondition($nameCondition, $typeCondition)))
-    if ($null -eq $element) { throw "Checkbox not found: $Text" }
-    $pattern = $element.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern)
-    if ($pattern.Current.ToggleState -eq [Windows.Automation.ToggleState]::On) {
-        $pattern.Toggle()
-        Start-Sleep -Milliseconds 250
+function Find-ChildCheckbox([IntPtr]$Parent, [string]$Text) {
+    $script:foundCheckbox = [IntPtr]::Zero
+    $callback = [VibeScreenshotNative+WindowCallback]{
+        param([IntPtr]$handle, [IntPtr]$parameter)
+        $className = New-Object System.Text.StringBuilder 128
+        [VibeScreenshotNative]::GetClassName($handle, $className, $className.Capacity) | Out-Null
+        if ($className.ToString().Contains("BUTTON") -and (Get-WindowText $handle) -eq $Text) {
+            $script:foundCheckbox = $handle
+            return $false
+        }
+        return $true
     }
+    [void][VibeScreenshotNative]::EnumChildWindows($Parent, $callback, [IntPtr]::Zero)
+    return $script:foundCheckbox
+}
+
+function Set-ChildCheckboxUnchecked([IntPtr]$Parent, [string]$Text) {
+    # This used UI Automation, which cannot see this application's controls on this machine, so the lookup
+    # found nothing. It was never called -- verified, it had no call site -- and it would have thrown rather
+    # than quietly passing, so no capture result was ever wrong because of it. It is rewritten anyway: a
+    # step of a verification script has to be both correct and self-checking. BM_GETCHECK reads the state,
+    # BM_CLICK toggles it and raises the application's own event (BM_SETCHECK would change the box without
+    # letting the application react), and the state is read again afterwards so a step that changed nothing
+    # fails instead of looking like it succeeded.
+    $checkbox = Find-ChildCheckbox $Parent $Text
+    if ($checkbox -eq [IntPtr]::Zero) { throw "Checkbox not found: $Text" }
+    $state = [VibeScreenshotNative]::SendMessage($checkbox, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ($state -eq [IntPtr]::Zero) { return }
+    [void][VibeScreenshotNative]::SendMessage($checkbox, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 250
+    $after = [VibeScreenshotNative]::SendMessage($checkbox, 0x00F0, [IntPtr]::Zero, [IntPtr]::Zero)
+    if ($after -ne [IntPtr]::Zero) { throw "Checkbox did not clear: $Text" }
 }
 
 function Find-ProcessWindow([int]$ProcessId, [string]$TitlePrefix) {
@@ -423,8 +440,9 @@ Invoke-Button $main $settingsLabel
 Invoke-Button $main $setupLabel
 $wizard = Wait-ForProcessWindow $process.Id $welcomePrefix
 # The five-task wizard renders preview captions in --ui-smoke mode
-# ("预览下一任务"/"结束界面预览"); the production captions are
-# "完成本步，继续"/"打开首页". Detect which mode the running instance
+# (the preview wording for the next/finish buttons); the production captions
+# are the "complete this step, continue" / "open the home page" wording.
+# Detect which mode the running instance
 # uses and drive the persistent next-button handle accordingly so both
 # modes can be walked.
 $prodNext = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
