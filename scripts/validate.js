@@ -266,6 +266,14 @@ assert(includesAll(read("scripts/check-ui-geometry.ps1"), [
 ]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), ["control.Margin = new Padding("]) &&
   includesAll(read("scripts/ui/AppPickerDialog.cs"), ["hint.Size = new Size(296, 22);"]),
   "The dialogs cannot be measured, or an anchored control keeps an unscaled margin");
+// The minimum window size is a design measurement too. Left unscaled, the window could be dragged down to
+// 880x500 device pixels at 200% — 440x250 logical, below anything the layout was built for, with the
+// sidebar alone taking more than half of it. It scales now, and the diagnostic reports it so the value is
+// measurable rather than assumed: measured at 200%, minimum=1760x1000.
+assert(includesAll(app, [
+  "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
+  '" minimum=" + MinimumSize.Width',
+]), "The minimum window size does not follow the display scaling");
 const cableInstaller = read("scripts/Install-VBCable.ps1");
 const stableCaptureResolver = read("scripts/Get-StableCaptureBinary.ps1");
 const hardwareAcceptanceTool = read("scripts/Measure-HardwareAcceptance.ps1");

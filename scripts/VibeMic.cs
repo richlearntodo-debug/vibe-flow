@@ -612,6 +612,11 @@ internal sealed partial class VibeMicForm : Form
         {
             Width = (int)Math.Round(1280 * scale);
             Height = (int)Math.Round(840 * scale);
+            // The minimum size is a design measurement like any other, and it was left unscaled: at 200% the
+            // window could still be dragged down to 880x500 device pixels, which is 440x250 logical — below
+            // anything the layout was built for, with the sidebar alone taking more than half of it. Fitting
+            // to a smaller work area still lowers this, so a small screen is not locked out.
+            MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));
             // The shell (sidebar, footer, tray menu) is built in the constructor, before this, and its
             // containers did not follow the scaling either: measured at 150%, the sidebar stayed 232 px
             // wide while the pages grew by half.
@@ -687,6 +692,9 @@ internal sealed partial class VibeMicForm : Form
                 " dpi=" + dpi + " scale=" + Math.Round(dpi / 96.0, 2).ToString("0.00") +
                 " monitors=" + Screen.AllScreens.Length +
                 " window=" + Width + "x" + Height +
+                // How small the window may be dragged: a design measurement that has to follow the scaling
+                // too, or a scaled interface can be shrunk to a fraction of the size it was built for.
+                " minimum=" + MinimumSize.Width + "x" + MinimumSize.Height +
                 // Which containers follow the scaling and which do not: the two are easy to confuse when
                 // only the window size is visible, and this is the line a report carries.
                 " sidebar=" + (sidebarPanel == null ? "?" : sidebarPanel.Width + "x" + sidebarPanel.Height) +
