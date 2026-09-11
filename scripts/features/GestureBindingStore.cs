@@ -31,9 +31,9 @@ internal sealed class GestureBindingStore
     // profile rather than on one key press.
     internal const int MaxMacroSteps = 8;
     // Shown on a layer that has no binding of its own.
-    internal const string UnboundLayerText = "未配置";
-    // How a fallback reads in the cards: "回退到短按" etc.
-    internal const string FallbackPrefix = "回退到";
+    internal const string UnboundLayerText = "未设置";
+    // How a fallback reads in the cards: "跟随短按" — plain words, because 回退 read as jargon.
+    internal const string FallbackPrefix = "跟随";
     internal const string MacroPrefix = "宏：";
 
     private readonly string path;

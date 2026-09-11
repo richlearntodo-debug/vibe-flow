@@ -620,7 +620,7 @@ internal sealed class ProjectSpaceRunner
             case ProjectStepKind.OpenWorkspaceWithVerifiedAdapter: return "打开本地目录";
             case ProjectStepKind.OpenOrActivateApp: return "打开或激活应用";
             case ProjectStepKind.OpenUrl: return "打开网页";
-            case ProjectStepKind.SwitchProfile: return "应用关联 Profile（智能切换开启时设置回退）";
+            case ProjectStepKind.SwitchProfile: return "应用关联 Profile（智能切换开启时设为默认）";
             case ProjectStepKind.FocusTarget: return "锁定输入目标";
             default: return "显示执行结果";
         }

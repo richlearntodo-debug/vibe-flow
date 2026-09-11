@@ -994,7 +994,7 @@ assert(includesAll(mappingsPage, [
   'AddPageTitle("快捷键"', "管理遥控器实体键动作；录音键保持独立", "安全直通", "RemoteVisual",
   '"Home:short", "Home:long"',
   "AddFixedVoiceOverviewCard", "ShowMappingActionPicker", "TestMappingAction",
-  '"按住听写 · 松开结束"', 'config.smartProfilesEnabled ? "回退 Profile" : "当前 Profile"', "录制键盘快捷键",
+  '"按住听写 · 松开结束"', 'config.smartProfilesEnabled ? "默认 Profile" : "当前 Profile"', "录制键盘快捷键",
   "SetSmartProfilesEnabled", "ConfigureActiveSmartProfileApplications", "ToggleSmartProfileLock",
   "SwitchShortcutProfile", "CreateShortcutProfile", "RenameActiveShortcutProfile",
   "DeleteActiveShortcutProfile", "ImportShortcutProfile", "ExportActiveShortcutProfile",
@@ -1134,7 +1134,27 @@ assert(includesAll(app, [
   "CaptureActiveShortcutProfileMappings(powerProbe);",
   "An unassigned power key is not left as a passthrough key",
   "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
-]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The shortcut page's cards follow the remote itself, top to bottom, instead of two arbitrary columns.
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The copy pass, first instalment: the two places the user named.
+//
+// 回退 was jargon. A gesture layer with no binding of its own read "未配置（回退到短按：显示桌面）", and the button that
+// makes a Profile the one used when no application matches said "设为回退". Both now say what they mean in ordinary
+// words — 未设置（跟随短按：显示桌面）, 设为默认 — and 回退 survives only in a comment explaining why it was dropped.
+//
+// The home page carried English state words (VOICE LINK OFF / TRIGGER ONLY / PUSH TO TALK) in an otherwise Chinese
+// interface and a subtitle listing three nouns. The states read 语音未启动 / 仅触发模式 / 按住说话 now and the subtitle
+// is 语音、按键与设备状态.
+assert(includesAll(read("scripts/features/GestureBindingStore.cs"), [
+  'internal const string UnboundLayerText = "未设置";',
+  'internal const string FallbackPrefix = "跟随";',
+]) && includesAll(app, [
+  '"设为默认 Profile" : "切换 Profile"',
+  '"设为默认" : "切换"',
+  '某一层没单独设置时，就按上一层执行；卡片上会写按哪一层',
+  'heroStateLabel = NewLabel(triggerOnlyHome ? "仅触发模式" : IsCapturing ? "按住说话" : "语音未启动"',
+  'AddPageTitle("首页", "语音、按键与设备状态");',
+]) && !app.includes('"设为回退"') && !app.includes('"VOICE LINK OFF"') &&
+  !app.includes('"TRIGGER ONLY"') && !app.includes('"PUSH TO TALK"'),
+  "The copy reverted to the jargon or to English state words on the home page");// The shortcut page's cards follow the remote itself, top to bottom, instead of two arbitrary columns.
 //
 // The device's own illustration in RemoteVisual is the reference: 电源键 and 录音键 are the two top buttons, the
 // direction ring sits below them with confirm in its centre, and Home / 功能键 / TV are the lower buttons with 功能键

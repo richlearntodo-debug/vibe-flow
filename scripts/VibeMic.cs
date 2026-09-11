@@ -5430,7 +5430,7 @@ deck.Hide();
         if (ProjectCancellationRequested(cancellationRequested) || ProjectRecordingHasPriority())
         {
             ActionResult deferred = ActionResult.Create(
-                profile.SmartProfilesEnabled ? "设置回退 Profile" : "切换 Profile", profile.Name,
+                profile.SmartProfilesEnabled ? "设为默认 Profile" : "切换 Profile", profile.Name,
                 ActionState.Canceled, "Profile 已保存；为保证录音优先，未启动或重启按键服务",
                 "Bridge revision ACK 已延后", "录音结束后重新打开项目或打开自检重新检测",
                 "PROJECT-PROFILE-ACK-DEFERRED");
@@ -6798,7 +6798,7 @@ deck.Hide();
 
     private void BuildOverview()
     {
-        AddPageTitle("首页", "语音桥接、快捷键和设备状态");
+        AddPageTitle("首页", "语音、按键与设备状态");
         BridgeHealthSnapshot overviewBridge = ReadKeyboardBridgeHealth();
         string effectiveProfileName = !string.IsNullOrWhiteSpace(overviewBridge.SmartEffectiveProfileName)
             ? overviewBridge.SmartEffectiveProfileName : ActiveShortcutProfile(config) == null
@@ -6810,7 +6810,7 @@ deck.Hide();
         hero.Paint += PaintHeroSurface;
 
         bool triggerOnlyHome = IsTriggerOnlyVoiceMode();
-        heroStateLabel = NewLabel(triggerOnlyHome ? "TRIGGER ONLY" : IsCapturing ? "PUSH TO TALK" : "VOICE LINK OFF", 8.5f, FontStyle.Bold, violet);
+        heroStateLabel = NewLabel(triggerOnlyHome ? "仅触发模式" : IsCapturing ? "按住说话" : "语音未启动", 8.5f, FontStyle.Bold, violet);
         heroStateLabel.Location = new Point(52, 34);
         heroStateLabel.AutoSize = true;
         heroTitle = NewLabel(triggerOnlyHome ? "免驱动模式已就绪" : IsCapturing ? "正在连接" : "语音桥接已暂停", 27f, FontStyle.Bold, ink);
@@ -7651,7 +7651,7 @@ deck.Hide();
         sourceBadge.BackColor = StatusSurface("ready");
         ApplyRoundedRegion(sourceBadge, 6);
 
-        var profileLabel = NewLabel(config.smartProfilesEnabled ? "回退 Profile" : "当前 Profile",
+        var profileLabel = NewLabel(config.smartProfilesEnabled ? "默认 Profile" : "当前 Profile",
             8.6f, FontStyle.Bold, muted);
         profileLabel.Location = new Point(24, 79);
         profileLabel.Size = new Size(82, 36);
@@ -7669,7 +7669,7 @@ deck.Hide();
             }
         }
         if (profilePicker.Items.Count > 0) profilePicker.SelectedIndex = Math.Min(activeProfileIndex, profilePicker.Items.Count - 1);
-        var switchProfile = PrimaryButton(config.smartProfilesEnabled ? "设为回退" : "切换",
+        var switchProfile = PrimaryButton(config.smartProfilesEnabled ? "设为默认" : "切换",
             new Point(326, 77), new Size(config.smartProfilesEnabled ? 82 : 72, 40));
         switchProfile.Click += delegate
         {
@@ -7750,7 +7750,7 @@ deck.Hide();
         string smartDetail = config.smartProfilesEnabled
             ? config.smartProfileLocked
                 ? "已锁定“" + effectiveProfile + "”，前台应用变化不会切换"
-                : ruleCount + " 个应用绑定到此 Profile；无匹配时使用回退方案"
+                : ruleCount + " 个应用绑定到此 Profile；没有匹配的应用时用默认方案"
             : "开启后按前台应用自动切换；不会重启录音或修改语音参数";
         var smartSummary = NewLabel(smartDetail, 8.3f, FontStyle.Regular,
             config.smartProfileLocked ? amber : muted);
@@ -8096,7 +8096,7 @@ deck.Hide();
             });
             if (saveOutcome != ConfigurationMutationOutcome.Committed)
             {
-                return ActionResult.Create(smartProfilesEnabled ? "设置回退 Profile" : "切换 Profile",
+                return ActionResult.Create(smartProfilesEnabled ? "设为默认 Profile" : "切换 Profile",
                     snapshot.Name, ActionState.Error,
                     saveOutcome == ConfigurationMutationOutcome.RolledBack
                         ? "Profile 未保存，仍使用原方案"
@@ -8118,15 +8118,15 @@ deck.Hide();
         string name = snapshot == null || string.IsNullOrWhiteSpace(snapshot.Name)
             ? "项目 Profile" : snapshot.Name;
         string actionName = snapshot != null && snapshot.SmartProfilesEnabled
-            ? "设置回退 Profile" : "切换 Profile";
+            ? "设为默认 Profile" : "切换 Profile";
         if (!acknowledged)
             return ActionResult.Create(actionName, name, ActionState.Warning,
                 "Profile 已保存，按键服务尚未确认生效", "尚未收到 Bridge revision ACK",
                 "打开自检并重新检测", "PROJECT-PROFILE-ACK-PENDING");
         string message = snapshot != null && snapshot.SmartProfilesEnabled
             ? snapshot.SmartProfileLocked
-                ? "按键服务已确认回退 Profile：" + name + "；当前锁定 Profile 未改变"
-                : "按键服务已确认回退 Profile：" + name + "；当前方案仍由前台应用决定"
+                ? "已设为默认 Profile：" + name + "；当前锁定 Profile 未改变"
+                : "已设为默认 Profile：" + name + "；当前方案仍由前台应用决定"
             : "按键服务已确认 Profile：" + name;
         return ActionResult.Create(actionName, name, ActionState.Success,
             message, "", "", "");
@@ -9088,7 +9088,7 @@ deck.Hide();
                 CultureInfo.InvariantCulture) + " 秒后执行长按动作",
             "双击：两次轻按，松手到松手在 " + GestureLayerPolicy.DoubleTapWindowMs +
                 " 毫秒内（跟随 Windows 的双击速度设置）",
-            "某一层没有单独配置时回退到上一层，卡片会写明回退目标",
+            "某一层没单独设置时，就按上一层执行；卡片上会写按哪一层",
             "录音键固定在稳定语音链路，不参与手势分层"
         };
         for (int index = 0; index < lines.Length; index++)
@@ -15897,7 +15897,7 @@ deck.Hide();
             if (heroTitle != null && !heroTitle.IsDisposed) heroTitle.Text = "免驱动模式已就绪";
             if (heroSubtitle != null && !heroSubtitle.IsDisposed)
                 heroSubtitle.Text = "遥控器按键唤起语音工具，声音由电脑麦克风采集；安装 VB-CABLE 可改用遥控器麦克风";
-            if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "TRIGGER ONLY";
+            if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.Text = "仅触发模式";
             if (connectionBadge != null && !connectionBadge.IsDisposed)
             {
                 connectionBadge.Text = "●  免驱动模式";
@@ -15912,7 +15912,7 @@ deck.Hide();
         if (heroSubtitle != null && !heroSubtitle.IsDisposed)
             heroSubtitle.Text = !IsCapturing ? "启动后按住录音键说话，松开结束" : bridgeReady ? "按住录音键说话，松开结束；请目视确认文字" : "正在建立遥控器语音通道，请稍候";
         if (heroStateLabel != null && !heroStateLabel.IsDisposed)
-            heroStateLabel.Text = !IsCapturing ? "VOICE LINK OFF" : bridgeReady ? "PUSH TO TALK READY" : "CONNECTING";
+            heroStateLabel.Text = !IsCapturing ? "语音未启动" : bridgeReady ? "已就绪" : "连接中";
         connectionBadge.Text = !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接";
         connectionBadge.ForeColor = !IsCapturing ? muted : bridgeReady ? green : amber;
         UpdateOverviewStatus();
@@ -25693,8 +25693,8 @@ deck.Hide();
             throw new InvalidOperationException("Project Profile snapshot lost the Smart Profiles execution mode");
 
         ActionResult smartAcknowledged = BuildProjectProfileAcknowledgementResult(profileSnapshot, true);
-        if (!smartAcknowledged.IsSuccess || smartAcknowledged.ActionName != "设置回退 Profile" ||
-            smartAcknowledged.Message.IndexOf("回退 Profile", StringComparison.Ordinal) < 0)
+        if (!smartAcknowledged.IsSuccess || smartAcknowledged.ActionName != "设为默认 Profile" ||
+            smartAcknowledged.Message.IndexOf("默认 Profile", StringComparison.Ordinal) < 0)
             throw new InvalidOperationException("Project Profile claimed the Smart Profile was currently effective");
         ActionResult pendingAcknowledgement = BuildProjectProfileAcknowledgementResult(profileSnapshot, false);
         if (pendingAcknowledgement.State != ActionState.Warning ||
