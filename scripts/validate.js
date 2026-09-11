@@ -387,9 +387,22 @@ assert(includesAll(app, [
 // defect going unrecorded.
 assert(includesAll(app, [
   "private void MeasureTraySurfaceGeometry()",
-  'HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "MISMATCH")',
+  'HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "delta")',
   "if (uiSmokeMode) MeasureTraySurfaceGeometry();",
-]), "The tray-only surface is no longer measured, and a double-scaled form would go unnoticed");// The Context Deck is opened only from the tray menu, so it has no route through the application's own
+  // Every wired form reports its size at construction and after being shown, because "exactly twice its design
+  // size" cannot tell one scaling from two: Browser Remote Lite's design size times two is the same number as
+  // the working-area clamp. That measurement found Capture & Ask being scaled twice, after which its own fit
+  // clamped it to the working area — it filled the screen instead of taking its design size. Removing the
+  // second pass fixed it: it is now 1534x1329 with a client area of 1508x1258, which is exactly its design
+  // client size times this display's scaling (Windows Forms scales the client area; the frame is not part of
+  // that, which is why the window is 26x71 smaller than design-window times scaling).
+  "private void LogSurfaceScaling(string name, Form surface, Size designSize)",
+  'LogSurfaceScaling("LiveHud", new LiveHudForm(), new Size(400, 160));',
+  "difference=",
+]), "The tray-only surface is no longer measured, and a double-scaled form would go unnoticed");
+assert(!read("scripts/ui/CaptureAskForm.cs").includes("UiDisplayScale.Apply(this);") &&
+  read("scripts/ui/CaptureAskForm.cs").includes("Not wired to UiDisplayScale"),
+  "Capture & Ask is scaled twice again, which makes it fill the screen instead of its design size");// The Context Deck is opened only from the tray menu, so it has no route through the application's own
 // interface, and reaching it from outside would mean driving the user's tray icon. Its geometry is asserted
 // from inside instead, with the same rule the external check applies to the pages, and that assertion runs in
 // the release chain on every build. Measured before it was written: a freshly shown deck is 1640x1392 where
@@ -1169,11 +1182,15 @@ assert(includesAll(read("scripts/ui/UiDisplayScale.cs"), [
   (app.match(/UiDisplayScale\.Apply\(dialog\);/g) || []).length >= 8 &&
   includesAll(read("scripts/ui/AppPickerDialog.cs"), ["UiDisplayScale.Apply(this);"]) &&
   includesAll(read("scripts/ui/LiveHudForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
-  includesAll(read("scripts/ui/CaptureAskForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
   includesAll(read("scripts/ui/ContextDeckForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
   includesAll(read("scripts/ui/BrowserRemoteLiteForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
   hostBuild.includes("UiDisplayScale.cs"),
   "A dialog is laid out at 96 dpi on a scaled display, so its fonts overflow the boxes they are drawn in");
+// Capture & Ask is deliberately *not* in that list: it was scaled twice that way — once by Windows Forms, which
+// scales a form carrying a (96,96) design baseline, and once by UiDisplayScale — and the double size was then
+// clamped by its own working-area fit, so it filled the screen instead of taking its design size. Measured after
+// removing the second pass: 1534x1329, client area 1508x1258, which is its design client size times this
+// display's scaling. Its own assertion above keeps the wiring from coming back.
 // A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
 // shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
 // box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits

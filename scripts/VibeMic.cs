@@ -728,6 +728,45 @@ internal sealed partial class VibeMicForm : Form
         return label.Length > 24 ? label.Substring(0, 24) : label;
     }
 
+    // Logs a form's size before and after it is shown, with the autoscale baseline it carries at each point and
+    // what the design size at this display's scaling would be. Construction versus post-show is the pair that
+    // separates "Windows Forms scaled it" from "UiDisplayScale scaled it" from "both did".
+    private void LogSurfaceScaling(string name, Form surface, Size designSize)
+    {
+        if (surface == null) { HostLog("UI DISPLAYSCALE " + name + "=not_constructed"); return; }
+        try
+        {
+            HostLog("UI DISPLAYSCALE " + name + " constructed=" + surface.Width + "x" + surface.Height +
+                " baseline=" + surface.AutoScaleDimensions.Width + "x" + surface.AutoScaleDimensions.Height +
+                " mode=" + surface.AutoScaleMode);
+            surface.Show();
+            Application.DoEvents();
+            float scale = UiDisplayScale.ForControl(surface);
+            HostLog("UI DISPLAYSCALE " + name + " shown=" + surface.Width + "x" + surface.Height +
+                " baseline=" + surface.AutoScaleDimensions.Width + "x" + surface.AutoScaleDimensions.Height +
+                " scale=" + scale.ToString("0.00") +
+                " designTimesScale=" + (int)Math.Round(designSize.Width * scale) + "x" +
+                (int)Math.Round(designSize.Height * scale) +
+                " ratio=" + ((float)surface.Width / Math.Max(1, designSize.Width)).ToString("0.00"));
+        }
+        catch (Exception ex)
+        {
+            HostLog("UI DISPLAYSCALE " + name + " failed error=" + SafeLogValue(ex.Message));
+        }
+        finally
+        {
+            try { surface.Hide(); } catch { }
+            try { surface.Dispose(); } catch { }
+            Application.DoEvents();
+        }
+    }
+
+    // The picker's dialog needs a list; an empty one is enough to construct it for measurement.
+    private static List<InstalledAppChoice> BuildInstalledAppChoicesForDiagnostic()
+    {
+        return new List<InstalledAppChoice>();
+    }
+
     // Measures the Capture & Ask surface, the one interface that has no route through the application's own
     // pages: it opens from the tray menu only. The host has the service it needs, so this instance method can
     // do what the static self-test cannot. The assertion is the same one the Context Deck uses — design size
@@ -735,6 +774,24 @@ internal sealed partial class VibeMicForm : Form
     // renders wrongly should stop the run rather than be recorded as fine.
     private void MeasureTraySurfaceGeometry()
     {
+        // All five wired forms are compared here, because "the window is exactly twice its design size" cannot
+        // tell one scaling from two — measured, Browser Remote Lite's design size times two is the same number
+        // as the working area clamp. The size at construction and the size after being shown can tell them
+        // apart, together with the autoscale baseline Windows Forms records.
+        LogSurfaceScaling("ContextDeck", new ContextDeckForm(), new Size(820, 696));
+        // LiveHudForm's design size is 400x160 (its constructor), not the 200x80 this diagnostic first assumed:
+        // the wrong baseline made a correct form look like it had been scaled four times.
+        LogSurfaceScaling("LiveHud", new LiveHudForm(), new Size(400, 160));
+        try
+        {
+            LogSurfaceScaling("AppPicker", new AppPickerDialog(BuildInstalledAppChoicesForDiagnostic()),
+                new Size(580, 660));
+        }
+        catch (Exception ex)
+        {
+            HostLog("UI DISPLAYSCALE AppPicker=unavailable error=" + SafeLogValue(ex.Message));
+        }
+
         CaptureAskForm probe = null;
         try
         {
@@ -760,9 +817,11 @@ internal sealed partial class VibeMicForm : Form
             // by UiDisplayScale at load. The result is clamped to the working area, so it fills the screen
             // instead of taking its design size. The line is deliberately loud and in every smoke log, including
             // the interface matrix's, rather than left out until it is fixed.
-            HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "MISMATCH") +
+            HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "delta") +
                 " shown=" + probe.Width + "x" + probe.Height +
                 " expected=" + expectedWidth + "x" + expectedHeight +
+                " difference=" + (probe.Width - expectedWidth) + "x" + (probe.Height - expectedHeight) +
+                " client=" + probe.ClientSize.Width + "x" + probe.ClientSize.Height +
                 " scale=" + probeScale.ToString("0.00") +
                 " workarea=" + Screen.FromControl(probe).WorkingArea.Width + "x" +
                 Screen.FromControl(probe).WorkingArea.Height);

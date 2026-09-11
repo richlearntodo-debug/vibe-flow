@@ -48,7 +48,12 @@ internal sealed class CaptureAskForm : Form
         IList<FocusTargetDescriptor> targets, string preferredTargetId,
         Func<bool> recordingHasPriority, Action<ActionResult> publishResult, Action closed)
     {
-        UiDisplayScale.Apply(this);
+        // Not wired to UiDisplayScale: this form sets AutoScaleDimensions = (96,96) with AutoScaleMode.Dpi, and
+        // Windows Forms scales it for that reason as soon as the baseline is assigned — measured, it is already
+        // 1534x1329 at the end of the constructor while its design size is 780x700. Scaling it again at load
+        // produced a window larger than the working area, which its own working-area fit then clamped to
+        // 2536x1416: it filled the screen instead of taking its design size (1560x1400 at this display's
+        // scaling). The interface matrix found it as captureAsk=MISMATCH in every smoke run.
         if (service == null) throw new ArgumentNullException("service");
         if (backend == null) throw new ArgumentNullException("backend");
         ownerForm = owner;
