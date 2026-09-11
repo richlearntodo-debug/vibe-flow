@@ -9,6 +9,9 @@ function Invoke-CSharpBuild([string]$OutputPath, [string]$MainClass, [string[]]$
     [string]$Target = "exe") {
     $arguments = @(
         "/nologo",
+        # The same source encoding the product builds with, so a Unicode assertion cannot pass here
+        # against text the product would decode differently.
+        "/codepage:65001",
         "/target:$Target",
         "/platform:anycpu",
         "/out:$OutputPath"

@@ -873,6 +873,16 @@ assert(includesAll(read("scripts/check-ui-geometry.ps1"), [
   "no overlapping sibling controls",
 ]) && gitignore.includes("!scripts/check-ui-geometry.ps1"),
   "The UI geometry check is missing, or it is not allowed through the scripts ignore rule");
+// Every source file is BOM-less UTF-8, so the compiler has to be told the encoding instead of
+// relying on its default. Measured: the same sources compiled with /codepage:1252 (an English build
+// machine's code page) lose every Chinese literal, so a package built somewhere else could ship a
+// mojibake interface while the build on the developer's machine looks perfect. The frozen Capture's
+// build script is deliberately left alone — that binary is pinned by hash and is not rebuilt.
+assert(includesAll(read("BUILD_VIBE_MIC.cmd"), ['/codepage:65001']) &&
+  includesAll(read("BUILD_INPUT_BRIDGE.cmd"), ['/codepage:65001']) &&
+  includesAll(v2FeatureSuite, ['"/codepage:65001"']) &&
+  !read("BUILD_VIBE_MIC_CAPTURE.cmd").includes('/codepage'),
+  "A build can decode the BOM-less sources with the build machine's code page and ship a mojibake interface");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths

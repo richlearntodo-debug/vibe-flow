@@ -16,7 +16,11 @@
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [Parameter(Mandatory = $true)][string]$OutDir,
-    [int]$TimeoutMilliseconds = 25000
+    [int]$TimeoutMilliseconds = 25000,
+    # Optional "WxH". A small screen and a high scaling factor both end up as a window that cannot be
+    # as large as the layout assumes, so the geometry can be measured against a forced size instead of
+    # only against whatever this machine's display happens to allow.
+    [string]$ForceSize = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +51,7 @@ public static class DpiNative
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
 }
 '@
 
@@ -170,6 +175,15 @@ $report = New-Object System.Collections.ArrayList
 try {
     $main = Wait-ForTopWindow $process.Id $windowPrefix $true
     Start-Sleep -Seconds 3
+    if (-not [string]::IsNullOrWhiteSpace($ForceSize)) {
+        $parts = $ForceSize -split 'x'
+        if ($parts.Count -eq 2) {
+            $forcedWidth = [int]$parts[0]
+            $forcedHeight = [int]$parts[1]
+            [void][DpiNative]::SetWindowPos($main, [IntPtr]::Zero, 0, 0, $forcedWidth, $forcedHeight, 0x0004)
+            Start-Sleep -Seconds 2
+        }
+    }
     $mainRect = Get-Rect $main
     $dpi = [DpiNative]::GetDpiForWindow($main)
     [void]$report.Add("window=" + ($mainRect.Right - $mainRect.Left) + "x" + ($mainRect.Bottom - $mainRect.Top) +
