@@ -7629,7 +7629,7 @@ deck.Hide();
 
     private void BuildMappingsPage()
     {
-        content.AutoScrollMinSize = new Size(1000, 116 + FavoriteAppsCardHeight() + 1066 + 60);
+        // The shortcuts canvas grew by 560 px when its cards were laid out to follow the remote itself (the\n        // illustration and the gesture legend now sit underneath the grid).\n        content.AutoScrollMinSize = new Size(1000, 116 + FavoriteAppsCardHeight() + 1626 + 60);
         BridgeHealthSnapshot mappingHealth = ReadKeyboardBridgeHealth();
         bool exactDeviceIsolation = mappingHealth.FilterHealthy;
         AddPageTitle("快捷键", "管理遥控器实体键动作；录音键保持独立");
@@ -7775,7 +7775,7 @@ deck.Hide();
         header.Controls.Add(smartSummary);
         header.Controls.Add(focusTargets);
 
-        var canvas = NewCard(new Point(34, 320), new Size(960, 960));
+        var canvas = NewCard(new Point(34, 320), new Size(960, 1520));
         var canvasTitle = NewLabel("小米蓝牙遥控器 2 Pro", 10.2f, FontStyle.Bold, ink);
         canvasTitle.Location = new Point(342, 16);
         canvasTitle.Size = new Size(276, 28);
@@ -7787,7 +7787,9 @@ deck.Hide();
 
         var previewRemote = new RemoteVisual();
         previewRemote.DesignScaleFactor = DesignScale();
-        previewRemote.Location = new Point(330, 78);
+        // The cards below now follow the remote's own layout, so the illustration is the reference underneath them
+        // rather than the thing they are arranged around.
+        previewRemote.Location = new Point(18, 950);
         previewRemote.Size = new Size(300, 474);
         previewRemote.IsActive = true;
         previewRemote.ShowCallouts = false;
@@ -7795,29 +7797,39 @@ deck.Hide();
         previewRemote.HighlightedControl = "";
         remoteVisual = previewRemote;
 
-        AddGestureLegendCard(canvas, new Point(330, 570));
+        AddGestureLegendCard(canvas, new Point(656, 950));
 
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "上键", "上键", "up",
-            "上键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch), "左键", "左键", "left",
-            "左键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "Home", "Home 键", "home",
-            "Home:short", "Home:long", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 3), "功能键", "功能键", "menu",
-            "功能键:short", "功能键:long", false);
-        // The remote's power button. Windows delivers it as the ACPI power key — VK 0xFF, scan code E0 5E — which the
-        // bridge has always recognised while nothing acted on it, so the key was recognised and dropped. It sits at
-        // the end of the left column, on the same row as TV in the right one.
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",
+        // The cards are laid out the way the hardware is, top to bottom, on a three-column grid whose middle column
+        // is the remote's centre line (columns 18 / 337 / 656, card 286 wide):
+        //
+        //   row 1  开机键 · 录音键                 the two top buttons, side by side as on the remote
+        //   row 2  上键                            the top of the direction ring
+        //   row 3  左键 · 确认键 · 右键            the middle of the ring, confirm in the centre
+        //   row 4  下键                            the bottom of the ring
+        //   row 5  Home · 功能键 · TV              the lower buttons, 功能键 and TV side by side
+        //
+        // Back and the volume rocker sit between the ring and Home on the device but are absent here on purpose: they
+        // never reach Windows' ordinary input stack on this hardware, so they cannot be mapped, and the note at the
+        // foot of the page says so instead of showing two cards that could never be configured.
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",
             "电源键", "", false);
+        AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(337, 78));
 
-        AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(656, 78));
-        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch), "右键", "右键", "right",
-            "右键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 2), "确认键", "确认键", "ok",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch), "上键", "上键", "up",
+            "上键", "", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "左键", "左键", "left",
+            "左键", "", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 2), "确认键", "确认键", "ok",
             "确认键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 3), "下键", "下键", "down",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 2), "右键", "右键", "right",
+            "右键", "", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 3), "下键", "下键", "down",
             "下键", "", false);
+
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "Home", "Home 键", "home",
+            "Home:short", "Home:long", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",
+            "功能键:short", "功能键:long", false);
         AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",
             "TV", "", false);
 
@@ -7828,8 +7840,8 @@ deck.Hide();
         // so supporting them would need a HID-level helper, which this version does not ship.
         var capabilityNote = NewLabel("电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。APP、网页与截图请绑定到可配置按键。",
             8.0f, FontStyle.Regular, muted);
-        capabilityNote.Location = new Point(330, 886);
-        capabilityNote.Size = new Size(300, 54);
+        capabilityNote.Location = new Point(18, 1450);
+        capabilityNote.Size = new Size(938, 54);
         capabilityNote.TextAlign = ContentAlignment.MiddleCenter;
 
         canvas.Controls.Add(canvasTitle);

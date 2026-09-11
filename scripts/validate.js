@@ -1134,7 +1134,33 @@ assert(includesAll(app, [
   "CaptureActiveShortcutProfileMappings(powerProbe);",
   "An unassigned power key is not left as a passthrough key",
   "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
-]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The power card's argument wiring, checked slot by slot rather than judged by how it looks. The builder is
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The shortcut page's cards follow the remote itself, top to bottom, instead of two arbitrary columns.
+//
+// The device's own illustration in RemoteVisual is the reference: 电源键 and 录音键 are the two top buttons, the
+// direction ring sits below them with confirm in its centre, and Home / 功能键 / TV are the lower buttons with 功能键
+// and TV side by side. The cards used to be split left and right with no relation to that shape — the power key was
+// the last card in the left column while the record key was the first in the right one. They are now a three-column
+// grid (18 / 337 / 656, the middle column being the remote's centre line) laid out in the device's own order, with
+// 电源键 and 录音键 together on the top row.
+//
+// Back and the volume rocker are deliberately absent: they never reach Windows' ordinary input stack on this
+// hardware, so two cards that could never be configured would be worse than the note that explains their absence.
+assert(includesAll(app, [
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",',
+  'AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(337, 78));',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch), "上键", "上键", "up",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "左键", "左键", "left",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 2), "确认键", "确认键", "ok",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 2), "右键", "右键", "right",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 3), "下键", "下键", "down",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "Home", "Home 键", "home",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",',
+  // The illustration and the legend moved below the grid, which is why the canvas grew.
+  'previewRemote.Location = new Point(18, 950);',
+  'AddGestureLegendCard(canvas, new Point(656, 950));',
+  'var canvas = NewCard(new Point(34, 320), new Size(960, 1520));',
+]), "The shortcut page stopped following the remote's layout, or a card moved off the grid");// The power card's argument wiring, checked slot by slot rather than judged by how it looks. The builder is
 // AddMappingOverviewCard(parent, preview, location, physicalKey, label, remoteControl, shortKey, longKey,
 // requiresHardwareReport), and for the power key each slot has to hold the same kind of value the shipped keys put
 // there: physicalKey is the name the observation record uses (the bridge logs a key by its mapping label, which is
@@ -1146,7 +1172,8 @@ assert(includesAll(app, [
   'private void AddMappingOverviewCard(Control parent, RemoteVisual preview, Point location,',
   'string physicalKey, string label, string remoteControl, string shortKey, string longKey,',
   'bool requiresHardwareReport)',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",',
+  // The power card now opens the grid's top row, beside the record key, as the two top buttons on the device.
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",',
   '"电源键", "", false);',
   // The save path writes shortKey, so this is the pair that has to agree with the projection.
   'EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey)',
@@ -1172,7 +1199,8 @@ assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
 // the generated configuration while the user had no way to assign it. The page's own copy also still listed it among
 // the unsupported controls.
 assert(includesAll(app, [
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",',
+  // The power card now opens the grid's top row, beside the record key, as the two top buttons on the device.
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",',
   '"电源键", "", false);',
   // The note also has to say what makes the key take effect, because an unassigned power key is left to Windows.
   '电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。',
