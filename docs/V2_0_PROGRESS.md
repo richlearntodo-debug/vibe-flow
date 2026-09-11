@@ -5240,3 +5240,29 @@ return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);
 ### 教训（第三次同类 ✗）
 
 **"配置里通了"不等于"用户能用到"** ✗。上一轮我用产物（生成的桥配置 ✔）当成了完成证据 ✗ —— 产物只证明**映射被生成** ✔，不证明**界面有入口** ✗。**本轮改成先看界面 ✔**，一步就把漏洞抓出来了 ✔。这也说明：这类"用户可用性"的改动，**必须看界面**（截图/文字判据 ✔），不能只看配置文件 ✔。
+
+## 2026-09-12 电源键：「指派动作后变成拦截」这半条 —— **我的假设被负对照推翻** ✗，并找到具体嫌疑 ✔
+
+### 我尝试的断言与结果 ✗
+
+我在宿主自测里加了一条断言 ✔：给 `mappingFixture.mappings["电源键"] = "enter"` 后，生成的 `power` 映射应变成 `enabled=true / suppress=true` ✔。**负对照（把条件反转）依然通过** ✗ → 说明**指派动作后它仍然是 `enabled=false`** ✗ —— 我的假设**不成立** ✗。该断言我已**撤掉**（`git checkout` ✗），不留一条不成立的测试 ✔。
+
+### 机制追查（读 `ConfiguredMapping`，21032 ✔）
+
+```csharp
+string normalized = (action ?? "").Trim().ToLowerInvariant();
+bool passthrough = normalized.Length == 0 || normalized == "none" ||
+    normalized == "passthrough" || normalized == nativeAction;
+return BridgeMapping(name, label, vk, scan, !passthrough, !passthrough,
+    passthrough ? "passthrough" : "tap", …);
+```
+
+**我给电源键传的参数是** `nativeAction = "none"`、`defaultShort = "none"` ✗（其它键传的是**真实默认动作**，如 `up` → `"up"` ✗）。
+
+→ **具体嫌疑（下一轮直接验证）** ✗：宿主的 `shortAction` 来自 `GetBridgeMapping(sourceMappings, "电源键", "none")` ✔，而 `sourceMappings` 是**按 Profile 投影**后的表 ✗。**只要投影没把「电源键」带过去**，默认值 `"none"` 就会命中 `passthrough` 分支 ✗ → 该键**永远是 passthrough，永不拦截** ✗ —— 这正是"指派了也没用" ✗。其它键因为默认值是真动作，所以即使投影漏了也仍会拦截 ✔（差异就在这里 ✔）。
+
+### 下一轮的确切步骤
+
+1. 读 `ProjectActiveShortcutProfile`（宿主投影 ✔）与 `GetBridgeMapping` ✔，确认「电源键」是否被投影带过 ✔；
+2. 若没有 → 把「电源键」加入投影的键表 ✔（或把 `defaultShort` 改成一个**真实**动作而不是 `"none"` ✗ —— 但注意默认拦截会改变 Windows 行为 ✗，所以**优先修投影** ✔）；
+3. 然后用与上轮**同样的断言**验证（这次它应当成立 ✔），并保留负对照 ✔。
