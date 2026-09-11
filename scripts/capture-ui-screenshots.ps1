@@ -77,8 +77,23 @@ public static class VibeScreenshotNative
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr handle, int command);
+
+    // The capture has to be DPI aware itself: Windows virtualizes window rectangles for an unaware
+    // process, so at 200% this script asked for a bitmap half the window's real size and the screenshots
+    // came out with their content clipped at the right edge — measured: a 2026x1416 wizard captured into
+    // 1013x708. Declaring awareness makes the captured images physical.
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetProcessDPIAware();
 }
 '@
+
+# Declared before any window of this process exists, so every rectangle and every capture below is in
+# physical pixels. Per-monitor-v2 first, system awareness as the fallback.
+try { [void][VibeScreenshotNative]::SetProcessDpiAwarenessContext([IntPtr](-4)) } catch { }
+try { [void][VibeScreenshotNative]::SetProcessDPIAware() } catch { }
 
 function Get-WindowText([IntPtr]$Handle) {
     $text = New-Object System.Text.StringBuilder 512

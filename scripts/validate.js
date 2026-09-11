@@ -245,6 +245,13 @@ const dependencyRestore = read("RESTORE_BUILD_DEPS.ps1");
 const captureBuild = read("BUILD_VIBE_MIC_CAPTURE.cmd");
 const installer = read("installer/VibeFlow.iss");
 const screenshotScript = read("scripts/capture-ui-screenshots.ps1");
+// The screenshot script has to be DPI aware like the geometry check: Windows virtualizes window
+// rectangles for an unaware process, so at 200% it asked for a bitmap half the window's real size and the
+// images came out with their content clipped (measured: a 2026x1416 wizard captured into 1013x708, which
+// looked like a broken layout rather than a broken capture).
+assert(screenshotScript.includes("SetProcessDpiAwarenessContext") &&
+  screenshotScript.includes("SetProcessDPIAware"),
+  "The screenshot script is not DPI aware, so its captures are clipped above 100%");
 const cableInstaller = read("scripts/Install-VBCable.ps1");
 const stableCaptureResolver = read("scripts/Get-StableCaptureBinary.ps1");
 const hardwareAcceptanceTool = read("scripts/Measure-HardwareAcceptance.ps1");
@@ -956,6 +963,22 @@ assert(includesAll(app, [
   "The dark theme's border lightening leaves the byte range",
 ]) && !app.includes("accent.R + 62"),
   "The dark theme's status border can leave the byte range and stop the application from starting");
+// The setup wizard is a separate form built at runtime, and its step pane is cleared and refilled on every
+// step change by a builder that returns early from many branches — so scaling it "once at the end" never
+// ran. At 200% the window was 2026x1416 while the 1000x680 content sat unscaled in the corner with
+// doubled fonts: the heading was squeezed into its subtitle and the step labels were cut to
+// "确认设备与" / "选择工具并". The wizard scales its chrome and installs a scale-on-add hook; the rail
+// labels measure themselves instead of sitting in a fixed 146px box.
+assert(includesAll(app, [
+  "private void ScaleControlsAddedLater(Control root)",
+  "private static void InstallScaleOnAdd(Control root, HashSet<Control> alreadyScaled, float scale)",
+  "private static void ScaleControlBounds(Control control, float scale)",
+  "ScaleControlsAddedLater(wizard);",
+  "stepLabel.AutoSize = true;",
+  "privacyRail.AutoSize = true;",
+]) && app.indexOf("ScaleLayoutTree(wizard, DesignScale());") <
+  app.indexOf("ScaleControlsAddedLater(wizard);"),
+  "The setup wizard's content is not scaled to the display, so it renders at 96 dpi with doubled fonts");
 // A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
 // shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
 // box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits

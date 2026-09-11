@@ -649,26 +649,56 @@ internal sealed partial class VibeMicForm : Form
         if (parent == null || scale <= 1.01f) return;
         foreach (Control child in parent.Controls)
         {
-            child.Location = new Point(
-                (int)Math.Round(child.Left * scale), (int)Math.Round(child.Top * scale));
-            if (!child.AutoSize)
-            {
-                int width = (int)Math.Round(child.Width * scale);
-                int height = (int)Math.Round(child.Height * scale);
-                // A docked control ignores Size and takes its extent from the docked edge, so the one
-                // dimension that matters is set explicitly: the sidebar is docked left and stayed 232 px
-                // wide at 150% (measured from the app's own diagnostic) while everything around it grew.
-                switch (child.Dock)
-                {
-                    case DockStyle.Left:
-                    case DockStyle.Right: child.Width = width; break;
-                    case DockStyle.Top:
-                    case DockStyle.Bottom: child.Height = height; break;
-                    case DockStyle.None: child.Size = new Size(width, height); break;
-                }
-            }
+            ScaleControlBounds(child, scale);
             ScaleLayoutTree(child, scale);
         }
+    }
+
+    // Scales one control's own bounds by the display scaling, honouring its dock and auto-size state.
+    private static void ScaleControlBounds(Control control, float scale)
+    {
+        if (control == null || scale <= 1.01f) return;
+        control.Location = new Point(
+            (int)Math.Round(control.Left * scale), (int)Math.Round(control.Top * scale));
+        if (control.AutoSize) return;
+        int width = (int)Math.Round(control.Width * scale);
+        int height = (int)Math.Round(control.Height * scale);
+        // A docked control ignores Size and takes its extent from the docked edge, so the one dimension
+        // that matters is set explicitly: the sidebar is docked left and stayed 232 px wide at 150%
+        // (measured from the app's own diagnostic) while everything around it grew.
+        switch (control.Dock)
+        {
+            case DockStyle.Left:
+            case DockStyle.Right: control.Width = width; break;
+            case DockStyle.Top:
+            case DockStyle.Bottom: control.Height = height; break;
+            case DockStyle.None: control.Size = new Size(width, height); break;
+        }
+    }
+
+    // Scales a surface whose content is built piecemeal and refilled later — the setup wizard's step pane
+    // is cleared and rebuilt on every step change, and its builder returns early from many branches, so
+    // scaling "once at the end" never ran: at 200% the pane was laid out at 96 dpi with doubled fonts,
+    // which truncated the step labels and squashed the subtitle. Every control added afterwards is scaled
+    // as it arrives, at any depth, and never twice.
+    private void ScaleControlsAddedLater(Control root)
+    {
+        float scale = DesignScale();
+        if (root == null || scale <= 1.01f) return;
+        InstallScaleOnAdd(root, new HashSet<Control>(), scale);
+    }
+
+    private static void InstallScaleOnAdd(Control root, HashSet<Control> alreadyScaled, float scale)
+    {
+        root.ControlAdded += delegate(object sender, ControlEventArgs e)
+        {
+            if (e.Control == null || alreadyScaled.Contains(e.Control)) return;
+            alreadyScaled.Add(e.Control);
+            ScaleControlBounds(e.Control, scale);
+            ScaleLayoutTree(e.Control, scale);
+            InstallScaleOnAdd(e.Control, alreadyScaled, scale);
+        };
+        foreach (Control child in root.Controls) InstallScaleOnAdd(child, alreadyScaled, scale);
     }
 
     private uint CurrentWindowDpi()
@@ -12649,7 +12679,9 @@ internal sealed partial class VibeMicForm : Form
                     ApplyRoundedRegion(number, 13);
                     var stepLabel = NewLabel(stepNames[i], 9f, FontStyle.Regular, muted);
                     stepLabel.Location = new Point(64, 119 + i * 72);
-                    stepLabel.Size = new Size(146, 28);
+                    // Measured, not a fixed 146px box: at 200% the doubled font needed more room and the
+                    // step names were cut to "确认设备与" and "选择工具并".
+                    stepLabel.AutoSize = true;
                     numberLabels[i] = number;
                     progressLabels[i] = stepLabel;
                     rail.Controls.Add(number);
@@ -12657,7 +12689,9 @@ internal sealed partial class VibeMicForm : Form
                 }
                 var privacyRail = NewLabel("本地传输 · 不保存录音\r\n不读取或记录转译文字", 8.2f, FontStyle.Regular, muted);
                 privacyRail.Location = new Point(26, 586);
-                privacyRail.Size = new Size(180, 48);
+                // Wraps and grows with the font instead of being cut inside a fixed 180x48 box.
+                privacyRail.AutoSize = true;
+                privacyRail.MaximumSize = new Size(180, 0);
                 privacyRail.Anchor = AnchorStyles.Left | AnchorStyles.Bottom;
                 rail.Controls.Add(privacyRail);
 
@@ -13403,6 +13437,9 @@ internal sealed partial class VibeMicForm : Form
                             currentBridgeSyncRevision, 3500, ownedBridgeProcessId);
                         DispatchUi(delegate { finishAfterAcknowledgement(acknowledged); });
                     });
+                    // The step pane is rebuilt on every step change, and this builder returns early from many
+                    // branches, so scaling "at the end" is not reliable. The wizard installs a scale-on-add
+                    // hook before the first step is drawn instead.
                 };
 
                 wizard.FormClosing += delegate(object sender, FormClosingEventArgs e)
@@ -13441,6 +13478,13 @@ internal sealed partial class VibeMicForm : Form
                         showActionFeedback(OnboardingProgressSaveResult(false));
                     }
                 };
+                // The wizard is a separate form created at runtime, so the one-time autoscale Windows Forms
+                // applies to the shell never reached its contents: measured at 200%, its window was
+                // 2026x1416 while the 1000x680 layout sat unscaled in the corner with doubled fonts,
+                // squeezing the heading into its own subtitle. Its tree is scaled once, after every step
+                // has been built. (The legacy wizard further down is unreachable from the shipped UI.)
+                ScaleLayoutTree(wizard, DesignScale());
+                ScaleControlsAddedLater(wizard);
                 renderStep(currentStep);
                 wizard.ShowDialog(this);
             }
