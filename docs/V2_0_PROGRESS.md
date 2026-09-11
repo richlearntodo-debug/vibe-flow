@@ -4016,3 +4016,29 @@ interface matrix: 12 case(s) passed
 | 保存/导入/导出、打开 EXE、打开网页 | 系统文件/浏览器对话框，非本应用窗口 |
 
 **注意**：「动作选择器」如果其实是**页面内嵌面板**而非独立窗口，那么它已经被页面走查覆盖了（六页扫描会遍历页内控件）。这一点我没有验证到，因此不下结论。
+
+### 补记：安装器 exit 5 的两个**不同**原因（第二个是我自己的进程卫生问题）
+
+今天我一共看到三次安装器 exit 5。查安装器自己的日志（`/LOG=`）后确认是**两个不同原因**：
+
+**原因一（产品缺陷，已修）**：`CurStepChanged` → `MigrateLegacyUserConfig` 抛异常 →「无法迁移或保护旧版配置」。
+→ 即"引号 + 尾反斜杠"那个路径 bug（见上一节）。修好后日志里不再出现。
+
+**原因二（不是产品缺陷，是我的操作/工具问题）**：
+
+```
+RestartManager found an application using one of our files: Vibe Flow RC003 voice capture
+Some applications could not be shut down.
+Defaulting to Abort for suppressed message box (Abort/Retry/Ignore):
+  安装程序无法自动关闭所有应用程序。…
+User canceled the installation process.
+Rolling back changes.
+```
+
+**冻结的采集进程 `VibeMicAtvvCapture.exe` 还在运行** → 安装器请 RestartManager 关掉占用文件的程序，关不掉 → 静默模式下 Abort/Retry/Ignore 默认 **Abort** → 回滚 → **exit 5**。
+**安装器的行为是正确的**（它拒绝强杀进程）；错的是我：
+
+1. **我的矩阵脚本泄漏了这个进程**——它在每个用例**之前**清理残留，却没有在最后一个用例**之后**清理 ✗ → 已修：抽出 `Stop-SmokeLeftovers()`（含 `VibeMicAtvvCapture`），开头、每个用例前、以及 `finally` 都调用；**实测矩阵结束后残留进程 = 0** ✔ 并已进门禁。
+2. 我在安装前只停了 `VibeFlow`，没停它启动的 worker（capture/bridge）→ 后来停全四类进程后：**exit 0、日志干净、安装目录与发布目录 51/51 逐文件哈希一致** ✔
+
+**教训（写给未来的自己）**：安装器失败时**先读它自己的 `/LOG=` 日志**，不要凭"应用是不是开着"猜——我今天就是因为第一反应猜错、第二反应又推翻自己，浪费了两轮。同时：**"exit 5"不等于一个原因**。

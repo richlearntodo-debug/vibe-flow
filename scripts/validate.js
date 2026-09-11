@@ -310,6 +310,13 @@ assert(includesAll(interfaceMatrix, [
   "$observed = if ($luminance -lt 100) { 'dark' } else { 'light' }",
   "skipped (no desktop)",
   "if ($failures -gt 0) {",
+  // The matrix must not leave a capture process behind. Measured: a leftover VibeMicAtvvCapture.exe made the
+  // installer's RestartManager report that it could not close an application, and with a suppressed message
+  // box the installation was aborted and rolled back (exit code 5) — three times, until the installer's own
+  // log (/LOG=) named the process. Cleaning up before the first case is not enough: the last case leaks it.
+  "$leftovers = @('VibeMic', 'VoxDeckInputBridge', 'VibeMicAtvvCapture')",
+  "Stop-SmokeLeftovers",
+  "finally {",
 ]) && includesAll(release, ["scripts\\check-ui-matrix.ps1", 'throw "Interface matrix failed."']) &&
   includesAll(read("scripts/check-ui-geometry.ps1"), ["[string]$Theme = \"\"", "[string]$ExeArguments = \"--ui-smoke\""]) &&
   includesAll(app, [

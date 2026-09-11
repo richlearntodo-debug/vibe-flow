@@ -32,6 +32,21 @@ if ([string]::IsNullOrWhiteSpace($OutDir)) { $OutDir = Join-Path $env:TEMP 'vibe
 
 $results = New-Object System.Collections.ArrayList
 $failures = 0
+# The processes a smoke instance leaves behind. The capture process is the one that matters: the installer
+# asks the RestartManager to close whatever holds the files it is replacing, the capture process is a worker
+# the installer cannot close, and with a suppressed message box it then aborts and rolls the installation back
+# — measured, three silent installs returned exit code 5 for exactly this reason, and only the installer's own
+# log (/LOG=) said so. Cleaning up happens before the first case and after the last one, not only between them.
+$leftovers = @('VibeMic', 'VoxDeckInputBridge', 'VibeMicAtvvCapture')
+function Stop-SmokeLeftovers {
+    foreach ($name in $leftovers) {
+        Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+Stop-SmokeLeftovers
+try {
 foreach ($theme in $Themes) {
     foreach ($size in $Sizes) {
         $label = $theme + $(if ([string]::IsNullOrWhiteSpace($size)) { '/default' } else { '/' + $size })
@@ -41,9 +56,7 @@ foreach ($theme in $Themes) {
 
         # A leftover smoke instance owns the single-instance mutex, so the next launch would signal it and
         # exit, and the run would report on a window it did not start.
-        Get-Process -Name VibeMic, VoxDeckInputBridge -ErrorAction SilentlyContinue | ForEach-Object {
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        }
+        Stop-SmokeLeftovers
         Start-Sleep -Seconds 2
 
         $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $checker,
@@ -117,6 +130,12 @@ foreach ($theme in $Themes) {
             $output | Select-Object -Last 20 | ForEach-Object { Write-Host ("    " + $_) }
         }
     }
+}
+
+}
+finally {
+    # Never leave a capture process behind: it blocks the installer, which is how this was found.
+    Stop-SmokeLeftovers
 }
 
 Write-Host ""
