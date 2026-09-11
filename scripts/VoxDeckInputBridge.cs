@@ -129,6 +129,10 @@ internal static class VoxDeckInputBridge
     private static DateTime lastVoiceActivityUtc = DateTime.MinValue;
     private static DateTime lastDuplicateDownLogUtc = DateTime.MinValue;
     private static DateTime rc003DevicePresentUtc = DateTime.MinValue;
+    // How long a sign of the RC003 keeps it "present" for the hook's scoped record-key suppression. The Raw
+    // Input health probe refreshes that sign and must run inside this window, or the first key press of a
+    // session is not suppressed; Rc003PresenceWindowMs is what ties the two together.
+    private const int Rc003PresenceWindowMs = 5000;
     private static long suppressedHookEdgeCount;
     // Stuck-hold bookkeeping. voiceHoldStartedTicks is the start of the CURRENT hold,
     // which is what tells a genuinely held key from one whose release edge was lost:
@@ -2130,7 +2134,7 @@ internal static class VoxDeckInputBridge
     private static bool Rc003PresentRecently()
     {
         return rc003DevicePresentUtc != DateTime.MinValue &&
-            (DateTime.UtcNow - rc003DevicePresentUtc).TotalMilliseconds <= 5000;
+            (DateTime.UtcNow - rc003DevicePresentUtc).TotalMilliseconds <= Rc003PresenceWindowMs;
     }
 
     internal static bool ShouldUseScopedHookVoice(bool filterHealthy,
@@ -4712,7 +4716,16 @@ internal static class VoxDeckInputBridge
             // delivering a usable WM_INPUT_DEVICE_CHANGE notification. Rebind
             // at a low frequency so the bridge heals itself while idle.
             rawInputHealthTimer = new System.Windows.Forms.Timer();
-            rawInputHealthTimer.Interval = 30000;
+            // 5 s, not 30 s. The hook's scoped record-key suppression treats the RC003 as present only for
+            // Rc003PresenceWindowMs after the last sign of it, and this probe is the only thing that refreshes that
+            // sign while the remote is idle. At a 30 s interval the presence had usually expired again by the time a
+            // user pressed the record key, so the *first* press of a session — the one that starts dictation — went
+            // unsuppressed and the foreground application received F5 as well. The probe now runs inside the window it
+            // feeds. Measured on this machine before the change: the ISOLATION lines only ever showed
+            // scoped_suppress=true for auto-repeat edges, never for the first press.
+            int healthIntervalMs = Rc003PresenceWindowMs;
+            rawInputHealthTimer.Interval = healthIntervalMs;
+            DateTime lastHealthLogUtc = DateTime.MinValue;
             rawInputHealthTimer.Tick += delegate
             {
                 if (IsDisposed || !IsHandleCreated) return;
@@ -4734,11 +4747,16 @@ internal static class VoxDeckInputBridge
                     rawInputDeviceMisses = 0;
                     RegisterRawInput(Handle, "periodic_health_rebind");
                 }
-                else
+                else if ((DateTime.UtcNow - lastHealthLogUtc).TotalSeconds >= 30)
                 {
+                    // The probe runs every few seconds now, so the line is rate-limited to keep the log readable.
+                    lastHealthLogUtc = DateTime.UtcNow;
                     Log("Raw Input health check ok device_present=true");
                 }
             };
+            // One line at startup, so the interval that feeds the suppression window is visible in any log.
+            Log("Raw Input health timer interval_ms=" + healthIntervalMs +
+                " presence_window_ms=" + Rc003PresenceWindowMs);
             rawInputHealthTimer.Start();
         }
 

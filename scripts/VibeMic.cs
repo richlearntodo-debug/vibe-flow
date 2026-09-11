@@ -6867,7 +6867,7 @@ deck.Hide();
             // scripts/check-ui-geometry.ps1). The wording is short enough to fit one line at 125% while
             // keeping the distinction the honesty gate requires: audio still works AND the foreground
             // application may receive the record key.
-            filterWarning = NewLabel("!  RC003 按键隔离未就绪；麦克风音频仍可用，但前台应用可能收到录音键，详见「自检」。",
+            filterWarning = NewLabel("!  未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。",
                 8.4f, FontStyle.Bold, amber);
             filterWarning.Name = "rc003FilterWarning";
             filterWarning.Location = new Point(52, 190);
@@ -10676,7 +10676,7 @@ deck.Hide();
         // is worse than no statement at all.
         var sourceProtection = StyledCheck(exactDeviceIsolation
             ? "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"
-            : "尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）",
+            : "未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复",
             exactDeviceIsolation, new Point(32, 62));
         sourceProtection.Size = new Size(620, 40);
         sourceProtection.AutoCheck = false;
@@ -10689,7 +10689,7 @@ deck.Hide();
         var sourceProtectionNote = NewLabel(
             exactDeviceIsolation ?
             "RC003 专属签名通道已就绪：遥控器原按键被设备级拦截，实体键盘保持原行为。" :
-            "未安装签名通道时，言灵不拦截来源未知的键：实体键盘保持原样，遥控器自定义键的原始效果可能同时发生。签名通道是可选增强。",
+            "未安装签名通道时，言灵按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。",
             8.8f, FontStyle.Regular, muted);
         sourceProtectionNote.Location = new Point(34, 112);
         sourceProtectionNote.Size = new Size(890, 34);

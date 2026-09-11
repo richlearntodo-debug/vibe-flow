@@ -769,7 +769,10 @@ assert(includesAll(app, [
   "FavoriteAppSummaryText", "voiceFocusTargetButton", "添加应用", "常用应用",
   "尚未配置工作流", "重新聚焦输入框后重试",
 ]), "Voice UI does not expose the favourite-application state or submit recovery path");
-assert(app.includes("麦克风音频仍可用，但前台应用可能收到录音键"),
+// The warning has to keep the two facts apart: the audio chain is unaffected, and the record key is intercepted for a
+// stated span. The wording changed with plan B — the interception now covers the first press too and ends when the
+// remote goes — but the distinction is what this pins.
+assert(app.includes("音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复"),
   "The RC003 filter warning does not distinguish audio availability from key-isolation risk");
 assert(includesAll(bridge, [
   "HandleVoicePhysicalTransition", "voiceTransitionLock",
@@ -1155,7 +1158,30 @@ assert(includesAll(app, [
   'result.Message;',
   '(string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : "\\r\\n" + result.ErrorCode)',
 ]) && !app.includes('result.Message + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " · " + result.ErrorCode)'),
-  "The wizard's status line is showing its error code again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  "The wizard's status line is showing its error code again");// Plan B for the record-key isolation: close the window the first press fell through, and say what the fallback does.
+//
+// The scoped suppression treats the RC003 as present only for a short window after the last sign of it, and the Raw
+// Input health probe is the only thing that refreshes that sign while the remote is idle. The probe ran every 30 s
+// against a 5 s window, so for most of every 30 s the presence had expired — and the *first* press of a session, the
+// one that starts dictation, was not suppressed. The ISOLATION lines in this machine's own log only ever showed
+// scoped_suppress=true for auto-repeat edges, which is what that looks like from outside. The probe now runs inside
+// the window it feeds, the window is a named constant, and a startup line records both so a log says which timer is
+// feeding the suppression.
+//
+// The copy no longer says the app "does not intercept keys of unknown origin", which was no longer true: it says the
+// app judges by whether the remote is present, that the record key is then intercepted for both the remote and the
+// keyboard's F5, that this ends when the remote goes, and that non-voice keys keep passing their native effect.
+assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
+  "private const int Rc003PresenceWindowMs = 5000;",
+  "TotalMilliseconds <= Rc003PresenceWindowMs;",
+  "int healthIntervalMs = Rc003PresenceWindowMs;",
+  "rawInputHealthTimer.Interval = healthIntervalMs;",
+  'Log("Raw Input health timer interval_ms=" + healthIntervalMs +',
+]) && includesAll(app, [
+  '未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。',
+  '未安装签名通道时，言灵按「遥控器是否在场」判断',
+]) && !app.includes('RC003 按键隔离未就绪') && !app.includes('言灵不拦截来源未知的键'),
+  "The presence probe fell back outside its window, or the copy went back to saying keys of unknown origin pass through");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
@@ -1197,7 +1223,7 @@ assert(includesAll(app, [
 // native effect can still fire, and the channel is optional. The log note and the statistics note lost their padding.
 // "配置 schema" became 参数版本: schema is the word the code uses, not the word a user reads.
 assert(includesAll(app, [
-  '未安装签名通道时，言灵不拦截来源未知的键：实体键盘保持原样，遥控器自定义键的原始效果可能同时发生。签名通道是可选增强。',
+  '未安装签名通道时，言灵按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。',
   '每个日志上限 4 MB。诊断音频每次都要你明确确认。',
   '参数版本 " + ConfigSchemaVersion',
   '只统计当前日志窗口内有结束回执的会话（日志限长，旧记录随滚动丢弃）；不含录音、转写文字、窗口标题或设备地址。',
@@ -1677,7 +1703,8 @@ assert(includesAll(app, [
   "Retired compatibility routing was not normalized to strict",
   // The card's statement follows the actual state now: it used to assert device-level isolation unconditionally,
   // right next to a badge and a note saying that isolation was not there.
-  "尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）",
+  // Plan B: the state line says what the fallback does and when it ends, instead of naming the missing subsystem.
+  "未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复",
   "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作",
   "Raw Input 安全直通", "设备级精确隔离",
 ]) && !app.includes("compatibility.CheckedChanged"),
@@ -2464,7 +2491,7 @@ assert(includesAll(app, [
 // opposite ("言灵不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
 // four parts of that card agree. A checked box promising what the same card denies is worse than saying nothing.
 assert(includesAll(app, [
-  '"尚未逐设备隔离：遥控器按键与实体键盘可能同时生效（签名通道为可选增强）"',
+  '"未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复"',
   '"设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"',
   "exactDeviceIsolation, new Point(32, 62));",
 ]) && !app.includes('"设备识别：只有带 RC003 身份的事件可以执行遥控器动作"'),
