@@ -3572,3 +3572,34 @@ return darkTheme
 
 - 三个对话框（添加应用选择器、Capture & Ask、Browser Remote Lite 等**独立 Form**）未逐档复核——它们与向导同类（运行时创建），需要时用同样的 scale-on-add 处理；
 - 1366×768 / 1920×1080、最小窗口、完整键盘导航仍未测。
+
+### 补做：独立对话框（原「仍未做」第 1 项）
+
+**先纠正一个我自己的误判**：我最初以为截图里的 `09-smart-profile-apps.png` 是 `AppPickerDialog`（"添加应用"），照着它改成 `UiDisplayScale.Apply(this)`，重拍后**文件大小一模一样**——说明那个窗口根本不是那个类。查证后：它是 `VibeMic.cs` 里**内联创建**的「绑定 Smart Profile 应用」对话框（760×610）。**文件名不等于类名，改之前要先确认窗口是谁建的。**
+
+实测：200% 下该对话框窗口仍是 **766×661**（未缩放），标题被画成"双影"（2× 字号塞进 1× 盒子）、副标题被截断。
+
+### 修法：算法收敛到一处，所有对话框统一接入
+
+新增 `scripts/ui/UiDisplayScale.cs`（已加入 `BUILD_VIBE_MIC.cmd` 与 `requiredFiles`）：
+
+- `ForControl`：取控件所在显示器的缩放（PerMonitorV2 的 `GetDpiForWindow`，失败退回 `CreateGraphics().DpiX`）；
+- `Apply(Form)`：挂 `Form.Load`，装载时**把窗口与内容一起缩放**，并安装 scale-on-add；构造函数第一行调用即可；
+- `Tree` / `Bounds` / `AddedLater`：与页面/向导同一套算法（AutoSize 不缩放尺寸、Dock 只缩放对应维度、字体永不缩放、每个控件只缩放一次）。
+
+`VibeMic.cs` 里原有的私有实现改为**委托**到该类（签名与调用点不变，避免两套实现漂移）。
+
+接入的对话框：
+
+| 位置 | 数量 | 说明 |
+| --- | --- | --- |
+| `VibeMic.cs` 内联 | 8 | 绑定 Smart Profile、新建 Profile、动作配置、编辑常用应用、用语片段、录制键盘快捷键、选择应用 ×2 |
+| `scripts/ui/*.cs` | 5 | AppPickerDialog、LiveHudForm、ContextDeckForm、CaptureAskForm、BrowserRemoteLiteForm |
+
+**首次设置向导**保持原路径（它自己已有 chrome 缩放 + scale-on-add），**未**重复接入以免二次缩放。
+
+### 200% 复验
+
+`09-smart-profile-apps.png` 由 **766×661 → 1532×1322**（正好 ×2）：标题「哪些应用使用"通用导航"？」单影清晰、副标题完整、表头与行完整、按钮齐全、列表可滚动。向导与主窗口截图尺寸不变（2026×1416 / 2528×1408）。
+
+**注意**：另外 4 个内联对话框与 5 个 `scripts/ui` 对话框是通过**同一个机制**接入的，本轮只对 Smart Profile 这一个新接入点做了截图实证；其余未逐个截图验证（清单已记在下方）。

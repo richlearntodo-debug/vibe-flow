@@ -639,66 +639,27 @@ internal sealed partial class VibeMicForm : Form
         return scale <= 1.01f ? designPixels : (int)Math.Round(designPixels * scale);
     }
 
-    // Scales a freshly built page's geometry by the display scaling.
-    //
-    // Sizes are scaled only for controls that are not auto-sized: an auto-sized label measures itself
-    // from its font, which GDI+ already renders at the current DPI. Fonts are never touched for the same
-    // reason — scaling them here would apply the scaling twice.
+    // Scales a freshly built page's geometry by the display scaling. The algorithm lives in
+    // UiDisplayScale so the pages, the wizard and the dialogs cannot drift apart; these wrappers keep the
+    // call sites and the gates that pin them readable.
     private static void ScaleLayoutTree(Control parent, float scale)
     {
-        if (parent == null || scale <= 1.01f) return;
-        foreach (Control child in parent.Controls)
-        {
-            ScaleControlBounds(child, scale);
-            ScaleLayoutTree(child, scale);
-        }
+        UiDisplayScale.Tree(parent, scale);
     }
 
     // Scales one control's own bounds by the display scaling, honouring its dock and auto-size state.
     private static void ScaleControlBounds(Control control, float scale)
     {
-        if (control == null || scale <= 1.01f) return;
-        control.Location = new Point(
-            (int)Math.Round(control.Left * scale), (int)Math.Round(control.Top * scale));
-        if (control.AutoSize) return;
-        int width = (int)Math.Round(control.Width * scale);
-        int height = (int)Math.Round(control.Height * scale);
-        // A docked control ignores Size and takes its extent from the docked edge, so the one dimension
-        // that matters is set explicitly: the sidebar is docked left and stayed 232 px wide at 150%
-        // (measured from the app's own diagnostic) while everything around it grew.
-        switch (control.Dock)
-        {
-            case DockStyle.Left:
-            case DockStyle.Right: control.Width = width; break;
-            case DockStyle.Top:
-            case DockStyle.Bottom: control.Height = height; break;
-            case DockStyle.None: control.Size = new Size(width, height); break;
-        }
+        UiDisplayScale.Bounds(control, scale);
     }
 
     // Scales a surface whose content is built piecemeal and refilled later — the setup wizard's step pane
     // is cleared and rebuilt on every step change, and its builder returns early from many branches, so
     // scaling "once at the end" never ran: at 200% the pane was laid out at 96 dpi with doubled fonts,
-    // which truncated the step labels and squashed the subtitle. Every control added afterwards is scaled
-    // as it arrives, at any depth, and never twice.
+    // which truncated the step labels and squashed the subtitle.
     private void ScaleControlsAddedLater(Control root)
     {
-        float scale = DesignScale();
-        if (root == null || scale <= 1.01f) return;
-        InstallScaleOnAdd(root, new HashSet<Control>(), scale);
-    }
-
-    private static void InstallScaleOnAdd(Control root, HashSet<Control> alreadyScaled, float scale)
-    {
-        root.ControlAdded += delegate(object sender, ControlEventArgs e)
-        {
-            if (e.Control == null || alreadyScaled.Contains(e.Control)) return;
-            alreadyScaled.Add(e.Control);
-            ScaleControlBounds(e.Control, scale);
-            ScaleLayoutTree(e.Control, scale);
-            InstallScaleOnAdd(e.Control, alreadyScaled, scale);
-        };
-        foreach (Control child in root.Controls) InstallScaleOnAdd(child, alreadyScaled, scale);
+        UiDisplayScale.AddedLater(root, DesignScale());
     }
 
     private uint CurrentWindowDpi()
@@ -7468,6 +7429,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = "绑定 Smart Profile 应用";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -7636,6 +7599,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = "新建快捷键 Profile";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -8346,6 +8311,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = "配置 " + label;
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -9156,6 +9123,8 @@ internal sealed partial class VibeMicForm : Form
         using (var nameBox = new TextBox())
         {
             dialog.Text = "编辑常用应用";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -20967,6 +20936,8 @@ internal sealed partial class VibeMicForm : Form
         using (var textBox = new TextBox())
         {
             dialog.Text = "用语片段";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -21133,6 +21104,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = "录制键盘快捷键";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -21507,6 +21480,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = "选择要打开或切换的应用";
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;
@@ -22257,6 +22232,8 @@ internal sealed partial class VibeMicForm : Form
         using (var cancel = new Button())
         {
             dialog.Text = title;
+            // Laid out at 96 dpi at runtime, so it is scaled onto the display it opens on.
+            UiDisplayScale.Apply(dialog);
             dialog.StartPosition = FormStartPosition.CenterParent;
             dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
             dialog.MinimizeBox = false;

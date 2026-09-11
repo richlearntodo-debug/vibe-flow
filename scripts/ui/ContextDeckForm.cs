@@ -41,6 +41,7 @@ internal sealed class ContextDeckForm : Form
 
     internal ContextDeckForm()
     {
+        UiDisplayScale.Apply(this);
         AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
         Text = "遥控器状态 · 当前遥控器";

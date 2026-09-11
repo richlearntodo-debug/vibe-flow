@@ -23,6 +23,9 @@ internal sealed class AppPickerDialog : Form
 
     internal AppPickerDialog(IList<InstalledAppChoice> choices)
     {
+        // Its layout is built at 96 dpi at runtime, so it is scaled onto the display it opens on: measured
+        // at 200%, this dialog drew its title with a doubled font inside a 1x box and cut its subtitle off.
+        UiDisplayScale.Apply(this);
         SelectedProcessName = "";
         SelectedLaunchTarget = "";
         SelectedLaunchArguments = "";

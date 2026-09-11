@@ -57,6 +57,7 @@ const requiredFiles = [
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
   "scripts/ui/UiFonts.cs",
+  "scripts/ui/UiDisplayScale.cs",
   "scripts/ui/LiveHudForm.cs",
   "scripts/ui/ContextDeckForm.cs",
   "scripts/ui/CaptureAskForm.cs",
@@ -929,9 +930,14 @@ assert(includesAll(app, [
   "ScaleLayoutTree(content, DesignScale());",
   "ScaleLayoutTree(this, scale);",
   "sidebarPanel = sidebar;",
-  "case DockStyle.Left:",
   '" sidebar=" + (sidebarPanel == null',
   '" scroll=" + (content == null',
+  // The dock rule lives in the shared scaler now, and the sidebar is the control that needs it most: it is
+  // docked left, so its Size is ignored and it stayed 232 px wide at 150% while everything around it grew.
+  "UiDisplayScale.Tree(parent, scale);",
+]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), [
+  "case DockStyle.Left:",
+  "case DockStyle.Right: control.Width = width; break;",
 ]) && app.indexOf("BuildPage((VibePageId)currentPageIndex);") <
   app.indexOf("ScaleLayoutTree(content, DesignScale());"),
   "A page built on navigation is not scaled to the display, so its layout no longer matches its fonts");
@@ -971,14 +977,40 @@ assert(includesAll(app, [
 // labels measure themselves instead of sitting in a fixed 146px box.
 assert(includesAll(app, [
   "private void ScaleControlsAddedLater(Control root)",
-  "private static void InstallScaleOnAdd(Control root, HashSet<Control> alreadyScaled, float scale)",
-  "private static void ScaleControlBounds(Control control, float scale)",
+  "UiDisplayScale.AddedLater(root, DesignScale());",
+  "UiDisplayScale.Bounds(control, scale);",
   "ScaleControlsAddedLater(wizard);",
   "stepLabel.AutoSize = true;",
   "privacyRail.AutoSize = true;",
+]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), [
+  "private static void InstallOnAdd(Control root, HashSet<Control> alreadyScaled, float scale)",
+  "root.ControlAdded +=",
 ]) && app.indexOf("ScaleLayoutTree(wizard, DesignScale());") <
   app.indexOf("ScaleControlsAddedLater(wizard);"),
   "The setup wizard's content is not scaled to the display, so it renders at 96 dpi with doubled fonts");
+// The dialogs are the same class of surface as the wizard and the pages: built at runtime, laid out at
+// 96 dpi, with fonts that follow the display. Measured at 200%, the Smart Profile binding dialog drew its
+// title with a doubled font inside a 1x box, cut its subtitle off, and stayed 766x661 while its fonts
+// doubled. The algorithm lives in one shared class so the pages, the wizard and the dialogs cannot drift
+// apart, and every dialog — eight inline ones plus the five in scripts/ui — is prepared with it.
+assert(includesAll(read("scripts/ui/UiDisplayScale.cs"), [
+  "internal static class UiDisplayScale",
+  "internal static float ForControl(Control control)",
+  "internal static void Apply(Form form)",
+  "internal static void Tree(Control parent, float scale)",
+  "internal static void Bounds(Control control, float scale)",
+  "internal static void AddedLater(Control root, float scale)",
+  "form.Load +=",
+]) && includesAll(app, ["UiDisplayScale.Tree(parent, scale);", "UiDisplayScale.Bounds(control, scale);",
+  "UiDisplayScale.AddedLater(root, DesignScale());"]) &&
+  (app.match(/UiDisplayScale\.Apply\(dialog\);/g) || []).length >= 8 &&
+  includesAll(read("scripts/ui/AppPickerDialog.cs"), ["UiDisplayScale.Apply(this);"]) &&
+  includesAll(read("scripts/ui/LiveHudForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
+  includesAll(read("scripts/ui/CaptureAskForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
+  includesAll(read("scripts/ui/ContextDeckForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
+  includesAll(read("scripts/ui/BrowserRemoteLiteForm.cs"), ["UiDisplayScale.Apply(this);"]) &&
+  hostBuild.includes("UiDisplayScale.cs"),
+  "A dialog is laid out at 96 dpi on a scaled display, so its fonts overflow the boxes they are drawn in");
 // A rounded region is cut from the control's size, so a control resized afterwards is clipped to the old
 // shape. The page scaling resizes every control, so at 200% the profile status badges rendered as a small
 // box with their text cut off — found by screenshot, because neither the overlap rule nor the text-fits

@@ -48,6 +48,7 @@ internal sealed class CaptureAskForm : Form
         IList<FocusTargetDescriptor> targets, string preferredTargetId,
         Func<bool> recordingHasPriority, Action<ActionResult> publishResult, Action closed)
     {
+        UiDisplayScale.Apply(this);
         if (service == null) throw new ArgumentNullException("service");
         if (backend == null) throw new ArgumentNullException("backend");
         ownerForm = owner;

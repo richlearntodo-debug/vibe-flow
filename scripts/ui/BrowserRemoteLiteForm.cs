@@ -33,6 +33,7 @@ internal sealed class BrowserRemoteLiteForm : Form
         Func<string, string, string, Action<ActionResult>, ActionResult> beginActionTest,
         Action<ActionResult> publishResult, bool useDarkTheme)
     {
+        UiDisplayScale.Apply(this);
         this.getCurrentMappings = getCurrentMappings ?? delegate { return new Dictionary<string, string>(); };
         this.applyPlan = applyPlan ?? delegate
         {

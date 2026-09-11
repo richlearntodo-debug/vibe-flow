@@ -44,6 +44,7 @@ internal sealed class LiveHudForm : Form
 
     internal LiveHudForm()
     {
+        UiDisplayScale.Apply(this);
         AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.None;
