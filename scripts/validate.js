@@ -1143,7 +1143,9 @@ assert(includesAll(app, [
 // unset long layer is both the clearer summary and the one that fits.
 assert(includesAll(app, [
   'var value = NewLabel(quick[i, 1], 8.4f, FontStyle.Regular, muted);',
-  'value.Size = new Size(150, 24);',
+  // 128 px, the cell the card always had: measured, the longest summary is 113 px at 8.4 pt. Widening it to 150 was
+  // a mistake that ran 4 px into the next column, which the interface matrix caught.
+  'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
 ]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, second instalment: the home page's own words.
