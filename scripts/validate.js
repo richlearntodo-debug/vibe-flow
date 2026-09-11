@@ -53,6 +53,7 @@ const requiredFiles = [
   "scripts/features/FavoriteAppStore.cs",
   "scripts/features/FavoriteAppStatus.cs",
   "scripts/features/UsageStatsPolicy.cs",
+  "scripts/features/CrashReports.cs",
   "scripts/features/SnippetStore.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
@@ -248,6 +249,38 @@ const release = read("BUILD_RELEASE.ps1");
 // scaling — neither had ever been looked at by a run. The theme is taken from the captured pixels rather
 // than trusted from the flag, and a machine with no interactive desktop is reported as skipped rather than
 // passing quietly.
+// An unhandled exception used to leave nothing on the machine but a Windows Error Reporting entry: the dark
+// theme shipped unable to start for months because its crash happened in the host's constructor, where no
+// code of ours was watching. Both handler paths are wired now, the report carries the rendering environment
+// beside the exception, the next session's log names the previous crash, and the exported diagnostics include
+// it. The writer is also exercised on a synthetic exception in the self-test, since a crash reporter that has
+// never been run is a crash reporter that does not work.
+const crashReports = read("scripts/features/CrashReports.cs");
+assert(includesAll(crashReports, [
+  "internal static class CrashReports",
+  "internal static string Write(string source, Exception error)",
+  "internal static List<string> ExistingReports()",
+  "internal static string Summarize(string path, int maximumLines)",
+  "AppendException(report, error, 0)",
+  "PruneOldReports(directory)",
+  "internal static class DisplayEnvironment",
+  "internal static class OperatingSystemDescription",
+]) && includesAll(app, [
+  "Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);",
+  "Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)",
+  'CrashReports.Write("ui_thread", e.Exception)',
+  "AppDomain.CurrentDomain.UnhandledException += delegate",
+  'CrashReports.Write("app_domain", e.ExceptionObject as Exception)',
+  "ReportPreviousCrashes();",
+  "RunCrashReportSelfTests();",
+  "private static void RunCrashReportSelfTests()",
+  "The crash report is missing: ",
+  "Crash reports are not pruned: ",
+  "The crash writer cannot describe a missing exception",
+  'report.AppendLine("Crashes recorded: " + crashReports.Count',
+  'crashTestRequested = Array.Exists(args, delegate(string arg) {',
+]) && hostBuild.includes("CrashReports.cs"),
+  "An unhandled exception leaves no report, so a crash from another machine cannot be diagnosed");
 const interfaceMatrix = read("scripts/check-ui-matrix.ps1");
 assert(includesAll(interfaceMatrix, [
   "foreach ($theme in $Themes)",

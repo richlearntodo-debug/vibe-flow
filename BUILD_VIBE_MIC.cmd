@@ -6,7 +6,7 @@ if errorlevel 1 exit /b 1
 "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /codepage:65001 /target:winexe /platform:anycpu /win32icon:"%~dp0vibe-flow.ico" /out:"%~dp0VibeMic.exe" ^
  /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.Security.dll ^
  /reference:"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\WPF\UIAutomationClient.dll" /reference:"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\WPF\UIAutomationTypes.dll" ^
- "%~dp0scripts\VibeMic.cs" "%~dp0scripts\features\ActionResult.cs" "%~dp0scripts\features\FocusTargetModels.cs" "%~dp0scripts\features\FocusTargetStore.cs" "%~dp0scripts\features\FocusTargetService.cs" ^
+ "%~dp0scripts\VibeMic.cs" "%~dp0scripts\features\CrashReports.cs" "%~dp0scripts\features\ActionResult.cs" "%~dp0scripts\features\FocusTargetModels.cs" "%~dp0scripts\features\FocusTargetStore.cs" "%~dp0scripts\features\FocusTargetService.cs" ^
  "%~dp0scripts\features\ProjectSpaceModels.cs" "%~dp0scripts\features\ProjectSpaceStore.cs" "%~dp0scripts\features\ProjectSpaceRunner.cs" ^
  "%~dp0scripts\features\CaptureAskModels.cs" "%~dp0scripts\features\CaptureAskService.cs" "%~dp0scripts\features\CaptureAskWindows.cs" ^
  "%~dp0scripts\features\BrowserProfileTemplate.cs" "%~dp0scripts\features\BrowserProfileUndoStore.cs" "%~dp0scripts\features\BrowserRemoteTestService.cs" ^

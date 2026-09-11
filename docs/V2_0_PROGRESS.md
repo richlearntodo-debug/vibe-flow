@@ -3858,3 +3858,48 @@ system/default         6         3        0  dark          1  FAILED
 
 - **能在 CI/发布链里跑的**：主题 × 窗口尺寸 × 六页走查（本轮）；
 - **只能在有桌面、能改缩放的本机跑的**：DPI 轴（125/150/200%），因为 runner 的缩放固定。
+
+## 2026-09-11 发布前工作（2/3）：崩溃记录 + 诊断导出
+
+### 为什么做
+
+深色主题那个 P0（**启动即崩**）活了几个月，根本原因是：**未处理异常在本机什么都没留下**——只有一条 Windows 错误报告（WER）和 .NET Runtime 事件日志，应用自己完全没有痕迹。**留下不了痕迹的崩溃，就会被打包发出去。**
+
+### 做了什么
+
+1. 新增 `scripts/features/CrashReports.cs`：把未处理异常写成报告（`%LOCALAPPDATA%\Vibe Flow Remote\UserData\crashes\crash-<时间戳>.log`），保留最新 5 份；写入过程自身出错一律吞掉（**崩溃处理器再抛异常比没有还糟**）。
+2. 报告内容 = 异常 + **渲染环境**：接口字体与实际所用字族、屏幕/工作区/DPI/缩放、主题、**Windows 版本**、区域与显示语言、是否 64 位、完整类型/消息/堆栈、内部异常（深度上限 5）。
+3. 两条处理路径都接上：`Application.ThreadException`（UI 线程：记录 + 告知用户文件位置 + **关闭应用**——录制会话可能正开着，继续在未知状态里跑更危险）与 `AppDomain.CurrentDomain.UnhandledException`（其它线程）。
+4. 会话启动时若发现历史报告，日志写明 `CRASH PREVIOUS count=N newest=...` 并列出前 8 行。
+5. 「导出诊断」里加入 `Crashes recorded: N (newest ...)` + 最新报告前 14 行。
+6. **可验证性**：新增 `--crash-test`（仅在显式传参时生效）在 UI 线程真实抛异常；自测 `RunCrashReportSelfTests()` 用合成异常（含内部异常）、空异常、以及"超过上限必须被裁剪"三条断言覆盖写入器。
+
+### 实测证据
+
+**端到端**（`--ui-smoke --crash-test`）：进程按设计退出，留下报告，内容如下（节选）：
+
+```
+Source: ui_thread
+App: 2.0.0-candidate
+Windows: Windows 10 Pro 25H2 build 26200
+Windows (reported): Microsoft Windows NT 6.2.9200.0
+Culture: zh-CN / UI zh-CN
+Interface: text_font=Microsoft YaHei UI text_installed=yes ... icon_font=Segoe MDL2 Assets icon_installed=yes ...
+Display: screen=2560x1440 workarea=2560x1440 dpi=192 scale=2.00 monitors=1
+Exception: System.InvalidOperationException
+Message: crash handler verification (2.0.0)
+Stack: ...
+```
+
+**启动点名**：有报告时启动，会话日志出现 `CRASH PREVIOUS ...` 系列行 ✔。**验证用的假报告已删除**（否则下次启动会把它当真实崩溃）。
+
+> 一个值得记的坑：`Environment.OSVersion` 对没有 manifest 的进程在 Win10/11 上都报 `6.2.9200`，所以报告改为从注册表读 `ProductName`/`DisplayVersion`/`CurrentBuildNumber`。但**注册表里的 `ProductName` 在 Windows 11 上可能是 "Windows 10 Pro"**（本机实测：ProductName "Windows 10 Pro" + DisplayVersion 25H2 + build 26200 = Windows 11）——三个字段一起给出，避免读者被单个字段误导，代码注释里也写明了。
+
+### 顺带修正了一个我自己造成的门禁冲突
+
+我把 `RunCrashReportSelfTests()` 插在 `RunFavoriteAppSelfTests();` 与 `RunHomeLayoutSelfTests();` 之间，触发了既有门禁（它钉住这两句的相邻距离）。**做法是把调用挪到后面，而不是放宽门禁**——门禁报得对。
+
+### 仍未做
+
+- 「导出诊断」里那两行是**门禁钉住、但没有真正导出一次文件端到端验证**（导出走系统保存对话框，需要交互）；
+- 崩溃报告里没有内存/线程数等更深的运行时信息（够用于定位，不追求穷尽）。

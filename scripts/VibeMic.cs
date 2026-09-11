@@ -88,6 +88,8 @@ internal sealed partial class VibeMicForm : Form
     private bool tabOrderLogged;
     // Set from --ui-theme by Main; empty in normal use.
     private static string themeOverride = "";
+    // Set from --crash-test by Main; verification only.
+    private static bool crashTestRequested;
     private readonly List<Button> navButtons = new List<Button>();
     private readonly Label[] overviewStatusValues = new Label[5];
     private readonly Label[] overviewStatusGlyphs = new Label[5];
@@ -342,6 +344,12 @@ internal sealed partial class VibeMicForm : Form
                 break;
             }
         }
+        // --crash-test: throws on the user-interface thread once the window is up, so the crash handler can be
+        // verified end to end. Nothing but a verification run passes this, and it is the only way to prove the
+        // handler is connected rather than merely present.
+        crashTestRequested = Array.Exists(args, delegate(string arg) {
+            return arg.Equals("--crash-test", StringComparison.OrdinalIgnoreCase);
+        });
         bool createdNew;
         using (var instance = new Mutex(true, uiSmoke ? "Local\\VibeMicUiSmoke" : "Local\\VibeMic", out createdNew))
         {
@@ -362,6 +370,32 @@ internal sealed partial class VibeMicForm : Form
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // An unhandled exception used to leave nothing behind on the machine except a Windows Error
+            // Reporting entry: the dark theme shipped unable to start for months because its crash happened
+            // in the host's constructor, where no code of ours was watching. Both paths are recorded now, and
+            // the report carries the rendering environment (fonts, screen, scaling) beside the exception —
+            // the facts a report from another machine needs and a user cannot be asked to look up.
+            //
+            // A UI-thread failure is told to the user and the application closes, rather than continuing in a
+            // state the code did not expect with a voice session possibly open.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += delegate(object sender, ThreadExceptionEventArgs e)
+            {
+                string path = CrashReports.Write("ui_thread", e.Exception);
+                try
+                {
+                    MessageBox.Show(
+                        "言灵遇到了一个未处理的错误，已把详情写入：" + Environment.NewLine + path +
+                        Environment.NewLine + Environment.NewLine + "请在「设置 · 导出诊断」里一并提供该文件。",
+                        "言灵 · 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+                catch { }
+                Application.Exit();
+            };
+            AppDomain.CurrentDomain.UnhandledException += delegate(object sender, UnhandledExceptionEventArgs e)
+            {
+                CrashReports.Write("app_domain", e.ExceptionObject as Exception);
+            };
             Application.Run(new VibeMicForm(background, uiSmoke, uiResourceTest));
         }
     }
@@ -445,6 +479,9 @@ internal sealed partial class VibeMicForm : Form
         // user deliberately emptied — is never touched. This runs after hostLogPath exists, because
         // the seeding line is the only record that a machine received these defaults.
         EnsureGestureLayerDefaults();
+        // Whether the previous session died. A crash that leaves no trace in the next session's log is a
+        // crash nobody looks for, which is how a theme that could not start survived unnoticed.
+        ReportPreviousCrashes();
         config = LoadConfig();
         if (uiSmokeMode)
         {
@@ -725,6 +762,61 @@ internal sealed partial class VibeMicForm : Form
         {
             yield return child;
             foreach (Control nested in AllDescendants(child)) yield return nested;
+        }
+    }
+
+    // Says in this session's log whether the previous one ended in a recorded crash, and what it was.
+    private void ReportPreviousCrashes()
+    {
+        var reports = CrashReports.ExistingReports();
+        if (reports.Count == 0) return;
+        HostLog("CRASH PREVIOUS count=" + reports.Count + " newest=" + Path.GetFileName(reports[0]));
+        foreach (string line in CrashReports.Summarize(reports[0], 8).Split('\n'))
+        {
+            string trimmed = line.Trim();
+            if (trimmed.Length == 0) continue;
+            HostLog("CRASH PREVIOUS " + SafeLogValue(trimmed));
+        }
+    }
+
+    // The crash writer, exercised on a synthetic exception: a crash reporter that has never been run is a
+    // crash reporter that does not work, and this is the only way to check the report's contents without
+    // actually crashing.
+    private static void RunCrashReportSelfTests()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "vibe-crash-selftest-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string path = CrashReports.Write(directory, "self_test",
+                new InvalidOperationException("outer failure", new ApplicationException("inner cause")));
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                throw new InvalidOperationException("The crash writer did not produce a report");
+            string text = File.ReadAllText(path, Encoding.UTF8);
+            string[] required = {
+                "Exception: System.InvalidOperationException", "Message: outer failure", "Inner:",
+                "Exception: System.ApplicationException", "Message: inner cause",
+                "Source: self_test", "Interface: ", "Display: ", "Stack:"
+            };
+            foreach (string fragment in required)
+            {
+                if (text.IndexOf(fragment, StringComparison.Ordinal) < 0)
+                    throw new InvalidOperationException("The crash report is missing: " + fragment);
+            }
+            // Pruning: an unbounded diagnostic trail grows without anyone noticing.
+            for (int index = 0; index < CrashReports.KeepNewest + 3; index++)
+                CrashReports.Write(directory, "self_test_" + index, new InvalidOperationException("filler " + index));
+            int remaining = CrashReports.ExistingReports(directory).Count;
+            if (remaining > CrashReports.KeepNewest)
+                throw new InvalidOperationException("Crash reports are not pruned: " + remaining);
+            // A null exception must still produce a readable report rather than throwing inside the handler.
+            string emptyPath = CrashReports.Write(directory, "self_test_null", null);
+            if (string.IsNullOrWhiteSpace(emptyPath) ||
+                File.ReadAllText(emptyPath, Encoding.UTF8).IndexOf("(none supplied)", StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException("The crash writer cannot describe a missing exception");
+        }
+        finally
+        {
+            try { if (Directory.Exists(directory)) Directory.Delete(directory, true); } catch { }
         }
     }
 
@@ -4485,6 +4577,10 @@ internal sealed partial class VibeMicForm : Form
             RunUiFontSelfTests();
             RunThemePaletteSelfTests();
             RunHomeLayoutSelfTests();
+            // Placed after the home-layout pair on purpose: a gate pins RunHomeLayoutSelfTests as following
+            // RunFavoriteAppSelfTests closely, and an extra call between them broke it. The gate was right to
+            // complain — moving the call is the fix, not widening the gate.
+            RunCrashReportSelfTests();
             RunFeedbackOutletSelfTests();
             Console.WriteLine("Vibe Flow host self-test passed.");
             return 0;
@@ -10452,6 +10548,14 @@ internal sealed partial class VibeMicForm : Form
         // application reports the same), AttachThreadInput is refused, and SendKeys needs a foreground window
         // the harness cannot take. This runs before the smoke-mode return so the capture run carries it.
         if (uiSmokeMode) LogTabOrderDiagnostic();
+        if (crashTestRequested)
+        {
+            HostLog("CRASH TEST requested=true");
+            BeginInvoke(new Action(delegate
+            {
+                throw new InvalidOperationException("crash handler verification (" + ProductRelease + ")");
+            }));
+        }
         if (uiSmokeMode) return;
         if (!ConfigurationAllowsRuntimeServices(configurationWritesBlocked))
         {
@@ -22841,6 +22945,16 @@ internal sealed partial class VibeMicForm : Form
             // report, so the answer does not depend on the user describing their machine.
             report.AppendLine("UI rendering: " + UiFonts.Describe());
             report.AppendLine("Display: " + DescribeScreenGeometry());
+            // What previous runs recorded before dying, so a report from a user carries the crash as well as
+            // the environment. An unhandled exception used to leave nothing at all.
+            var crashReports = CrashReports.ExistingReports();
+            report.AppendLine("Crashes recorded: " + crashReports.Count +
+                (crashReports.Count > 0 ? " (newest " + Path.GetFileName(crashReports[0]) + ")" : ""));
+            if (crashReports.Count > 0)
+            {
+                report.AppendLine("Newest crash report");
+                report.AppendLine(CrashReports.Summarize(crashReports[0], 14));
+            }
             report.AppendLine("Mappings: " + BuildDiagnosticMappingSummary(config.mappings));
             report.AppendLine();
             AppendLogTail(report, Path.Combine(sessionDir, "vibe-mic-runtime.log"), "Runtime log", 200);
