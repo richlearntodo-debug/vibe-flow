@@ -7799,38 +7799,41 @@ deck.Hide();
 
         AddGestureLegendCard(canvas, new Point(656, 950));
 
-        // The cards are laid out the way the hardware is, top to bottom, on a three-column grid whose middle column
-        // is the remote's centre line (columns 18 / 337 / 656, card 286 wide):
+        // The cards stand in the device's own order, two to a row, on a grid of two wide columns (18 and 494, card
+        // 448 wide with a 28 px gap: the same 942 px right edge the page has always had).
         //
-        //   row 1  开机键 · 录音键                 the two top buttons, side by side as on the remote
-        //   row 2  上键                            the top of the direction ring
-        //   row 3  左键 · 确认键 · 右键            the middle of the ring, confirm in the centre
-        //   row 4  下键                            the bottom of the ring
-        //   row 5  Home · 功能键 · TV              the lower buttons, 功能键 and TV side by side
+        //   row 1  开机键 ∥ 录音键        the remote's two top buttons, power on the left and the record key on the right
+        //   row 2  左键   ∥ 右键          the ring's horizontal pair
+        //   row 3  上键   ∥ 下键          the ring's vertical pair
+        //   row 4  确认键 ∥ Home 键       the two keys that act straight away
+        //   row 5  功能键 ∥ TV 键         the remaining pair, which sit side by side on the device too
         //
         // Back and the volume rocker sit between the ring and Home on the device but are absent here on purpose: they
         // never reach Windows' ordinary input stack on this hardware, so they cannot be mapped, and the note at the
         // foot of the page says so instead of showing two cards that could never be configured.
+        const int rightColumn = 18 + GestureCardWidth + GestureCardGap;
         AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",
             "电源键", "", false);
-        AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(337, 78));
+        AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(rightColumn, 78));
 
-        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch), "上键", "上键", "up",
-            "上键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "左键", "左键", "left",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch), "左键", "左键", "left",
             "左键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 2), "确认键", "确认键", "ok",
-            "确认键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 2), "右键", "右键", "right",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch), "右键", "右键", "right",
             "右键", "", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 3), "下键", "下键", "down",
+
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "上键", "上键", "up",
+            "上键", "", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 2), "下键", "下键", "down",
             "下键", "", false);
 
-        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "Home", "Home 键", "home",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 3), "确认键", "确认键", "ok",
+            "确认键", "", false);
+        AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 3), "Home", "Home 键", "home",
             "Home:short", "Home:long", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",
+
+        AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",
             "功能键:short", "功能键:long", false);
-        AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",
+        AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",
             "TV", "", false);
 
         // The power key is mappable now, so it is no longer named among the unsupported controls, and the note says
@@ -8744,6 +8747,10 @@ deck.Hide();
     // drift apart.
     private const int GestureCardHeight = 152;
     private const int GestureCardPitch = 164;
+    // The card grid: two wide columns rather than the three narrow ones the page used to have. Every row holds two
+    // cards, so no row is half empty, and the widths are what the badge and the action rows are laid out from.
+    private const int GestureCardWidth = 448;
+    private const int GestureCardGap = 28;
 
     // Physical keys that carry gesture layers, with the per-Profile mapping keys behind each one.
     // The record key (F5 / voice) is deliberately absent: it stays welded to the stable voice chain
@@ -8884,7 +8891,7 @@ deck.Hide();
         string physicalKey, string label, string remoteControl, string shortKey, string longKey,
         bool requiresHardwareReport)
     {
-        var card = NewCard(location, new Size(286, GestureCardHeight));
+        var card = NewCard(location, new Size(GestureCardWidth, GestureCardHeight));
         bool observed = HasObservedPhysicalButton(physicalKey);
         bool hardwareReady = !requiresHardwareReport || observed;
         var title = NewLabel(label, 9.5f, FontStyle.Bold, ink);
@@ -8893,7 +8900,9 @@ deck.Hide();
         string statusText = observed ? "● 已识别" : requiresHardwareReport ? "● 待识别" : "● 可配置";
         var status = NewLabel(statusText, 8.0f, FontStyle.Bold,
             observed ? green : requiresHardwareReport ? amber : muted);
-        status.Location = new Point(142, 8);
+        // The card is laid out from its own width, so the badge and the action rows stay in proportion when the
+        // grid changes from two narrow columns to two wide ones.
+        status.Location = new Point(GestureCardWidth - 144, 8);
         status.Size = new Size(130, 23);
         status.TextAlign = ContentAlignment.MiddleRight;
 
@@ -8919,7 +8928,7 @@ deck.Hide();
             layerTag.Location = new Point(10, rowY);
             layerTag.Size = new Size(38, 34);
             layerTag.TextAlign = ContentAlignment.MiddleLeft;
-            var layerEdit = SecondaryButton(rowText, new Point(50, rowY), new Size(196, 34));
+            var layerEdit = SecondaryButton(rowText, new Point(50, rowY), new Size(GestureCardWidth - 106, 34));
             layerEdit.Font = new Font("Microsoft YaHei UI", 8.0f, FontStyle.Bold);
             layerEdit.AutoEllipsis = true;
             layerEdit.AccessibleName = rowLabel + "当前动作：" + rowText;
@@ -8927,7 +8936,7 @@ deck.Hide();
             layerTip.SetToolTip(layerEdit, layerEdit.AccessibleName);
             layerEdit.Tag = layerTip;
             layerEdit.Click += delegate { EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey); };
-            var layerTest = IconButton("▶", new Point(250, rowY), new Size(28, 34),
+            var layerTest = IconButton("▶", new Point(GestureCardWidth - 36, rowY), new Size(28, 34),
                 hardwareReady ? violet : muted, "测试" + rowLabel);
             layerTest.Click += delegate { TestGestureLayer(remoteControl, rowLabel, kind, shortKey, longKey); };
             layerEdit.Enabled = hardwareReady;
@@ -9027,17 +9036,17 @@ deck.Hide();
 
     private void AddFixedVoiceOverviewCard(Control parent, RemoteVisual preview, Point location)
     {
-        var card = NewCard(location, new Size(286, GestureCardHeight));
+        var card = NewCard(location, new Size(GestureCardWidth, GestureCardHeight));
         var title = NewLabel("录音键", 9.5f, FontStyle.Bold, ink);
         title.Location = new Point(12, 8);
         title.Size = new Size(126, 23);
         var fixedState = NewLabel("固定稳定链路", 8.0f, FontStyle.Bold, violet);
-        fixedState.Location = new Point(142, 8);
+        fixedState.Location = new Point(GestureCardWidth - 144, 8);
         fixedState.Size = new Size(130, 23);
         fixedState.TextAlign = ContentAlignment.MiddleRight;
         var detail = NewLabel("按住听写 · 松开结束", 8.4f, FontStyle.Bold, violet);
         detail.Location = new Point(12, 34);
-        detail.Size = new Size(260, 110);
+        detail.Size = new Size(GestureCardWidth - 24, 110);
         detail.TextAlign = ContentAlignment.MiddleCenter;
         detail.BackColor = StatusSurface("recording");
         ApplyRoundedRegion(detail, 5);

@@ -1147,15 +1147,22 @@ assert(includesAll(app, [
 // hardware, so two cards that could never be configured would be worse than the note that explains their absence.
 assert(includesAll(app, [
   'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",',
-  'AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(337, 78));',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch), "上键", "上键", "up",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "左键", "左键", "left",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 2), "确认键", "确认键", "ok",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 2), "右键", "右键", "right",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 3), "下键", "下键", "down",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "Home", "Home 键", "home",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(337, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",',
-  'AddMappingOverviewCard(canvas, previewRemote, new Point(656, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",',
+  'AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(rightColumn, 78));',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch), "左键", "左键", "left",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch), "右键", "右键", "right",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 2), "上键", "上键", "up",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 2), "下键", "下键", "down",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 3), "确认键", "确认键", "ok",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 3), "Home", "Home 键", "home",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",',
+  // Two wide columns, so every row is full; the top row is the device's two top buttons, power left and record right.
+  'const int rightColumn = 18 + GestureCardWidth + GestureCardGap;',
+  'private const int GestureCardWidth = 448;',
+  // The card's own layout follows its width, or the wider grid would leave the badge and rows stranded on the left.
+  'status.Location = new Point(GestureCardWidth - 144, 8);',
+  'new Size(GestureCardWidth - 106, 34)',
+  'IconButton("▶", new Point(GestureCardWidth - 36, rowY), new Size(28, 34),',
   // The illustration and the legend moved below the grid, which is why the canvas grew.
   'previewRemote.Location = new Point(18, 950);',
   'AddGestureLegendCard(canvas, new Point(656, 950));',
