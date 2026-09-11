@@ -5428,3 +5428,25 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 ### 又一次失误（第 5 次同类 ✗，已改做法 ✔）
 
 我用 **PowerShell 脚本做多行替换**时，把两处 `if (...)` 整行**弄丢了** ✗（只剩注释与函数体 ✗）→ 我**立刻 `git checkout` 回退** ✔ 并**改用 edit 工具逐处修改** ✔（成功 ✔）。**教训固定下来：多行改动一律只用 edit 工具** ✔ —— 单行替换才用脚本 ✔。
+
+## 2026-09-12 复查电源键卡片的**参数接线** ✔（结论：**没有 bug** ✗ —— 这是一个否定结果，如实记录 ✔）
+
+上一轮我只验证了卡片**渲染正确** ✔，没验证 9 个实参是否落在**正确的形参槽位** ✔ —— 这与"看起来对"不等于"接对了"是同一类问题 ✗，所以本轮逐槽核对 ✔。
+
+**签名**（`AddMappingOverviewCard`，8871 ✔）：
+`(Control parent, RemoteVisual preview, Point location, string physicalKey, string label, string remoteControl, string shortKey, string longKey, bool requiresHardwareReport)`
+
+**我的调用**（7776 附近 ✔）与既有键对照 ✔：
+
+| 实参 | 槽位 | 判定 |
+| --- | --- | --- |
+| `"电源键"` | `physicalKey` ✔（`HasObservedPhysicalButton` 用它 ✔；桥按**映射 label**记名 ✔，日志里 `Key 录音键 DOWN` 即此形态 ✔ → `电源键` 对得上 ✔） | 与 `up`→`"上键"` 一致 ✔ |
+| `"电源键"` | `label` ✔（卡片标题 ✔） | ✔ |
+| `"power"` | `remoteControl` ✔（预览高亮与分层查表 ✔；旧选择器的 `controls` 数组本就含 `"power"` ✔） | ✔ |
+| `"电源键"` | `shortKey` ✔ —— **保存时写进 `config.mappings` 的键** ✔ | ✔ |
+| `""` | `longKey` ✔ ⇒ 单层 ✔（长/双击读作未配置 ✔，与截图一致 ✔） | 与 `up` 一致 ✔ |
+| `false` | `requiresHardwareReport` ✔ ⇒ 未观测时显示「可配置」✔；观测到则显示「已识别」✔ | ✔ |
+
+**最关键的一条** ✔：卡片行点击走 `EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey)` ✔ → 保存写的是 **`shortKey`** ✔ = 「电源键」 ✔ = **我加进 Profile 投影的那个键** ✔ → 整条链**首尾一致** ✔。
+
+**新增门禁** ✔：钉住上面整套接线（签名三行 + 电源键调用两行 + `EditGestureLayerAction` 的 `shortKey` 传递 ✔），理由写清「**看起来对 ≠ 接对了**」✗ —— 接错的症状会是"指派保存到了别处"✗，而那种故障只会出现在真实使用里 ✗。

@@ -1134,7 +1134,23 @@ assert(includesAll(app, [
   "CaptureActiveShortcutProfileMappings(powerProbe);",
   "An unassigned power key is not left as a passthrough key",
   "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
-]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The power card's argument wiring, checked slot by slot rather than judged by how it looks. The builder is
+// AddMappingOverviewCard(parent, preview, location, physicalKey, label, remoteControl, shortKey, longKey,
+// requiresHardwareReport), and for the power key each slot has to hold the same kind of value the shipped keys put
+// there: physicalKey is the name the observation record uses (the bridge logs a key by its mapping label, which is
+// 电源键), remoteControl is the preview/gesture id ("power", the same id the remote preview already knows), and
+// shortKey is the key the page writes into config.mappings when the user assigns an action — the very key the profile
+// projection had to be taught. A card that looks right can still be wired to the wrong slot, and the failure would
+// only show up as an assignment that saves somewhere else.
+assert(includesAll(app, [
+  'private void AddMappingOverviewCard(Control parent, RemoteVisual preview, Point location,',
+  'string physicalKey, string label, string remoteControl, string shortKey, string longKey,',
+  'bool requiresHardwareReport)',
+  'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "电源键", "电源键", "power",',
+  '"电源键", "", false);',
+  // The save path writes shortKey, so this is the pair that has to agree with the projection.
+  'EditGestureLayerAction(remoteControl, rowLabel, kind, shortKey, longKey)',
+]), "The power card is wired to the wrong slot, or the key it saves no longer matches the projection entry");// The power key has a card on the shortcut page, not only a row in a table. The first attempt added it to
 // GestureLayerKeys and stopped there, and the page builds its cards from explicit calls — so the key was mappable in
 // the generated configuration while the user had no way to assign it. The page's own copy also still listed it among
 // the unsupported controls.
