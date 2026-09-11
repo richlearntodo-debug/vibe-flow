@@ -10517,7 +10517,9 @@ deck.Hide();
             }
             ShowActionToast(result);
         };
-        var previewStopSound = SecondaryButton("试听结束提示音", new Point(28, 126), new Size(284, 40));
+                // Sized to its text instead of spanning the card: a 284 px tinted bar looked like the card's primary action,
+// which it is not.
+        var previewStopSound = SecondaryButton("试听结束提示音", new Point(28, 126), new Size(152, 38));
         previewStopSound.Click += delegate
         {
             PlayRecordingCue(false);

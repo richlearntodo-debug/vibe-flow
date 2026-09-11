@@ -169,7 +169,9 @@ internal sealed class AppPickerDialog : Form
         applications.BackColor = cardColor;
         applications.IntegralHeight = false;
         applications.DrawMode = DrawMode.OwnerDrawFixed;
-        applications.ItemHeight = 54;
+                // 44 rather than 54: with 95 applications in the list, eight rows on screen meant a lot of scrolling. The
+        // row's contents are laid out from this height, so the icon and the two text lines follow it.
+        applications.ItemHeight = 44;
         applications.DrawItem += DrawRow;
         applications.MouseMove += delegate(object sender, MouseEventArgs e)
         {

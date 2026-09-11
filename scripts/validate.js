@@ -1960,7 +1960,19 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// A self-check row is one line unless its detail is open. The four-line block it used to be put a developer error
+// Two small pieces of P2 polish.
+//
+// 试听结束提示音 was a 284 px tinted bar inside its card, so a secondary action looked like the card's primary
+// one. It is sized to its text now.
+//
+// The application picker's rows were 54 px, which with 95 applications meant a lot of scrolling for eight visible
+// rows. At 44 px, ten fit and the row's contents follow the height, because they are laid out as fractions of it.
+assert(includesAll(app, [
+  'var previewStopSound = SecondaryButton("试听结束提示音", new Point(28, 126), new Size(152, 38));',
+]) && includesAll(read("scripts/ui/AppPickerDialog.cs"), [
+  "applications.ItemHeight = 44;",
+  "int rowHeight = e.Bounds.Height;",
+]), "A secondary action looks like a card's primary one again, or the picker's rows waste a screen");// A self-check row is one line unless its detail is open. The four-line block it used to be put a developer error
 // code and a restatement of the requirement in front of the answer, and only about three checks fitted on a screen;
 // at 64 px per collapsed row the same card shows about sixty per cent more. The detail is one click away.
 //
