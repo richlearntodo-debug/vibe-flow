@@ -10689,7 +10689,7 @@ deck.Hide();
         var sourceProtectionNote = NewLabel(
             exactDeviceIsolation ?
             "RC003 专属签名通道已就绪：遥控器原按键被设备级拦截，实体键盘保持原行为。" :
-            "未安装签名通道时，言灵不会拦截来源未知的键，因此实体键盘保持原行为；自定义遥控器键的原始按键效果可能同时发生。签名通道是可选增强，不影响动作执行。",
+            "未安装签名通道时，言灵不拦截来源未知的键：实体键盘保持原样，遥控器自定义键的原始效果可能同时发生。签名通道是可选增强。",
             8.8f, FontStyle.Regular, muted);
         sourceProtectionNote.Location = new Point(34, 112);
         sourceProtectionNote.Size = new Size(890, 34);
@@ -10704,7 +10704,7 @@ deck.Hide();
         privacy.AutoCheck = false;
         privacy.TabStop = false;
         privacy.ForeColor = muted;
-        var privacyNote = NewLabel("普通日志只记录连接状态与聚合指标，单个日志自动限制为 4 MB。诊断音频必须每次明确确认。", 8.8f, FontStyle.Regular, muted);
+        var privacyNote = NewLabel("普通日志只记录连接状态与聚合指标，每个日志上限 4 MB。诊断音频每次都要你明确确认。", 8.8f, FontStyle.Regular, muted);
         privacyNote.Location = new Point(34, 104);
         privacyNote.Size = new Size(830, 28);
         var automaticUpdates = StyledCheck("自动检查 GitHub 正式版更新（安装前始终确认）", config.autoCheckUpdates, new Point(32, 132));
@@ -10742,7 +10742,7 @@ deck.Hide();
         var about = NewLabel(DisplayProductName + " · " + ProductRelease + " · Windows 候选版\r\nRC003 本地语音传输与快捷操作工具 · 尚需完成真机验收", 9.5f, FontStyle.Regular, muted);
         about.Location = new Point(694, 184);
         about.Size = new Size(238, 66);
-        var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  配置 schema " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
+        var profile = NewLabel("稳定语音档案 v" + StableVoiceProfileVersion + "  ·  参数版本 " + ConfigSchemaVersion, 8.7f, FontStyle.Bold, violet);
         profile.Location = new Point(32, 260);
         profile.Size = new Size(400, 24);
         privacyCard.Controls.Add(privacyTitle);
@@ -10767,7 +10767,7 @@ deck.Hide();
         var usageLine = NewLabel(UsageStatsLine(usageStats), 9.6f, FontStyle.Bold, violet);
         usageLine.Location = new Point(32, 326);
         usageLine.Size = new Size(890, 26);
-        var usageNote = NewLabel("统计范围是当前本地日志窗口（日志限长，旧记录会随滚动丢弃），且只统计有结束回执的会话；不包含录音、转写文字、窗口标题或设备地址。", 8.6f, FontStyle.Regular, muted);
+        var usageNote = NewLabel("只统计当前日志窗口内有结束回执的会话（日志限长，旧记录随滚动丢弃）；不含录音、转写文字、窗口标题或设备地址。", 8.6f, FontStyle.Regular, muted);
         usageNote.Location = new Point(32, 354);
         usageNote.Size = new Size(890, 42);
         privacyCard.Controls.Add(usageTitle);

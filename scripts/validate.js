@@ -1148,7 +1148,20 @@ assert(includesAll(app, [
   'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
-]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, third instalment: the self-check page, which carried the most text of the six.
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, fourth instalment: the settings page, whose paragraphs were the longest left.
+//
+// Its glossary already explains the terms in plain words, so the work here was the prose. The signature-channel note
+// ran to three sentences; it is two now and still says the same thing — the keyboard is untouched, a remote key's
+// native effect can still fire, and the channel is optional. The log note and the statistics note lost their padding.
+// "配置 schema" became 参数版本: schema is the word the code uses, not the word a user reads.
+assert(includesAll(app, [
+  '未安装签名通道时，言灵不拦截来源未知的键：实体键盘保持原样，遥控器自定义键的原始效果可能同时发生。签名通道是可选增强。',
+  '每个日志上限 4 MB。诊断音频每次都要你明确确认。',
+  '参数版本 " + ConfigSchemaVersion',
+  '只统计当前日志窗口内有结束回执的会话（日志限长，旧记录随滚动丢弃）；不含录音、转写文字、窗口标题或设备地址。',
+]) && !app.includes('配置 schema ') && !app.includes('统计范围是当前本地日志窗口') &&
+  !app.includes('普通日志只记录连接状态与聚合指标，单个日志自动限制为'),
+  "The settings page's paragraphs went back to their padded wording or to the code's own vocabulary");// The copy pass, third instalment: the self-check page, which carried the most text of the six.
 //
 // "当前状态：" opened every row's status line — ten times the same label, saying nothing the row did not already frame.
 // The group prefix repeated too ("核心环境 · …", "语音链路 · …"), so it is now 核心 and 语音. Three statuses were
@@ -2066,7 +2079,7 @@ assert(includesAll(usageStatsPolicy, [
   "Usage statistics must aggregate receipt lines alone, without reading identifying metrics");
 assert(includesAll(app, [
   "BuildUsageStats()", "UsageStatsPolicy.Summarize", "UsageStatsLine(usageStats)",
-  "使用统计（仅元数据）", "只统计有结束回执的会话", "不包含录音、转写文字、窗口标题或设备地址",
+  "使用统计（仅元数据）", "只统计当前日志窗口内有结束回执的会话", "不含录音、转写文字、窗口标题或设备地址",
   "RunUsageStatsSelfTests();",
 ]), "The settings page does not show metadata-only usage statistics or state their scope");
 assert(hostBuild.includes('"%~dp0scripts\\features\\UsageStatsPolicy.cs"'),
