@@ -34,7 +34,11 @@ param(
     # start — no automated run had ever launched it.
     [string]$Theme = "",
     # What to pass the application when this script starts it.
-    [string]$ExeArguments = "--ui-smoke"
+    [string]$ExeArguments = "--ui-smoke",
+    # Measure one window by handle instead of by title. Some surfaces have no title at all — measured, the Live
+    # HUD is a borderless window with empty text, so it could not be named by title and was written off as
+    # needing hardware until a session was started and the window appeared.
+    [long]$WindowHandle = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -328,7 +332,23 @@ try {
     $dpi = [DpiNative]::GetDpiForWindow($main)
     [void]$report.Add("window=" + ($mainRect.Right - $mainRect.Left) + "x" + ($mainRect.Bottom - $mainRect.Top) +
         "  dpi=" + $dpi + "  scale=" + [Math]::Round($dpi / 96.0, 2))
-    if (-not [string]::IsNullOrWhiteSpace($WindowTitle)) {
+    if ($WindowHandle -gt 0) {
+        # Measured by handle: the surfaces without a title cannot be named, and measuring the first window whose
+        # text starts with an empty string would just measure the main window.
+        $target = [IntPtr]::new($WindowHandle)
+        $dialogRect = Get-Rect $target
+        [void]$report.Add("dialog=handle:" + $WindowHandle + "  size=" + ($dialogRect.Right - $dialogRect.Left) + "x" +
+            ($dialogRect.Bottom - $dialogRect.Top))
+        $overlaps = Get-SiblingOverlaps $target
+        [void]$report.Add("dialog: overlaps=" + $overlaps.Count)
+        foreach ($line in $overlaps) { [void]$report.Add($line) }
+        $clipped = Get-ClippedControls $target
+        [void]$report.Add("dialog: clipped=" + $clipped.Count)
+        foreach ($line in $clipped) { [void]$report.Add($line) }
+        $size = Save-Window $target (Join-Path $OutDir "dialog.png")
+        [void]$report.Add("    captured " + $size)
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($WindowTitle)) {
         # One window, measured and captured: the dialogs are not pages, and the risk being checked is that a
         # dialog is scaled twice (its contents existed before Windows Forms' autoscale) or not at all.
         $target = [IntPtr]::Zero

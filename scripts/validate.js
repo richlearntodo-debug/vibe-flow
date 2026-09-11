@@ -318,7 +318,13 @@ assert(includesAll(interfaceMatrix, [
   "Stop-SmokeLeftovers",
   "finally {",
 ]) && includesAll(release, ["scripts\\check-ui-matrix.ps1", 'throw "Interface matrix failed."']) &&
-  includesAll(read("scripts/check-ui-geometry.ps1"), ["[string]$Theme = \"\"", "[string]$ExeArguments = \"--ui-smoke\""]) &&
+  includesAll(read("scripts/check-ui-geometry.ps1"), [
+    "[string]$Theme = \"\"", "[string]$ExeArguments = \"--ui-smoke\"",
+    // A surface with no title cannot be named: measured, the Live HUD is a borderless window with empty text,
+    // which is why it was written off as needing hardware until a session was started and it appeared.
+    "[long]$WindowHandle = 0",
+    'if ($WindowHandle -gt 0) {',
+  ]) &&
   includesAll(app, [
     'args[themeIndex].Equals("--ui-theme", StringComparison.OrdinalIgnoreCase)',
     'if (requested == "light" || requested == "dark" || requested == "system")',
