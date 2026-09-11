@@ -82,6 +82,8 @@
 
 - Fixed every installation over an existing installation reporting that the old configuration could not be migrated. The installer passes the previous install location straight from the registry, and that value ends with a backslash; passed inside quotes, the terminating backslash escapes the closing quote, so the application received a path containing a quote and died in `Path.Combine` with "路径中具有非法字符" — which the installer turned into "无法迁移或保护旧版配置，安装未完成" and, in a silent install, a non-zero exit code. A clean install was unaffected because it uses the application directory, which has no trailing separator, which is why this survived. Found by running the installer's own command line by hand after the crash logging (added in the same round) named the faulting frame; both sides are fixed — the application trims quotes and separators, and the installer stops emitting a trailing separator — and the trimming is pinned by self-tests including the drive-root case where the separator must stay.
 
+- Extended the interface matrix to four window sizes (default, 1366×768, 1920×1080, and 880×500 — the smallest window the application allows at 100% scaling) across all three themes, and measured three more dialogs at 200% display scaling: 重命名快捷键 Profile, Browser Remote Lite and 调整高级音频参数. Each opens at exactly twice its design size — so the dialogs whose contents are built in their constructor are scaled once, not twice — with no overlapping controls and no clipped text, and the run carries a negative control (a page with no dialog opener must open nothing) so that "a window appeared" means something.
+
 ## 1.5.0 - 2026-09-02
 
 - Replaced custom-shortcut text entry with a guarded keyboard recorder. Users

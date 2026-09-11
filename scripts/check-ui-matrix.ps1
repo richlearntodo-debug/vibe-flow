@@ -5,7 +5,11 @@ param(
     # list because it shipped unable to start at all: it was reachable only by editing a configuration file,
     # so no automated run had ever launched it. A theme that cannot start is what this catches.
     [string[]]$Themes = @('light', 'dark', 'system'),
-    [string[]]$Sizes = @('', '1366x768'),
+    # Window sizes the interface has to survive. 1366x768 and 1920x1080 are the two smaller desktop sizes the
+    # release notes have always listed as unverified, and 880x500 is the smallest window the application
+    # allows at 100% scaling — its own minimum. The scaling axis cannot be changed on a CI runner, so these
+    # sizes are checked at whatever scaling the machine running this has.
+    [string[]]$Sizes = @('', '1366x768', '1920x1080', '880x500'),
     [switch]$KeepGoing
 )
 

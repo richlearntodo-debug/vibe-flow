@@ -303,6 +303,9 @@ const interfaceMatrix = read("scripts/check-ui-matrix.ps1");
 assert(includesAll(interfaceMatrix, [
   "foreach ($theme in $Themes)",
   "foreach ($size in $Sizes)",
+  // The two smaller desktop sizes the release notes have always listed as unverified, plus the smallest
+  // window the application allows at 100% scaling.
+  "'1366x768', '1920x1080', '880x500'",
   "$expected = if ($appsLight -eq 0) { 'dark' } else { 'light' }",
   "$observed = if ($luminance -lt 100) { 'dark' } else { 'light' }",
   "skipped (no desktop)",
