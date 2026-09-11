@@ -7051,57 +7051,52 @@ deck.Hide();
     private void BuildWorkflowPage()
     {
         AddPageTitle("工作流", "把文字固定送进你常用的应用：添加、学习、保存，剩下的交给录音键");
-        // The voice page only reports which application receives the text and points at the
-        // 工作流 page; every configuration lives there.
-        BuildFavoriteAppsCard(content, 100);
-        var hint = NewLabel("提示：按住录音键时文字会进入标着「当前」的应用；点「打开」可以把未运行的应用冷启动并定位到输入框。",
-            9f, FontStyle.Regular, muted);
-        hint.Location = new Point(40, 100 + FavoriteAppsCardHeight() + 16);
-        hint.Size = new Size(900, 26);
-        content.Controls.Add(hint);
-        int statusY = 100 + FavoriteAppsCardHeight() + 60;
-        int statusHeight = BuildWorkflowStatusCard(content, statusY);
-        content.AutoScrollMinSize = new Size(1000, statusY + statusHeight + 40);
-    }
-
-    // The per-application workflow status, and the only place it appears.
-    //
-    // It reads as a list of what still needs doing rather than a list of faults: applications that are ready are
-    // counted in the summary line and not listed, and each remaining application takes one line — its name, the
-    // one thing it is missing, and the single action that moves it forward — instead of the four-line block
-    // (正确状态 / 当前状态 / 原因 [VF-WORKFLOW-…] / 下一步) it used to occupy on the self-check page.
-    private int BuildWorkflowStatusCard(Control page, int y)
-    {
+        // One card, and one place an application is configured.
+        //
+        // The page used to stack two cards that answered the same question — 常用应用 and 应用工作流 — so the user had
+        // to read both and work out which list was "theirs". The favourite applications are the user's own list and
+        // come first; the applications a key Profile binds that still need a workflow follow underneath the same
+        // card, which keeps the one-line-per-application form that was chosen over listing every application.
         List<WorkflowCard> cards = BuildCurrentWorkflowCards();
         var pending = new List<WorkflowCard>();
         foreach (WorkflowCard card in cards)
         {
             if (!card.IsReady) pending.Add(card);
         }
-        int height = pending.Count == 0 ? 118 : 60 + pending.Count * 52;
-        var surface = NewCard(new Point(34, y), new Size(960, height));
-        surface.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        surface.Controls.Add(SectionTitle("应用工作流", "\uE71D", new Point(24, 18)));
-        var summary = NewLabel(WorkflowCards.Summarize(cards), 8.7f, FontStyle.Regular, muted);
-        summary.Location = new Point(340, 21);
-        summary.Size = new Size(590, 24);
+        int cardHeight = BuildFavoriteAppsCard(content, 100, pending, WorkflowCards.Summarize(cards));
+        var hint = NewLabel("提示：按住录音键时文字会进入标着「当前」的应用；点「打开」可以把未运行的应用冷启动并定位到输入框。",
+            9f, FontStyle.Regular, muted);
+        hint.Location = new Point(40, 100 + cardHeight + 16);
+        hint.Size = new Size(900, 26);
+        content.Controls.Add(hint);
+        content.AutoScrollMinSize = new Size(1000, 100 + cardHeight + 60);
+    }
+
+    // The per-application workflow status, and the only place it appears.
+    // The second section of the workflow card, and the only place it appears.
+    //
+    // It reads as work remaining rather than as a list of faults: applications that are ready are counted in the
+    // summary line and not listed, and each remaining application takes one line — its name, the one thing it is
+    // missing, and the single action that moves it forward — instead of the four-line block (正确状态 / 当前状态 /
+    // 原因 [VF-WORKFLOW-…] / 下一步) it used to occupy on the self-check page. It sits inside the favourites card now
+    // rather than in a card of its own.
+    private void AddWorkflowStatusSection(Control card, IList<WorkflowCard> pending, string summaryText, int top)
+    {
+        var divider = new Panel();
+        divider.Location = new Point(18, top);
+        divider.Size = new Size(924, 1);
+        divider.BackColor = line;
+        card.Controls.Add(divider);
+        var title = NewLabel("应用工作流", 9.6f, FontStyle.Bold, ink);
+        title.Location = new Point(42, top + 12);
+        title.Size = new Size(200, 24);
+        var summary = NewLabel(summaryText, 8.7f, FontStyle.Regular, muted);
+        summary.Location = new Point(240, top + 12);
+        summary.Size = new Size(682, 24);
         summary.TextAlign = ContentAlignment.MiddleRight;
-        surface.Controls.Add(summary);
-        if (pending.Count == 0)
-        {
-            var done = NewLabel(cards.Count == 0
-                ? "还没有应用工作流：在「快捷键 → Smart Profiles」里为一个本机应用选择键位 Profile，然后回来学习它的工作流。"
-                : "所有应用的键位、工作流与语音工具都已就绪，无需处理。", 9f, FontStyle.Regular, ink);
-            done.Location = new Point(24, 62);
-            done.Size = new Size(900, 26);
-            surface.Controls.Add(done);
-        }
-        else
-        {
-            for (int i = 0; i < pending.Count; i++) AddWorkflowStatusRow(surface, pending[i], 54 + i * 52);
-        }
-        page.Controls.Add(surface);
-        return height;
+        card.Controls.Add(title);
+        card.Controls.Add(summary);
+        for (int i = 0; i < pending.Count; i++) AddWorkflowStatusRow(card, pending[i], top + 42 + i * 52);
     }
 
     // One application, one line. The state chip and the action both come from the card model, so the line cannot
@@ -9718,7 +9713,8 @@ deck.Hide();
             : "已切换，但本地保存失败：请检查数据目录", saved ? "success" : "error", false, 8000);
     }
 
-    private void BuildFavoriteAppsCard(Control page, int y)
+    // Returns the height the card occupies, so the page can place what follows it.
+    private int BuildFavoriteAppsCard(Control page, int y, IList<WorkflowCard> pending, string summaryText)
     {
         FavoriteAppDocument favorites = favoriteAppStore.Load();
         string selected = string.IsNullOrWhiteSpace(favorites.selectedProcess)
@@ -9726,7 +9722,10 @@ deck.Hide();
                 focusTargetDocument == null ? "" : focusTargetDocument.DefaultTargetId,
                 focusTargetDocument == null ? null : focusTargetDocument.Targets)
             : favorites.selectedProcess;
-        var card = NewCard(new Point(34, y), new Size(960, FavoriteAppsPanel.MeasureHeight(favorites.apps.Count, !string.IsNullOrWhiteSpace(pendingFavoriteProcess)) + 36));
+        int panelHeight = FavoriteAppsPanel.MeasureHeight(favorites.apps.Count,
+            !string.IsNullOrWhiteSpace(pendingFavoriteProcess));
+        int sectionHeight = pending == null || pending.Count == 0 ? 0 : 42 + pending.Count * 52 + 8;
+        var card = NewCard(new Point(34, y), new Size(960, panelHeight + 36 + sectionHeight));
         card.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         Control panel = FavoriteAppsPanel.Build(favorites.apps, selected, pendingFavoriteProcess,
             delegate(string process) { BeginFavoriteRelearn(process); },
@@ -9741,7 +9740,9 @@ deck.Hide();
             delegate { BeginFavoriteAppLearning(); });
         panel.Location = new Point(18, 18);
         card.Controls.Add(panel);
+        if (sectionHeight > 0) AddWorkflowStatusSection(card, pending, summaryText, 18 + panelHeight + 10);
         page.Controls.Add(card);
+        return panelHeight + 36 + sectionHeight;
     }
 
     // "设定": switching is instant when the application already has a learned input box;
@@ -10095,9 +10096,9 @@ deck.Hide();
         SelfCheckReport report = BuildSelfCheckReport();
         // The per-application workflow used to be a card here as well, and with thirteen bound applications it put
         // thirteen four-line blocks — 需要配置 / 缺少工作流 / VF-WORKFLOW-* — above the system checks, on a page whose
-        // job is to report whether the components work. It now lives on the 工作流 page, one line per application
-        // and only for the ones that still need something (BuildWorkflowStatusCard), which is also the only page
-        // that can act on it.
+        // job is to report whether the components work. It now lives inside the workflow page's application card
+        // (AddWorkflowStatusSection), one line per application and only for the ones that still need something,
+        // which is also the only page that can act on it.
         int checksY = 302;
         int checksHeight = 66 + report.Items.Count * 112;
         int diagnosticsY = checksY + checksHeight;

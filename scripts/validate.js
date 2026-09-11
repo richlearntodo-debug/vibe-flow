@@ -1958,7 +1958,25 @@ assert(includesAll(app, [
   "The 工作流 entry on the home page is below the fold of the content viewport",
 ]) && /RunFavoriteAppSelfTests\(\);[\s\S]{0,120}RunHomeLayoutSelfTests\(\);/.test(app),
   "The home page entry to the 工作流 page is no longer pinned above the fold");
-// The shortcut page's profile row held seven equal-weight buttons, so 切换 (routine) and 删除 (destructive) looked
+// The workflow page has one card, not two. 常用应用 and 应用工作流 answered the same question in two stacked cards,
+// so the user had to read both and work out which list was theirs. The favourites (the user's own list, with their
+// open / edit / delete / make-current actions) come first and the applications a key Profile binds that still need a
+// workflow follow inside the same card, in the one-line-per-application form that was chosen over listing everything.
+assert(includesAll(app, [
+  "private int BuildFavoriteAppsCard(Control page, int y, IList<WorkflowCard> pending, string summaryText)",
+  "private void AddWorkflowStatusSection(Control card, IList<WorkflowCard> pending, string summaryText, int top)",
+  "if (sectionHeight > 0) AddWorkflowStatusSection(card, pending, summaryText, 18 + panelHeight + 10);",
+  "return panelHeight + 36 + sectionHeight;",
+]) && !app.includes("BuildWorkflowStatusCard") &&
+  // The favourites panel keeps every action it had: none of them may be dropped by the merge.
+  includesAll(app, [
+    "delegate(string process) { OpenFavoriteApp(process); }",
+    "delegate(string process) { ConfirmRemoveFavorite(process); }",
+    "delegate(string process) { ShowFavoriteAppEditor(process); }",
+    "delegate(string process) { MakeFavoriteCurrent(process); }",
+    "delegate { BeginFavoriteAppLearning(); }",
+  ]),
+  "The workflow page splits applications into two competing cards again, or the merge dropped a favourites action");// The shortcut page's profile row held seven equal-weight buttons, so 切换 (routine) and 删除 (destructive) looked
 // the same. The five management actions moved into a 管理 menu that calls the same named methods the buttons called,
 // which was verified by driving it: opening the menu and pressing Down twice then Enter opened the rename dialog.
 // The menu is disposed as the page is rebuilt, because the page is rebuilt on every navigation.
@@ -2036,7 +2054,9 @@ assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
 assert(includesAll(app, [
   "BuildCurrentWorkflowCards", "WORKFLOW CARDS cards=",
   "WorkflowCards.Summarize(cards)", '"应用工作流"',
-  "BuildWorkflowStatusCard", "AddWorkflowStatusRow", "HandleSelfCheckAction(card.Action)",
+  // The section sits inside the workflow page's application card now, so the method that renders it changed name;
+  // the contract did not: the rows exist only there, one line each, with the model's own action.
+  "AddWorkflowStatusSection", "AddWorkflowStatusRow", "HandleSelfCheckAction(card.Action)",
   'else if (action == "workflow-profile")', 'else if (action == "workflow-target")',
 ]) && !app.includes("AddSelfCheckRow(workflows") &&
   !app.includes("WorkflowCards.Summarize(workflowCards)") &&
@@ -2097,8 +2117,10 @@ assert(includesAll(app, ["SavePendingFavorite", "FAVORITE SAVE blocked=true reas
 assert(includesAll(app, [
   "BuildWorkflowPage", "BuildFavoriteAppsCard", "FavoriteAppsPanel",
   "SetCurrentOrLearnFavorite", "BeginFavoriteRelearn", "ConfirmRemoveFavorite",
-]) && app.indexOf("BuildFavoriteAppsCard(content, 100);") > app.indexOf("private void BuildWorkflowPage") &&
-  app.indexOf("BuildFavoriteAppsCard(content, 100);") < app.indexOf("private void BuildVoicePage()"),
+]) && app.indexOf("BuildFavoriteAppsCard(content, 100, pending, WorkflowCards.Summarize(cards));") >
+    app.indexOf("private void BuildWorkflowPage") &&
+  app.indexOf("BuildFavoriteAppsCard(content, 100, pending, WorkflowCards.Summarize(cards));") <
+    app.indexOf("private void BuildVoicePage()"),
 "The workflow page does not own the consumer favourites card");
 {
   const voiceLink = app.indexOf("ShowPage((int)VibePageId.Workflow)");
