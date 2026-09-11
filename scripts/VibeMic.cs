@@ -477,7 +477,7 @@ internal sealed partial class VibeMicForm : Form
             ShowInTaskbar = false;
         }
         BackColor = pageBackground;
-        Font = new Font("Microsoft YaHei UI", 10f);
+        Font = UiFonts.Text(10f);
         Icon = CreateAppIcon();
         DoubleBuffered = true;
 
@@ -609,6 +609,29 @@ internal sealed partial class VibeMicForm : Form
         catch
         {
             using (Graphics graphics = CreateGraphics()) return (uint)Math.Round(graphics.DpiX);
+        }
+    }
+
+    // The screen facts a layout report needs: the display's resolution, the scaling Windows applies,
+    // the work area the window may use, and the window's own size once it has been clamped. Logged
+    // and exported, so "the interface is squeezed on my machine" becomes a measurement rather than a
+    // description. Never throws: this is a diagnostic on the startup path.
+    internal string DescribeScreenGeometry()
+    {
+        try
+        {
+            Rectangle bounds = Screen.PrimaryScreen == null ? Rectangle.Empty : Screen.PrimaryScreen.Bounds;
+            Rectangle work = Screen.PrimaryScreen == null ? Rectangle.Empty : Screen.PrimaryScreen.WorkingArea;
+            uint dpi = CurrentWindowDpi();
+            return "screen=" + bounds.Width + "x" + bounds.Height +
+                " workarea=" + work.Width + "x" + work.Height +
+                " dpi=" + dpi + " scale=" + Math.Round(dpi / 96.0, 2).ToString("0.00") +
+                " monitors=" + Screen.AllScreens.Length +
+                " window=" + Width + "x" + Height;
+        }
+        catch (Exception ex)
+        {
+            return "screen=unavailable error=" + ex.GetType().Name;
         }
     }
 
@@ -4256,6 +4279,7 @@ internal sealed partial class VibeMicForm : Form
                 throw new InvalidOperationException(
                     "A gesture layer edit did not reach the bridge document or its revision");
             RunFavoriteAppSelfTests();
+            RunUiFontSelfTests();
             RunHomeLayoutSelfTests();
             RunFeedbackOutletSelfTests();
             Console.WriteLine("Vibe Flow host self-test passed.");
@@ -4482,7 +4506,7 @@ internal sealed partial class VibeMicForm : Form
         toastPanel.Visible = false;
 
         toastIcon = NewLabel("\uE73E", 12f, FontStyle.Regular, green);
-        toastIcon.Font = new Font("Segoe MDL2 Assets", 12f);
+        toastIcon.Font = UiFonts.Icon(12f);
         toastIcon.Location = new Point(16, 14);
         toastIcon.Size = new Size(28, 28);
         toastIcon.TextAlign = ContentAlignment.MiddleCenter;
@@ -6084,7 +6108,7 @@ internal sealed partial class VibeMicForm : Form
             circle.BackColor = i == 0 ? StatusSurface("recording") : surfaceBackground;
             circle.BorderColor = i == 0 ? StatusBorder("recording") : line;
             var glyph = NewLabel(icons[i], 15f, FontStyle.Regular, i == 1 ? cyan : violet);
-            glyph.Font = new Font("Segoe MDL2 Assets", 15f, FontStyle.Regular);
+            glyph.Font = UiFonts.Icon(15f, FontStyle.Regular);
             glyph.Dock = DockStyle.Fill;
             glyph.TextAlign = ContentAlignment.MiddleCenter;
             circle.Controls.Add(glyph);
@@ -6163,7 +6187,7 @@ internal sealed partial class VibeMicForm : Form
             int x = 18 + i * 188;
             Color statusColor = statusReady[i] ? (i == 4 ? green : i < 2 ? violet : cyan) : amber;
             var glyph = NewLabel(i == 0 ? "\uE702" : i == 4 ? "\uEA18" : "●", 12f, FontStyle.Regular, statusColor);
-            glyph.Font = i == 0 || i == 4 ? new Font("Segoe MDL2 Assets", 12f) : glyph.Font;
+            glyph.Font = i == 0 || i == 4 ? UiFonts.Icon(12f) : glyph.Font;
             glyph.Location = new Point(x, 21);
             glyph.Size = new Size(30, 34);
             glyph.TextAlign = ContentAlignment.MiddleCenter;
@@ -6185,7 +6209,7 @@ internal sealed partial class VibeMicForm : Form
         receipt.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         receipt.Controls.Add(SectionTitle("最近一次快捷操作", "\uE945", new Point(24, 20)));
         actionReceiptGlyph = NewLabel("\uE946", 13f, FontStyle.Regular, muted);
-        actionReceiptGlyph.Font = new Font("Segoe MDL2 Assets", 13f, FontStyle.Regular);
+        actionReceiptGlyph.Font = UiFonts.Icon(13f, FontStyle.Regular);
         actionReceiptGlyph.Location = new Point(238, 20);
         actionReceiptGlyph.Size = new Size(34, 34);
         actionReceiptGlyph.TextAlign = ContentAlignment.MiddleCenter;
@@ -8631,7 +8655,7 @@ internal sealed partial class VibeMicForm : Form
             mappingRows.Add(rowBand);
 
             var icon = NewLabel(rowGlyphs[i], rowGlyphs[i] == "TV" ? 8f : 11.5f, FontStyle.Bold, i == 0 ? violet : cyan);
-            icon.Font = rowGlyphs[i] == "TV" ? new Font("Segoe UI", 8f, FontStyle.Bold) : new Font("Segoe MDL2 Assets", 11.5f, FontStyle.Regular);
+            icon.Font = rowGlyphs[i] == "TV" ? new Font("Segoe UI", 8f, FontStyle.Bold) : UiFonts.Icon(11.5f, FontStyle.Regular);
             icon.Location = new Point(4, 13);
             icon.Size = new Size(28, 28);
             icon.TextAlign = ContentAlignment.MiddleCenter;
@@ -9854,7 +9878,7 @@ internal sealed partial class VibeMicForm : Form
     {
         var bitmap = new Bitmap(width, height);
         using (Graphics graphics = Graphics.FromImage(bitmap))
-        using (var font = new Font("Segoe MDL2 Assets", fontSize, FontStyle.Regular, GraphicsUnit.Point))
+        using (var font = UiFonts.Icon(fontSize, FontStyle.Regular))
         using (var brush = new SolidBrush(color))
         {
             graphics.Clear(Color.Transparent);
@@ -9892,7 +9916,7 @@ internal sealed partial class VibeMicForm : Form
     private Button IconButton(string glyph, Point location, Size size, Color color, string tooltipText)
     {
         var button = SecondaryButton(glyph, location, size);
-        button.Font = new Font("Segoe UI Symbol", 9f, FontStyle.Bold);
+        button.Font = UiFonts.Icon(9f, FontStyle.Bold);
         button.ForeColor = color;
         button.AccessibleName = tooltipText;
         var tooltip = new ToolTip();
@@ -10093,6 +10117,10 @@ internal sealed partial class VibeMicForm : Form
         base.OnShown(e);
         if (!backgroundLaunch) ClampWindowToWorkingArea();
         HostLog("UI DPI awareness=per_monitor_v2 dpi=" + CurrentWindowDpi());
+        // What the interface is really rendering with, and what the screen allows: a report of a
+        // garbled interface or a squeezed layout is answered by this line and by the exported
+        // diagnostics, instead of by asking the user to describe their machine.
+        HostLog("UI RENDER " + UiFonts.Describe() + " " + DescribeScreenGeometry());
         if (uiSmokeMode) return;
         if (!ConfigurationAllowsRuntimeServices(configurationWritesBlocked))
         {
@@ -22456,6 +22484,10 @@ internal sealed partial class VibeMicForm : Form
             report.AppendLine("Capture running: " + IsCapturing);
             report.AppendLine("Audio endpoint: " + config.audioEndpointName);
             report.AppendLine("Input method: " + config.inputMethod + " / " + config.inputMethodHotkey);
+            // Interface rendering: the two facts behind a "garbled screen" or "squeezed layout"
+            // report, so the answer does not depend on the user describing their machine.
+            report.AppendLine("UI rendering: " + UiFonts.Describe());
+            report.AppendLine("Display: " + DescribeScreenGeometry());
             report.AppendLine("Mappings: " + BuildDiagnosticMappingSummary(config.mappings));
             report.AppendLine();
             AppendLogTail(report, Path.Combine(sessionDir, "vibe-mic-runtime.log"), "Runtime log", 200);
@@ -24140,6 +24172,42 @@ internal sealed partial class VibeMicForm : Form
             throw new InvalidOperationException("The bounded message lifetimes no longer follow the shared tokens");
         // The state rule keeps its own contract: an operation still in flight must not
         // auto-hide. That is asserted by LiveHudUiTests against LiveHudDurationMilliseconds.
+    }
+
+    // The interface's font resolution has to be able to say "this family is not here": that is the
+    // difference between a readable page and a page of boxes for the private-use icon glyphs, and the
+    // exported diagnostics are only useful if the answer they carry is trustworthy. The negative
+    // control is what makes this more than a restatement of the code.
+    private static void RunUiFontSelfTests()
+    {
+        if (string.IsNullOrWhiteSpace(UiFonts.TextFamily) || string.IsNullOrWhiteSpace(UiFonts.IconFamily))
+            throw new InvalidOperationException("The interface font families did not resolve to a name");
+        if (!UiFonts.IsInstalled(UiFonts.TextFamily))
+            throw new InvalidOperationException(
+                "The resolved text font is not installed on this machine: " + UiFonts.TextFamily);
+        if (!UiFonts.IsInstalled(UiFonts.IconFamily))
+            throw new InvalidOperationException(
+                "The resolved icon font is not installed on this machine: " + UiFonts.IconFamily);
+        if (UiFonts.IsInstalled("NoSuchFontXYZ-ForTheSelfTest") ||
+            UiFonts.IsInstalled("") || UiFonts.IsInstalled(null))
+            throw new InvalidOperationException(
+                "The interface font check reports an absent family as installed, so it cannot detect the case that matters");
+        using (Font text = UiFonts.Text(10f))
+        using (Font textBold = UiFonts.Text(10f, FontStyle.Bold))
+        using (Font icon = UiFonts.Icon(12f))
+        {
+            if (!string.Equals(text.Name, UiFonts.TextFamily, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(textBold.Name, UiFonts.TextFamily, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(icon.Name, UiFonts.IconFamily, StringComparison.OrdinalIgnoreCase) ||
+                textBold.Style != FontStyle.Bold)
+                throw new InvalidOperationException("A resolved interface font is not the family that was reported");
+        }
+        string described = UiFonts.Describe();
+        foreach (string field in new string[] { "text_font=", "text_installed=", "text_substitute=",
+            "icon_font=", "icon_installed=", "icon_substitute=" })
+            if (described.IndexOf(field, StringComparison.Ordinal) < 0)
+                throw new InvalidOperationException(
+                    "The exported rendering diagnostic cannot be read back: field missing " + field);
     }
 
     private static void RunFavoriteAppSelfTests()

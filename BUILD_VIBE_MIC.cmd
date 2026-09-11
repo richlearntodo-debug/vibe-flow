@@ -11,7 +11,7 @@ if errorlevel 1 exit /b 1
  "%~dp0scripts\features\CaptureAskModels.cs" "%~dp0scripts\features\CaptureAskService.cs" "%~dp0scripts\features\CaptureAskWindows.cs" ^
  "%~dp0scripts\features\BrowserProfileTemplate.cs" "%~dp0scripts\features\BrowserProfileUndoStore.cs" "%~dp0scripts\features\BrowserRemoteTestService.cs" ^
  "%~dp0scripts\features\AudioEndpointService.cs" "%~dp0scripts\features\InputMethodDetector.cs" "%~dp0scripts\features\LinkQualityPolicy.cs" "%~dp0scripts\features\WorkflowCards.cs" "%~dp0scripts\features\LinkBaselineStore.cs" "%~dp0scripts\features\FavoriteAppStore.cs" "%~dp0scripts\features\InstalledAppCatalog.cs" "%~dp0scripts\features\PackagedAppIdentity.cs" "%~dp0scripts\features\GestureLayerPolicy.cs" "%~dp0scripts\features\GestureBindingStore.cs" "%~dp0scripts\features\GestureMacroRunner.cs" "%~dp0scripts\features\UsageStatsPolicy.cs" "%~dp0scripts\features\FavoriteAppStatus.cs" "%~dp0scripts\features\SnippetStore.cs" ^
- "%~dp0scripts\ui\DesignTokens.cs" "%~dp0scripts\ui\UiComponents.cs" "%~dp0scripts\ui\PageShell.cs" ^
+ "%~dp0scripts\ui\DesignTokens.cs" "%~dp0scripts\ui\UiFonts.cs" "%~dp0scripts\ui\UiComponents.cs" "%~dp0scripts\ui\PageShell.cs" ^
  "%~dp0scripts\ui\LiveHudForm.cs" "%~dp0scripts\ui\ContextDeckForm.cs" ^
  "%~dp0scripts\ui\CaptureAskForm.cs" "%~dp0scripts\ui\CaptureAskIntegration.cs" "%~dp0scripts\ui\BrowserRemoteLiteForm.cs" "%~dp0scripts\ui\BrowserRemoteLiteIntegration.cs" "%~dp0scripts\ui\AppPickerDialog.cs" "%~dp0scripts\ui\FavoriteAppsPanel.cs"
 if errorlevel 1 exit /b 1

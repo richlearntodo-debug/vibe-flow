@@ -162,7 +162,7 @@ internal sealed class CaptureAskForm : Form
         statusRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
         stateIcon.Name = "captureAskStateIcon";
         stateIcon.Text = "\uE946";
-        stateIcon.Font = new Font("Segoe MDL2 Assets", 14f);
+        stateIcon.Font = UiFonts.Icon(14f);
         stateIcon.ForeColor = Color.FromArgb(104, 82, 244);
         stateIcon.Dock = DockStyle.Fill;
         stateIcon.TextAlign = ContentAlignment.MiddleCenter;

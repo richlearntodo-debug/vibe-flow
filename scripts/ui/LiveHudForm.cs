@@ -20,10 +20,10 @@ internal sealed class LiveHudForm : Form
         UiDesignTokens.FeedbackPanelTitleSize, FontStyle.Bold);
     private readonly Font detailFont = new Font(UiDesignTokens.FeedbackFontFamily,
         UiDesignTokens.FeedbackDetailSize, FontStyle.Regular);
-    private readonly Font glyphFont = new Font("Segoe MDL2 Assets", 15f, FontStyle.Regular);
+    private readonly Font glyphFont = UiFonts.Icon(15f, FontStyle.Regular);
     private readonly Font captionFont = new Font(UiDesignTokens.FeedbackFontFamily,
         UiDesignTokens.FeedbackCaptionSize, FontStyle.Bold);
-    private readonly Font closeFont = new Font("Segoe MDL2 Assets", 11f, FontStyle.Regular);
+    private readonly Font closeFont = UiFonts.Icon(11f, FontStyle.Regular);
     private readonly Label stateGlyph = new Label();
     private readonly Label titleLabel = new Label();
     private readonly Label detailLabel = new Label();

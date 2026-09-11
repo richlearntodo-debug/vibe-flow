@@ -56,6 +56,7 @@ const requiredFiles = [
   "scripts/features/SnippetStore.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
+  "scripts/ui/UiFonts.cs",
   "scripts/ui/LiveHudForm.cs",
   "scripts/ui/ContextDeckForm.cs",
   "scripts/ui/CaptureAskForm.cs",
@@ -883,6 +884,32 @@ assert(includesAll(read("BUILD_VIBE_MIC.cmd"), ['/codepage:65001']) &&
   includesAll(v2FeatureSuite, ['"/codepage:65001"']) &&
   !read("BUILD_VIBE_MIC_CAPTURE.cmd").includes('/codepage'),
   "A build can decode the BOM-less sources with the build machine's code page and ship a mojibake interface");
+// The interface asks for its fonts by family name, and a name that is not installed does not fail:
+// GDI+ silently substitutes the default. For Chinese text that is survivable (measured by drawing two
+// characters and confirming they do not come out as the same shape, i.e. Windows linked a CJK font),
+// but the private-use icon glyphs have no such mapping — measured by drawing one through the
+// substitute, it comes out as a hollow rectangle, which is a page of boxes where the section icons
+// should be. The families are therefore resolved against what the machine has, the choice is logged
+// and exported with the diagnostics so a garbled-interface report carries its own answer, and the
+// self-test proves the check can see an absent family.
+assert(includesAll(read("scripts/ui/UiFonts.cs"), [
+  "internal static class UiFonts",
+  '"Microsoft YaHei UI", "Microsoft YaHei", "SimSun", "Microsoft JhengHei", "Segoe UI"',
+  '"Segoe MDL2 Assets", "Segoe Fluent Icons", "Segoe UI Symbol"',
+  "InstalledFontCollection", "internal static string Describe()",
+  "internal static bool IsInstalled(string family)",
+  "internal static Font Icon(float size, FontStyle style)",
+]) && !app.includes('new Font("Segoe MDL2 Assets"'),
+  "The interface can ask for a font family that is not installed and render its icon glyphs as boxes");
+assert(includesAll(app, [
+  "RunUiFontSelfTests();",
+  '"UI RENDER " + UiFonts.Describe()',
+  'report.AppendLine("UI rendering: " + UiFonts.Describe())',
+  'report.AppendLine("Display: " + DescribeScreenGeometry())',
+  "internal string DescribeScreenGeometry()",
+  "The interface font check reports an absent family as installed, so it cannot detect the case that matters",
+]) && hostBuild.includes('"%~dp0scripts\\ui\\UiFonts.cs"'),
+  "The interface does not report or self-test which fonts and screen it renders with");
 // A client that is installed but never registers itself under "App Paths" can still be
 // started the way Explorer starts it: from its own Start-menu shortcut. Measured on a real
 // machine, Cursor lives in D:\cursor\ with a working Start-menu shortcut and no App Paths
