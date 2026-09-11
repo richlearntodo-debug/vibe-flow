@@ -4202,3 +4202,46 @@ Vibe Flow host self-test failed: Context Deck is 1640x1392 where its design size
 2. 或加一个**实例作用域**的自测方法（宿主实例已持有 `captureAskService`/`captureAskBackend`），在其中构造并断言 780×700 × 缩放。
 
 我倾向 **2**（不碰你的 shell、且能进 CI）。
+
+## 2026-09-11 **发现一个真缺陷**：部分窗体被 **DPI 缩放两次**（Capture & Ask 首当其冲）
+
+本轮为最后一个托盘专属界面（Capture & Ask，780×700 设计）加了**应用内测量**（在 smoke 运行里走托盘同一条调用路径）。断言一上来就报：
+
+```
+UI TRAY SURFACE captureAsk=MISMATCH shown=2536x1416 expected=1560x1400 scale=2.00 workarea=2560x1440
+```
+
+2536×1416 = 工作区减边距（2560−24、1440−24）→ **它没有按设计尺寸显示，而是铺满了整个工作区** ✗
+
+### 逐步测量定位（不是猜的）
+
+```
+probe constructed = 1534x1329   autoscaleDimensions=192x192  autoscaleMode=Dpi  minimum=1254x1049
+probe shown       = 2536x1416   scale=2.00  expected(780x700x2)=1560x1400
+```
+
+**构造时**窗体已经是 ~2× 设计（1534×1329），再经 `UiDisplayScale` 在 Load 时乘一次 → 3068×2658 → 被 `ApplyWorkingAreaLayout` 夹到工作区 2536×1416 ✗
+
+### 判别特征（已找到）
+
+| 窗体 | 是否设置 `AutoScaleDimensions=(96,96)` | 结果 |
+| --- | --- | --- |
+| **CaptureAskForm** | **是**（第 67 行） | **WinForms 自己缩放一次 + 我的再缩一次 = 两次** ✗ |
+| **BrowserRemoteLiteForm** | **是**（第 62 行） | 同一模式，**很可能同样两次**（见下方"测量方法的教训"） |
+| LiveHudForm / ContextDeckForm | 否 | 只有我的缩放一次 ✔ **实测正确**（400×160 / 1640×1392） |
+
+### 一条**测量方法论上的教训**（必须记）
+
+我上一轮用"窗口尺寸恰好 = 设计尺寸 × 2"来证明"只缩放了一次，没有两次"。**这个证据不充分**：Browser Remote Lite 的设计尺寸 1268×708 × 2 = **2536×1416**，而那**恰好等于工作区夹取后的值**（2560−24、1440−24）——两种完全不同的成因给出**同一个数字** ✗。要区分它们，必须看**构造时与显示后的尺寸**（本轮的做法），而不是只看最终尺寸。
+
+### 本轮的处理（诚实且不让链路变红）
+
+- 该测量**已进入每次 smoke 运行**（因此也进入界面矩阵的 12 个用例日志），以 `captureAsk=MISMATCH ...` 的形式**显式记录** ✔ 不会静默；
+- 但**尚未改成抛异常**：在把"哪些窗体真的被缩放两次"全部量清、并确定修法之前，让发布链变红并不能让代码更正确 ✗ —— 这一点我写清楚，不装作已修；
+- 已量清的：受影响的是"**既设 AutoScaleDimensions=(96,96)+Dpi、又接入 UiDisplayScale**"的窗体（CaptureAsk、BrowserRemoteLite，需逐个确认）；不受影响的是未设置该属性的窗体（LiveHud、ContextDeck ✔）。
+
+### 下一轮（命令已明确）
+
+1. 对 5 个接入窗体逐个记录**构造时 / 显示后**尺寸，量清受影响集合；
+2. 修法二选一：让 `UiDisplayScale.Apply` 对"WinForms 已自动缩放"的窗体成为 no-op；或把这些窗体从 `UiDisplayScale` 摘除（它们的 `AutoScaleDimensions=(96,96)` 已经让 WinForms 做对了）；
+3. 把 `captureAsk=MISMATCH` 改为**断言**（修复后应报 `ok shown=1560x1400`），并复核此前"恰好 2×"的结论里哪些属于**巧合**。

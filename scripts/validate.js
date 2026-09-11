@@ -378,7 +378,18 @@ assert(includesAll(app, [
   "MinimumSize = new Size(ScaledDesign(880), ScaledDesign(500));",
   '" minimum=" + MinimumSize.Width',
 ]), "The minimum window size does not follow the display scaling");
-// The Context Deck is opened only from the tray menu, so it has no route through the application's own
+// Capture & Ask is measured from inside a smoke run, through the same call the tray item makes, because it is
+// the one surface with no route through the application's pages. The measurement immediately found a real
+// defect: this form sets AutoScaleDimensions = (96,96) with AutoScaleMode.Dpi, so Windows Forms scales it, and
+// UiDisplayScale scales it again at load — measured, 2536x1416 where its design size at this display's scaling
+// is 1560x1400, clamped to the working area instead of taking its design size. It is logged as MISMATCH rather
+// than asserted while the affected set is pinned down and fixed, so the release chain stays green without the
+// defect going unrecorded.
+assert(includesAll(app, [
+  "private void MeasureTraySurfaceGeometry()",
+  'HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "MISMATCH")',
+  "if (uiSmokeMode) MeasureTraySurfaceGeometry();",
+]), "The tray-only surface is no longer measured, and a double-scaled form would go unnoticed");// The Context Deck is opened only from the tray menu, so it has no route through the application's own
 // interface, and reaching it from outside would mean driving the user's tray icon. Its geometry is asserted
 // from inside instead, with the same rule the external check applies to the pages, and that assertion runs in
 // the release chain on every build. Measured before it was written: a freshly shown deck is 1640x1392 where

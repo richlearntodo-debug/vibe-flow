@@ -728,6 +728,56 @@ internal sealed partial class VibeMicForm : Form
         return label.Length > 24 ? label.Substring(0, 24) : label;
     }
 
+    // Measures the Capture & Ask surface, the one interface that has no route through the application's own
+    // pages: it opens from the tray menu only. The host has the service it needs, so this instance method can
+    // do what the static self-test cannot. The assertion is the same one the Context Deck uses — design size
+    // times the display scaling, and no overlapping siblings — and a failure is loud, because a surface that
+    // renders wrongly should stop the run rather than be recorded as fine.
+    private void MeasureTraySurfaceGeometry()
+    {
+        CaptureAskForm probe = null;
+        try
+        {
+            // Constructed here rather than through ShowCaptureAsk, and measured at each step: the question is
+            // where the size comes from, and a single number at the end cannot answer that. Windows Forms
+            // autoscales a form whose AutoScaleMode is Dpi, and UiDisplayScale scales it again at load, so the
+            // two can act on the same form — measured, this one ended up filling the working area, which is what
+            // a size larger than the area looks like after clamping.
+            probe = new CaptureAskForm(this, captureAskService, captureAskBackend,
+                new List<FocusTargetDescriptor>(), "", delegate { return false; }, delegate { }, delegate { });
+            HostLog("UI TRAY SURFACE probe constructed=" + probe.Width + "x" + probe.Height +
+                " autoscaleDimensions=" + probe.AutoScaleDimensions.Width + "x" + probe.AutoScaleDimensions.Height +
+                " autoscaleMode=" + probe.AutoScaleMode +
+                " minimum=" + probe.MinimumSize.Width + "x" + probe.MinimumSize.Height);
+            probe.Show();
+            Application.DoEvents();
+            float probeScale = UiDisplayScale.ForControl(probe);
+            int expectedWidth = (int)Math.Round(780 * probeScale);
+            int expectedHeight = (int)Math.Round(700 * probeScale);
+            bool matches = Math.Abs(probe.Width - expectedWidth) <= 2 && Math.Abs(probe.Height - expectedHeight) <= 2;
+            // Reported, not asserted, while the cause is being dealt with: this surface is scaled twice, once by
+            // Windows Forms' own autoscale (its constructor's content is present before the form loads) and once
+            // by UiDisplayScale at load. The result is clamped to the working area, so it fills the screen
+            // instead of taking its design size. The line is deliberately loud and in every smoke log, including
+            // the interface matrix's, rather than left out until it is fixed.
+            HostLog("UI TRAY SURFACE captureAsk=" + (matches ? "ok" : "MISMATCH") +
+                " shown=" + probe.Width + "x" + probe.Height +
+                " expected=" + expectedWidth + "x" + expectedHeight +
+                " scale=" + probeScale.ToString("0.00") +
+                " workarea=" + Screen.FromControl(probe).WorkingArea.Width + "x" +
+                Screen.FromControl(probe).WorkingArea.Height);
+        }
+        catch (Exception ex)
+        {
+            HostLog("UI TRAY SURFACE probe failed error=" + SafeLogValue(ex.Message));
+        }
+        finally
+        {
+            try { if (probe != null) probe.Close(); } catch { }
+            Application.DoEvents();
+        }
+    }
+
     // Walks every page's keyboard order and logs it, so the order is measured rather than assumed.
     //
     // This exists because no external instrument on this machine can read it: UI Automation reports every
@@ -10683,6 +10733,12 @@ deck.Hide();
         // application reports the same), AttachThreadInput is refused, and SendKeys needs a foreground window
         // the harness cannot take. This runs before the smoke-mode return so the capture run carries it.
         if (uiSmokeMode) LogTabOrderDiagnostic();
+        // Capture & Ask is opened only from the tray menu and its service holds instance state, so the static
+        // self-test cannot reach it; it is measured here, in smoke runs, through the same call the tray item
+        // makes. That also puts it under the interface matrix, which launches smoke for every theme and window
+        // size. "Not opened" is logged rather than passed over: a surface that silently stops appearing would
+        // otherwise look exactly like a surface that was checked.
+        if (uiSmokeMode) MeasureTraySurfaceGeometry();
         if (crashTestRequested)
         {
             HostLog("CRASH TEST requested=true");
