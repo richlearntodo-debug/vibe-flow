@@ -1148,7 +1148,25 @@ assert(includesAll(app, [
   'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
-]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, fourth instalment: the settings page, whose paragraphs were the longest left.
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, fifth instalment: the voice page and the workflow page.
+//
+// The voice page's provider note was assembled from two pieces and the second piece began with its own full stop, so
+// the page read "…也不会自行上传音频。。另外：…". The double stop is gone, the aside is tightened, and the recognition
+// advice is a list rather than a sentence. The voice status badge now says 语音参数已应用（v11） like the settings page
+// rather than 稳定档案 v11 已应用. On the workflow page the subtitle lost 固定, the hint lost 冷启动, and the gap action
+// reads 选择快捷键 Profile: the page used to say 选择键位 Profile, which is a different word for the same thing the
+// glossary already explains.
+assert(includesAll(app, [
+  '? "另外：微信输入法会把文字放进剪贴板，言灵在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"',
+  '"●  语音参数已应用（v" + StableVoiceProfileVersion + "）"',
+  'return "首版稳定模式；松开立即结束，单次最长约 60 秒。";',
+  'AddPageTitle("工作流", "把文字送进你常用的应用：添加、学习、保存，之后交给录音键");',
+  '提示：按住录音键时，文字会进入标着「当前」的应用；点「打开」可把未运行的应用启动并定位到输入框。',
+]) && includesAll(read("scripts/features/WorkflowCards.cs"), [
+  'case GapNoProfile: return "选择快捷键 Profile";',
+  '还没有应用工作流：在「快捷键 → Smart Profiles」里选一个 Profile，再回来学习。',
+]) && !app.includes('? "。注：微信输入法语音会把文字放进剪贴板'),
+  "The voice or workflow page went back to the double full stop, the long aside, or the older wording");// The copy pass, fourth instalment: the settings page, whose paragraphs were the longest left.
 //
 // Its glossary already explains the terms in plain words, so the work here was the prose. The signature-channel note
 // ran to three sentences; it is two now and still says the same thing — the keyboard is untouched, a remote key's

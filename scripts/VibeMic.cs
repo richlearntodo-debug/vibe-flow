@@ -7172,7 +7172,7 @@ deck.Hide();
     // page keeps only the current state and a way in.
     private void BuildWorkflowPage()
     {
-        AddPageTitle("工作流", "把文字固定送进你常用的应用：添加、学习、保存，剩下的交给录音键");
+        AddPageTitle("工作流", "把文字送进你常用的应用：添加、学习、保存，之后交给录音键");
         // One card, and one place an application is configured.
         //
         // The page used to stack two cards that answered the same question — 常用应用 and 应用工作流 — so the user had
@@ -7186,7 +7186,7 @@ deck.Hide();
             if (!card.IsReady) pending.Add(card);
         }
         int cardHeight = BuildFavoriteAppsCard(content, 100, pending, WorkflowCards.Summarize(cards));
-        var hint = NewLabel("提示：按住录音键时文字会进入标着「当前」的应用；点「打开」可以把未运行的应用冷启动并定位到输入框。",
+        var hint = NewLabel("提示：按住录音键时，文字会进入标着「当前」的应用；点「打开」可把未运行的应用启动并定位到输入框。",
             9f, FontStyle.Regular, muted);
         hint.Location = new Point(40, 100 + cardHeight + 16);
         hint.Size = new Size(900, 26);
@@ -7309,7 +7309,7 @@ deck.Hide();
         voiceBridgeStateLabel.AutoSize = true;
         bool stableVoiceProfile = HasStableVoiceProfile(config);
         bool advancedAudioUnlocked = !stableVoiceProfile;
-        var profileBadge = NewLabel(stableVoiceProfile ? "●  稳定档案 v" + StableVoiceProfileVersion + " 已应用" : "●  参数已自定义", 8.8f, FontStyle.Bold,
+        var profileBadge = NewLabel(stableVoiceProfile ? "●  语音参数已应用（v" + StableVoiceProfileVersion + "）" : "●  参数已自定义", 8.8f, FontStyle.Bold,
             stableVoiceProfile ? green : amber);
         profileBadge.Location = new Point(650, 20);
         profileBadge.Size = new Size(225, 26);
@@ -19701,7 +19701,7 @@ deck.Hide();
 
     private static string VoiceModeHelp(string value)
     {
-        return "固定为首版稳定模式；松开立即结束，单次最长约 60 秒。";
+        return "首版稳定模式；松开立即结束，单次最长约 60 秒。";
     }
 
     private static string VoiceStartInstruction(string value)
@@ -19875,7 +19875,7 @@ deck.Hide();
     internal static string VoiceProviderCompatibilityNote(string provider)
     {
         return NormalizeProviderKey(provider) == "wechat"
-            ? "。注：微信输入法语音会把文字放进剪贴板；言灵会在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再按确认键发送。识别建议：在微信输入法语音设置中选择普通话、保持 10–20 厘米说话距离并减少背景噪声，可显著降低错字率。"
+            ? "另外：微信输入法会把文字放进剪贴板，言灵在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"
             : "";
     }
 

@@ -152,7 +152,7 @@ internal static class WorkflowCards
     {
         switch (gap)
         {
-            case GapNoProfile: return "选择键位 Profile";
+            case GapNoProfile: return "选择快捷键 Profile";
             case GapNoTarget: return "打开应用并学习";
             case GapTargetUnverified: return "设置工作流";
             case GapProviderNotRunning: return "检查语音工具";
@@ -265,7 +265,7 @@ internal static class WorkflowCards
     internal static string Summarize(IList<WorkflowCard> cards)
     {
         if (cards == null || cards.Count == 0)
-            return "还没有应用工作流：在“快捷键 → Smart Profiles”里为一个本机应用选择键位 Profile，再来学习它的工作流";
+            return "还没有应用工作流：在「快捷键 → Smart Profiles」里选一个 Profile，再回来学习。";
         int ready = 0;
         var gapCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (WorkflowCard card in cards)
