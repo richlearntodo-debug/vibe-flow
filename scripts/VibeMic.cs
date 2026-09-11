@@ -13785,7 +13785,7 @@ deck.Hide();
                 {
                     showActionFeedback(ActionResult.Create("首次设置", stepNames[currentStep],
                         success ? ActionState.Success : ActionState.Error, message,
-                        success ? "" : "当前任务尚未取得所需证据",
+                        success ? "" : "当前任务还需要完成",
                         success ? "" : "按本任务提示修复后重新检测", success ? "" : "ONBOARDING-CHECK-REQUIRED"));
                 };
                 Func<bool> persistProgress = delegate
@@ -14048,7 +14048,7 @@ deck.Hide();
                                 currentHealth.Success;
                             if (!currentAudioSubmissionSucceeded)
                             {
-                                showFeedback("尚未取得本次真实音频与工具回执，未确认测试结果", false);
+                                showFeedback("还没有收到本次的真实音频与工具响应，测试结果未确认", false);
                                 return;
                             }
                             string selectedConfigurationKey = VoiceProviderConfigurationKey(
@@ -14101,7 +14101,7 @@ deck.Hide();
                             if (!uiSmokeMode && !bridgeReady)
                             {
                                 showActionFeedback(ActionResult.Create("开始真实听写", "RC003 麦克风",
-                                    ActionState.Warning, "语音桥接已启动，但尚未收到真实麦克风就绪证据",
+                                    ActionState.Warning, "语音桥接已启动，但还没收到遥控器麦克风",
                                     "RC003 可能仍在连接、休眠或未授权麦克风权限",
                                     "唤醒遥控器并重新检测；仍失败请打开自检", "ONBOARDING-ATVV-NOT-READY"));
                                 return;
@@ -14192,7 +14192,7 @@ deck.Hide();
                         bridge.Size = new Size(520, 38);
                         var tray = StyledCheck("关闭主窗口后继续在系统托盘运行", trayChoice, new Point(8, 204));
                         tray.Size = new Size(520, 38);
-                        var smartProfiles = StyledCheck("是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
+                        var smartProfiles = StyledCheck("Smart Profiles（按应用自动切换键位方案，可选，默认关闭）",
                             smartProfilesChoice, new Point(8, 252));
                         smartProfiles.Size = new Size(620, 38);
                         startup.CheckedChanged += delegate { startupChoice = startup.Checked; };
@@ -14325,7 +14325,7 @@ deck.Hide();
                                     ? "语音工具设置已变更，请用当前设置重新完成真实听写"
                                     : health.Generation <= dictationBaselineGeneration || !health.Success
                                         ? "音频与语音工具唤起尚未通过，请重新测试"
-                                        : "请目视确认测试框中的文字，再点击“我已看到文字”", false);
+                                        : "请目视确认测试框中的文字，再点击「我已看到文字」", false);
                                 return;
                             }
                         }

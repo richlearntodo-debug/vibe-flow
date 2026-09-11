@@ -1148,7 +1148,24 @@ assert(includesAll(app, [
   'value.Size = new Size(128, 24);',
   'bool longSet = !string.IsNullOrEmpty(longText) && longText != "未设置" && longText != "未配置" &&',
   'return longSet ? "短按 " + shortText + " · 长按 " + longText : "短按 " + shortText;',
-]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, fifth instalment: the voice page and the workflow page.
+]), "The home summary lost the wider cell, the smaller font, or the rule that keeps an unset long layer quiet");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+//
+// Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
+// 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
+// question form, one straight-quoted phrase became 「」, and "尚未取得所需证据" became 当前任务还需要完成.
+//
+// Two things were checked and deliberately left alone: the step names in the rail are full names with AutoSize on,
+// and the 「确认设备与」 fragments that look truncated are inside a comment explaining an earlier fix, not in any UI
+// string — my extraction script had been reading comments as copy, which is worth remembering.
+assert(includesAll(app, [
+  '还没有收到本次的真实音频与工具响应，测试结果未确认',
+  '语音桥接已启动，但还没收到遥控器麦克风',
+  'Smart Profiles（按应用自动切换键位方案，可选，默认关闭）',
+  '再点击「我已看到文字」',
+  'success ? "" : "当前任务还需要完成",',
+]) && !app.includes('回执，未确认测试结果') && !app.includes('就绪证据') &&
+  !app.includes('是否启用 Smart Profiles') && !app.includes('“我已看到文字”'),
+  "The wizard went back to its jargon, its question-form opt-in or its straight quotes");// The copy pass, fifth instalment: the voice page and the workflow page.
 //
 // The voice page's provider note was assembled from two pieces and the second piece began with its own full stop, so
 // the page read "…也不会自行上传音频。。另外：…". The double stop is gone, the aside is tightened, and the recognition
@@ -1818,7 +1835,7 @@ assert(includesAll(onboarding, [
   "OnboardingRuntimeAckRequired", "initialStartupApplied",
   "AutoScaleMode.Dpi", "AutoScroll = true", "配置工作流",
   // The two product terms a first-time user meets in this step now carry a Chinese gloss in place.
-  "配置浏览器遥控（Browser Remote Lite）", "是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
+  "配置浏览器遥控（Browser Remote Lite）", "Smart Profiles（按应用自动切换键位方案，可选，默认关闭）",
   "smartProfilesChoice",
   "config.smartProfilesEnabled = smartProfilesChoice",
 ]), "The active onboarding flow is not the persisted five-task setup");
@@ -2367,7 +2384,7 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   "快捷键 Profile（应用专属的按键方案）",
   "配置浏览器遥控（Browser Remote Lite）",
-  "是否启用 Smart Profiles（按应用自动切换键位方案 · 可选，默认关闭）",
+  "Smart Profiles（按应用自动切换键位方案，可选，默认关闭）",
   'SectionTitle("术语表"',
   '"快捷键 Profile", "某个应用专属的一套按键动作。绑定后，切到该应用会自动使用它。"',
   '"Context Deck", "遥控器、Profile、目标与最近一次动作的详细面板，从托盘菜单打开。"',
