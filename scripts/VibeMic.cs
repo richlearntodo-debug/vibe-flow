@@ -7775,7 +7775,7 @@ deck.Hide();
         header.Controls.Add(smartSummary);
         header.Controls.Add(focusTargets);
 
-        var canvas = NewCard(new Point(34, 320), new Size(960, 1520));
+        var canvas = NewCard(new Point(34, 320), new Size(960, 1020));
         var canvasTitle = NewLabel("小米蓝牙遥控器 2 Pro", 10.2f, FontStyle.Bold, ink);
         canvasTitle.Location = new Point(342, 16);
         canvasTitle.Size = new Size(276, 28);
@@ -7787,31 +7787,33 @@ deck.Hide();
 
         var previewRemote = new RemoteVisual();
         previewRemote.DesignScaleFactor = DesignScale();
-        // The cards below now follow the remote's own layout, so the illustration is the reference underneath them
-        // rather than the thing they are arranged around.
-        previewRemote.Location = new Point(18, 950);
-        previewRemote.Size = new Size(300, 474);
+        // The remote sits between the two card columns, with its caption above it and the gesture legend beneath, so
+        // a card and the button it configures are a glance apart.
+        previewRemote.Location = new Point(330, 78);
+        previewRemote.Size = new Size(RemoteColumnWidth, 474);
         previewRemote.IsActive = true;
         previewRemote.ShowCallouts = false;
         previewRemote.AccentColor = violet;
         previewRemote.HighlightedControl = "";
         remoteVisual = previewRemote;
 
-        AddGestureLegendCard(canvas, new Point(656, 950));
+        AddGestureLegendCard(canvas, new Point(330, 570));
 
-        // The cards stand in the device's own order, two to a row, on a grid of two wide columns (18 and 494, card
-        // 448 wide with a 28 px gap: the same 942 px right edge the page has always had).
+        // Two card columns flank the remote, each in the device's own top-to-bottom order, so the two top buttons —
+        // 开机键 and 录音键 — open the left and the right column at the same height and the remote is what sits
+        // between them:
         //
-        //   row 1  开机键 ∥ 录音键        the remote's two top buttons, power on the left and the record key on the right
-        //   row 2  左键   ∥ 右键          the ring's horizontal pair
-        //   row 3  上键   ∥ 下键          the ring's vertical pair
-        //   row 4  确认键 ∥ Home 键       the two keys that act straight away
-        //   row 5  功能键 ∥ TV 键         the remaining pair, which sit side by side on the device too
+        //   left            middle                 right
+        //   开机键          the remote             录音键
+        //   左键            顶部两键说明           右键
+        //   上键            方向环 / 功能键         下键
+        //   确认键          手势分层                Home 键
+        //   功能键                                 TV 键
         //
         // Back and the volume rocker sit between the ring and Home on the device but are absent here on purpose: they
         // never reach Windows' ordinary input stack on this hardware, so they cannot be mapped, and the note at the
         // foot of the page says so instead of showing two cards that could never be configured.
-        const int rightColumn = 18 + GestureCardWidth + GestureCardGap;
+        const int rightColumn = 18 + GestureCardWidth + GestureCardGap + RemoteColumnWidth + GestureCardGap;
         AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78), "电源键", "电源键", "power",
             "电源键", "", false);
         AddFixedVoiceOverviewCard(canvas, previewRemote, new Point(rightColumn, 78));
@@ -7843,7 +7845,7 @@ deck.Hide();
         // so supporting them would need a HID-level helper, which this version does not ship.
         var capabilityNote = NewLabel("电源键需先指派动作才生效（未指派时交由 Windows，轻触无动作）；返回与独立音量键在 Windows 下无稳定事件，不提供映射。APP、网页与截图请绑定到可配置按键。",
             8.0f, FontStyle.Regular, muted);
-        capabilityNote.Location = new Point(18, 1450);
+        capabilityNote.Location = new Point(18, 920);
         capabilityNote.Size = new Size(938, 54);
         capabilityNote.TextAlign = ContentAlignment.MiddleCenter;
 
@@ -8747,10 +8749,11 @@ deck.Hide();
     // drift apart.
     private const int GestureCardHeight = 152;
     private const int GestureCardPitch = 164;
-    // The card grid: two wide columns rather than the three narrow ones the page used to have. Every row holds two
-    // cards, so no row is half empty, and the widths are what the badge and the action rows are laid out from.
-    private const int GestureCardWidth = 448;
-    private const int GestureCardGap = 28;
+    // Three columns: a card column, the remote itself, and a card column. The widths are what the card's own badge
+    // and action rows are laid out from, so they follow the card rather than assuming one.
+    private const int GestureCardWidth = 286;
+    private const int GestureCardGap = 26;
+    private const int RemoteColumnWidth = 300;
 
     // Physical keys that carry gesture layers, with the per-Profile mapping keys behind each one.
     // The record key (F5 / voice) is deliberately absent: it stays welded to the stable voice chain

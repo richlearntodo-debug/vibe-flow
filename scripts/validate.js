@@ -1157,16 +1157,17 @@ assert(includesAll(app, [
   'AddMappingOverviewCard(canvas, previewRemote, new Point(18, 78 + GestureCardPitch * 4), "功能键", "功能键", "menu",',
   'AddMappingOverviewCard(canvas, previewRemote, new Point(rightColumn, 78 + GestureCardPitch * 4), "TV", "TV 键", "tv",',
   // Two wide columns, so every row is full; the top row is the device's two top buttons, power left and record right.
-  'const int rightColumn = 18 + GestureCardWidth + GestureCardGap;',
-  'private const int GestureCardWidth = 448;',
+  'const int rightColumn = 18 + GestureCardWidth + GestureCardGap + RemoteColumnWidth + GestureCardGap;',
+  'private const int GestureCardWidth = 286;',
+  'private const int RemoteColumnWidth = 300;',
   // The card's own layout follows its width, or the wider grid would leave the badge and rows stranded on the left.
   'status.Location = new Point(GestureCardWidth - 144, 8);',
   'new Size(GestureCardWidth - 106, 34)',
   'IconButton("▶", new Point(GestureCardWidth - 36, rowY), new Size(28, 34),',
   // The illustration and the legend moved below the grid, which is why the canvas grew.
-  'previewRemote.Location = new Point(18, 950);',
-  'AddGestureLegendCard(canvas, new Point(656, 950));',
-  'var canvas = NewCard(new Point(34, 320), new Size(960, 1520));',
+  'previewRemote.Location = new Point(330, 78);',
+  'AddGestureLegendCard(canvas, new Point(330, 570));',
+  'var canvas = NewCard(new Point(34, 320), new Size(960, 1020));',
 ]), "The shortcut page stopped following the remote's layout, or a card moved off the grid");// The power card's argument wiring, checked slot by slot rather than judged by how it looks. The builder is
 // AddMappingOverviewCard(parent, preview, location, physicalKey, label, remoteControl, shortKey, longKey,
 // requiresHardwareReport), and for the power key each slot has to hold the same kind of value the shipped keys put
