@@ -6855,7 +6855,7 @@ deck.Hide();
         openDiagnostics.Name = "openDiagnosticsHomeButton";
         openDiagnostics.Click += delegate { ShowPage((int)VibePageId.Diagnostics); };
 
-        var gestureHint = NewLabel("按住说话 · 松开结束 · 用户确认发送", 8.7f, FontStyle.Regular, muted);
+        var gestureHint = NewLabel("不自动发送 · 文字由你确认", 8.7f, FontStyle.Regular, muted);
         gestureHint.Location = new Point(52, 276);
         gestureHint.Size = new Size(260, 24);
 
@@ -6911,7 +6911,7 @@ deck.Hide();
         var flow = NewCard(new Point(34, 430), new Size(470, 178));
         flow.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         flow.Controls.Add(SectionTitle("开始一次听写", "\uE720", new Point(24, 18)));
-        string[] steps = new string[] { "按住录音键", "持续说出内容", "松开结束录音" };
+        string[] steps = new string[] { "按住录音键", "说出内容", "松开结束" };
         string[] icons = { "\uE720", "\uE9D2", "\uE724" };
         for (int i = 0; i < 3; i++)
         {
@@ -6942,7 +6942,7 @@ deck.Hide();
                 flow.Controls.Add(connector);
             }
         }
-        activityLabel = NewLabel("已就绪，等待按住录音键", 9.5f, FontStyle.Bold, muted);
+        activityLabel = NewLabel("等待按住录音键", 9.5f, FontStyle.Bold, muted);
         activityLabel.Location = new Point(24, 142);
         activityLabel.Size = new Size(420, 22);
         activityLabel.TextAlign = ContentAlignment.MiddleCenter;
@@ -7040,7 +7040,7 @@ deck.Hide();
         actionReceiptGlyph.Location = new Point(receiptGlyphX, 20);
         actionReceiptGlyph.Size = new Size(34, 34);
         actionReceiptGlyph.TextAlign = ContentAlignment.MiddleCenter;
-        actionReceiptTitle = NewLabel("等待一次真实按键操作", 9.6f, FontStyle.Bold, ink);
+        actionReceiptTitle = NewLabel("等待按键操作", 9.6f, FontStyle.Bold, ink);
         actionReceiptTitle.Location = new Point(receiptGlyphX + 40, 12);
         actionReceiptTitle.Size = new Size(410, 28);
         actionReceiptDetail = NewLabel("执行结果会在这里显示", 8.3f, FontStyle.Regular, muted);
@@ -7109,7 +7109,7 @@ deck.Hide();
     {
         string shortText = MappingCardActionText(GetMapping(shortKey, DefaultConfigurableAction(shortKey)));
         string longText = MappingCardActionText(GetMapping(longKey, DefaultConfigurableAction(longKey)));
-        return "短 " + shortText + " / 长 " + longText;
+        return "短按 " + shortText + " · 长按 " + longText;
     }
 
     private string DirectionMappingSummary()
@@ -7128,8 +7128,8 @@ deck.Hide();
             ? receipt.SmartEffectiveProfileName : active == null ? "当前 Profile" : active.name;
         if (receipt == null || receipt.LastExecutionSequence <= 0)
         {
-            actionReceiptTitle.Text = "等待一次真实按键操作";
-            actionReceiptDetail.Text = activeName + " · 按下已配置按键后显示真实执行结果";
+            actionReceiptTitle.Text = "等待按键操作";
+            actionReceiptDetail.Text = activeName + " · 按下已配置按键后，这里显示真实结果";
             if (actionReceiptGlyph != null && !actionReceiptGlyph.IsDisposed)
             {
                 actionReceiptGlyph.Text = "\uE946";

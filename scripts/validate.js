@@ -1134,7 +1134,23 @@ assert(includesAll(app, [
   "CaptureActiveShortcutProfileMappings(powerProbe);",
   "An unassigned power key is not left as a passthrough key",
   "An assigned power key is not intercepted: the assignment did not survive the profile round trip",
-]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The copy pass, first instalment: the two places the user named.
+]), "The power key lost the projection entry, its safe default, or the assertion that proves an assignment is honoured");// The copy pass, second instalment: the home page's own words.
+//
+// The page said the same thing three times over — a hero subtitle, a "按住说话 · 松开结束 · 用户确认发送" hint and a
+// three-step card — and the hint's last clause described an internal notion rather than telling the user anything. The
+// hint now carries the privacy claim in plain words and nothing else ("不自动发送 · 文字由你确认"), which is the one
+// claim on this page that must survive every edit. The steps lost a word each, the status line lost its redundant
+// "已就绪", and the two rows that read "短 显示桌面 / 长 未设置" now read "短按 … · 长按 …" so nobody has to guess what
+// the single characters mean.
+assert(includesAll(app, [
+  '不自动发送 · 文字由你确认',
+  'string[] steps = new string[] { "按住录音键", "说出内容", "松开结束" };',
+  'activityLabel = NewLabel("等待按住录音键"',
+  'return "短按 " + shortText + " · 长按 " + longText;',
+  '"等待按键操作"',
+  '按下已配置按键后，这里显示真实结果',
+]) && !app.includes('用户确认发送') && !app.includes('等待一次真实按键操作'),
+  "The home page's copy lost the privacy claim, or went back to the wording that made the user guess");// The copy pass, first instalment: the two places the user named.
 //
 // 回退 was jargon. A gesture layer with no binding of its own read "未配置（回退到短按：显示桌面）", and the button that
 // makes a Profile the one used when no application matches said "设为回退". Both now say what they mean in ordinary
