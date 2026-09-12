@@ -182,3 +182,36 @@
 - 数据来自 `VibeUiStatusSnapshot` ✔（`VoiceToolName` 为本次新增字段 ✔，由 `ProviderDisplayName(config.inputMethod)` 填充 ✔）。
 - **切换输入法或切换"当前"工作流目标后，下一次快照发布即同步** ✔（录音状态变化、动作回执、定时轮询都会发布 ✔）。
 - **验证方式（无需硬件 ✔）**：`VibeMic.exe --self-test` 会构造快照并断言 HUD 里出现「工具 · 八哥说」与「目标 · Cursor Chat」✔（`ControlTreeContainsPartialText` ✔，因为该行是多个值的拼接 ✔ 而 `ControlTreeContainsText` 是**完全相等**比较 ✗）。
+
+## 12. 语音工具快捷键分割与"共用形态"判别（2026-09-13 下午 ✔）
+
+### 12.1 各语音工具的快捷键（**互不重复** ✔，必须与工具内部设置一致 ✗）
+
+| 语音工具 | 应用内默认快捷键 | 触发方式 | 说明 |
+| --- | --- | --- | --- |
+| **微信输入法**（默认 ✔） | **`ctrl+win`** ✔ | 单击切换（稳定 ✔） | **冻结值** ✗，不得改（真机验证过的稳定参数 ✔） |
+| **八哥说（网易）** | **`rightalt`** ✔ | 单击切换 ✔ | 用户确认其客户端即为**右 Alt** ✔ |
+| **Typeless** | **`rightctrl`** ✔ | 单击切换 ✔（应用内"按住触发"亦可 ✔） | **由 `rightalt` 改为 `rightctrl`** ✗：此前与八哥说**重复** ✗ |
+| **Windows 语音输入** | `win+h` ✔ | 单击切换 ✔ | 由 Windows 固定 ✔ |
+| **其他语音工具**（自定义 ✔） | **`rightshift`** ✔ | 单击切换 ✔ | **由 `ctrl+win` 改为 `rightshift`** ✗：此前与微信输入法**重复** ✗ |
+
+- **不变式** ✔（已加门禁 ✔）：以上四个默认值**两两不同** ✔；改动前请同时更新 `scripts/validate.js` 的断言 ✔。
+- **注意** ✗：应用里存的快捷键**只是"我们发送什么"** ✔ —— 必须与**该工具自己的设置**完全一致 ✔，否则按下不会启动听写 ✔。
+- 本机当前配置 ✔：`inputMethod = bage` ✔、`inputMethodHotkey = rightalt` ✔、`inputMethodTrigger = toggle` ✔（改前备份 `vibe-mic-config.json.before-bage-hotkey-*.bak` ✔）。
+
+### 12.2 共用形态 `0xFF/0x5E` 的判别（电源键不再触发录音 ✔）
+
+**实测结论** ✗：电源键与（重连后的）麦克风键**携带完全相同的字段** ✗ —— `vk=0xFF`、`scan=0x5E`、`flags=0x02`（按下 ✔）/ `0x03`（松开 ✔）→ **用户态无法从事件本身区分** ✗。
+
+**因此改为按历史判别** ✔（`scripts/VoxDeckInputBridge.cs` 的 `IsVoiceRawCandidate` ✔）：
+
+- 只要**最近 10 分钟**见过麦克风的**翻译形态**（`vk=0x74` 或 `0xF5` ✔）→ `0xFF/0x5E` 归**电源键** ✔，**不触发录音** ✔（并记一行日志 ✔：`Voice shared form … treated as the power key: the F5 form was seen Ns ago` ✔）。
+- 若 **10 分钟**内没见过翻译形态 ✔（例如重连后遥控器只用这种形态上报 ✔）→ 才把它当**麦克风** ✔，保证重连后仍能听写 ✔。
+- 实测依据 ✔：本机日志窗口内 F5 形态 **881** 次、共用形态 **373** 次，且共用形态此前被记为 `Key 录音键 … source=raw_input` ✗ —— 最近 12 次会话里 **4 次是 `audio=0ms` 的空录音** ✗，正是误触发 ✔。
+
+### 12.3 收音质量（用户以微信输入法为质量基准 ✔）
+
+- 最近 12 次会话实测 ✔：输出电平中位 **4%** ✗、`avg_gain` 已 **4.3–6.6 倍** ✗、多次**峰值 100%** ✗（碰触噪声 ✔）→ 与上一轮结论一致 ✔：**声源侧问题** ✗，软件侧不再加大增益 ✔。
+- **不同工具的识别质量差异属工具自身能力** ✗（降噪/AGC/语言模型 ✔），言灵只负责把遥控器音频送进 `CABLE Output` ✔，不参与识别 ✔。
+- 用户侧仍是那四步 ✔：**距离 10–20 cm 并对准顶部麦克风孔** ✔ → **Windows「CABLE Output → 属性 → 级别」100%** ✔ → **换新电池** ✔ → **握稳、减少摩擦** ✔。
+- 只读核对 ✔：`powershell -File scripts\tests\Get-CaptureLevels.ps1 -Last 15` ✔。

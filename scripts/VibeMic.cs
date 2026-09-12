@@ -19877,10 +19877,10 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "typeless": return "rightalt";
+            case "typeless": return "rightctrl";
             case "bage": return "rightalt";
             case "windows": return "win+h";
-            case "custom": return "ctrl+win";
+            case "custom": return "rightshift";
             default: return WeChatStableHotkey;
         }
     }

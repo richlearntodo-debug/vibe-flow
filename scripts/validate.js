@@ -1114,7 +1114,7 @@ assert(includesAll(app, [
 assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
   "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
   "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
-  "return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);",
+  "if (vk == 0x74 || vk == 0xF5)",
   "if (expectedScan < 0 || expectedScan == scanCode)",
 ]) && includesAll(app, [
   // The power mapping has to exist for the mapping to win over the fallback at all.
@@ -1259,7 +1259,19 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 ]) && includesAll(app, [
   'if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))',
   "ControlTreeContainsPartialText",
-]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The default hotkeys of the voice tools must not collide.
+//
+// Two collisions existed and a user reported the resulting confusion: 八哥说 and Typeless both defaulted to rightalt, and
+// "其他语音工具" defaulted to ctrl+win, the same stable value as 微信输入法. The stored value has to match the hotkey
+// configured inside each tool, so a duplicate default silently means two tools react to one key. 微信输入法的 ctrl+win is
+// frozen (it is the verified stable value) and Windows 语音输入 is fixed by Windows, so the other two moved.
+assert(includesAll(app, [
+  'case "typeless": return "rightctrl";',
+  'case "bage": return "rightalt";',
+  'case "windows": return "win+h";',
+  'case "custom": return "rightshift";',
+  'private const string WeChatStableHotkey = "ctrl+win";',
+]), "The voice-tool default hotkeys collide again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

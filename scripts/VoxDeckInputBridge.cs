@@ -127,6 +127,9 @@ internal static class VoxDeckInputBridge
     private static readonly object voiceTransitionLock = new object();
     private static DateTime lastVoiceReleaseUtc = DateTime.MinValue;
     private static DateTime lastVoiceActivityUtc = DateTime.MinValue;
+    // When the microphone was last reported in its translated F5 form, and how long that memory stays useful.
+    private static DateTime lastTranslatedVoiceFormUtc = DateTime.MinValue;
+    private static readonly TimeSpan SharedFormVoiceWindow = TimeSpan.FromMinutes(10);
     private static DateTime lastDuplicateDownLogUtc = DateTime.MinValue;
     private static DateTime rc003DevicePresentUtc = DateTime.MinValue;
     // How long a sign of the RC003 keeps it "present" for the hook's scoped record-key suppression. The Raw
@@ -4145,9 +4148,33 @@ internal static class VoxDeckInputBridge
 
     private static bool IsVoiceRawCandidate(int vk, int scan)
     {
-        // RC003 has emitted both the translated F5 form and the raw HID form
-        // (VK 0xFF / scan 0x5E) across Bluetooth reconnects.
-        return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);
+        // RC003 reports the microphone in one of two ways, and the second one collides with the power key.
+        //
+        // Normally the microphone arrives translated as F5 (VK 0x74 / scan 0x3F). After some Bluetooth reconnects it has
+        // arrived as VK 0xFF / scan 0x5E instead — and that is exactly what the power key reports. Measured on this
+        // machine the two carry identical vk, scan and flags (0x02 down, 0x03 up), so no user-mode field separates them.
+        //
+        // The only discriminator left is history. While the microphone is being reported in the translated form, the
+        // shared form belongs to the power key: without this, pressing the power key started and stopped dictation,
+        // which is what a user reported. Once the translated form has not been seen for SharedFormVoiceWindow, the shared
+        // form is treated as the microphone again so a remote that only reports that way still dictates.
+        if (vk == 0x74 || vk == 0xF5)
+        {
+            lastTranslatedVoiceFormUtc = DateTime.UtcNow;
+            return true;
+        }
+        if (vk == 0xFF && scan == 0x5E)
+        {
+            double silentSeconds = (DateTime.UtcNow - lastTranslatedVoiceFormUtc).TotalSeconds;
+            bool translatedFormFresh = silentSeconds < SharedFormVoiceWindow.TotalSeconds;
+            if (translatedFormFresh)
+            {
+                Log("Voice shared form vk=0xFF scan=0x5E treated as the power key: the F5 form was seen " +
+                    (int)silentSeconds + "s ago");
+            }
+            return !translatedFormFresh;
+        }
+        return false;
     }
 
     private static void TryCaptureKeyboardButton(int vk, int scan)
