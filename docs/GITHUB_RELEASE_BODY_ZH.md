@@ -1,8 +1,20 @@
-# 言灵 · Vibe Flow Remote 2.0.0 候选版
+# 言灵 · Vibe Flow Remote V2.0.0 候选版
 
-> **一句话**：把小米蓝牙语音遥控器变成桌面上最顺手的输入方式 —— **按住录音键说话，松开，文字就落在你指定的应用里**。
+**把遥控器变成桌面上最顺手的输入方式 —— 按住录音键说话，松开，文字就落在你指定的应用里。**
 
-Release status: **candidate**（候选版）。本文件用于候选评审与发布准备，不代表已经创建正式稳定发布。
+V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、可自证、可回退**的桌面工具：六个页面各司其职，文字可以固定送进你指定的应用，按键从"一个动作"扩展到**短按 / 长按 / 双击**，每个结论都有证据可查。
+
+> 当前状态：**候选版（candidate）**。构建、自检、界面矩阵、安装包逐文件一致性与本机实测均已通过；真机与安装生命周期验收仍在进行，见文末「已知限制」。
+
+## 立即下载
+
+| 文件 | 直接下载 |
+| --- | --- |
+| **推荐安装版** | [**VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/VibeFlow-Setup.exe) |
+| 免安装版 | [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/Vibe-Flow-Windows-x64.zip) |
+| 完整性校验 | [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/SHA256SUMS.txt) |
+
+> **普通用户请选择第一行安装版。** GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是 Windows 安装程序。当前构建**未配置商业代码签名**，首次运行可能出现 SmartScreen 提醒，请核对仓库地址与 SHA-256，不要从非项目所有者渠道获取安装包。
 
 ---
 
@@ -19,7 +31,7 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 | 5 | **首次设置不再卡住** | 新增「稍后再说」：关闭向导但**保留进度**，下次从同一任务继续；硬件没就绪也能先跳过去 |
 | 6 | **每个结论都有证据** | 自检每项给结论 + 「详情」展开**正确状态 / 原因（含 `VF-…` 码）/ 下一步**，并提供重新检测与修复入口，而不是一句"失败" |
 
-此外还有：**界面缩放**（100% / 110% / 125%）、**双击窗口跟随 Windows 双击速度**（不再写死 320ms）、**Store / UWP 应用可添加可启动且有图标**、**术语表**（把 `Profile`、`Smart Profiles`、`Raw Input`、`Live HUD` 等各配一句白话）、以及**六个页面 + 向导的文案整体简化**。
+此外还有：**语音页显示实测收音电平**（低于 10% 会直接告诉你该怎么调）、**界面缩放**（100% / 110% / 125%）、**双击窗口跟随 Windows 双击速度**（不再写死 320ms）、**Store / UWP 应用可添加可启动且有图标**、**术语表**（把 `Profile`、`Smart Profiles`、`Raw Input`、`Live HUD` 等各配一句白话）、以及**六个页面 + 向导的文案整体简化**。
 
 ### V2.0 的其他能力
 
@@ -155,8 +167,19 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 
 ---
 
+## 👥 加入用户社区
+
+加入社群可以获得**配置答疑、设备兼容反馈、版本更新通知和 Vibe Coding 工作流分享**。遇到问题时，先在「自检」页从第一个警告开始处理，并把错误码一起带上。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/richlearntodo-debug/vibe-flow/v2.0.0-candidate.1/docs/images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
+</p>
+
+---
+
 ## 🔗 相关文档
 
+- [完整功能看板](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/FEATURES_ZH.md)
 - [使用教程](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_USER_GUIDE_ZH.md)
 - [快速开始](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/QUICK_START_ZH.md)
 - [更新说明](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_RELEASE_NOTES_ZH.md) · [V2.0 更新梳理（相对 V1.5）](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_UPDATE_SUMMARY_ZH.md)
