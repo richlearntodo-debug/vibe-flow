@@ -231,3 +231,22 @@
 - 自测断言 ✔：F5 必须是语音候选 ✔、`0xFF/0x5E` 必须**不是** ✔
 
 **可逆性** ✗：如果将来某台遥控器**只在重连后**用共用形态上报麦克风 ✔，把那一处 `return false` 改回语音候选即可 ✔（代码注释里已写明这是"唯一要改的一行" ✔）。
+
+### 12.5 最终可用的分工（2026-09-13 晚，用户真机确认 ✔）
+
+**两类必须同时成立** ✔（用户要求 ✔）：
+
+| 键 | 上报形态 | 行为 | 隔离方式 |
+| --- | --- | --- | --- |
+| **录音键** | `vk=0x74` / `scan=0x3F`（翻译形态 ✔） | 按住说话、松开结束 ✔ | 钩子在"遥控器在场"时**拦截** ✔，不落给前台应用 ✔（浏览器不会再刷新 ✔） |
+| **开机键（电源）** | `vk=0xFF` / `scan=0x5E` ✔ | **按普通映射键使用** ✔：短按 / 长按 / 双击各执行自己的动作 ✔ | 桥把该形态**判给电源键** ✗→✔（`IsVoiceRawCandidate` 返回 false ✔），因此**不会**开始录音 ✔，也不会被录音兜底抢走 ✔ |
+
+**动作存在两个存储里，必须一致** ✗（本轮踩了两次 ✔）：
+1. **映射表** ✔：`vibe-mic-config.json` → 顶层 `mappings` 与**当前激活 Profile** 的 `mappings`（键名 `电源键` ✔）
+2. **手势层（优先级更高 ✗）** ✔：`UserData\gesture-layers.json` → `{"key":"power","shortAction":…,"longAction":…,"doubleAction":…}`
+
+> **只改映射表不生效** ✗：手势层里的 `null` 会盖掉映射表里的动作 ✔（本轮实测：映射表已设 DeepSeek ✔，投影后 `shortShortcut` 仍是 `none` ✗；把手势层补齐后才生效 ✔）。
+> **推荐做法** ✔：**在应用的「快捷键」页设置** ✔ —— 界面会同时写两个存储 ✔；手工改文件时**两处都要改** ✔，改完**重启应用** ✔，并**用投影结果反查** ✔：`%LOCALAPPDATA%\Programs\Vibe Flow Remote\voxdeck-shortcuts.json` 里 `"name":"power"` 的 `enabled` 应为 `true` ✔ 且 `shortShortcut` 为预期动作 ✔。
+
+**本机当前值** ✔（用户原有设置，已按原样还原 ✔）：短按 = `open-url:https://platform.deepseek.com/usage` ✔；长按 = B 站视频页 ✔；双击 = `task-switcher` ✔。
+备份 ✔：`vibe-mic-config.json.before-restore-*.bak`、`gesture-layers.json.before-restore-*.bak`。
