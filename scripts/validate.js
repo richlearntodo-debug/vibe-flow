@@ -1271,7 +1271,20 @@ assert(includesAll(app, [
   'case "windows": return "win+h";',
   'case "custom": return "rightshift";',
   'private const string WeChatStableHotkey = "ctrl+win";',
-]), "The voice-tool default hotkeys collide again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The voice-tool default hotkeys collide again");// The two key classes must stay disjoint, which is what lets both work at once.
+//
+// The record key reports vk=0x74 / scan=0x3F and is intercepted by the hook while the remote is present; the power key
+// reports vk=0xFF / scan 0x5E and is a normal mapped key. The bridge must never accept the power key's form as a voice
+// candidate, or pressing it starts a dictation the user did not ask for (reported twice), and the self-test has to keep
+// asserting both directions: F5 stays the microphone, the shared form does not.
+assert(includesAll(bridge, [
+  "if (vk == 0x74 || vk == 0xF5)",
+  "if (vk == 0xFF && scan == 0x5E)",
+  "belongs to the power key; the translated F5 form is the microphone",
+  'if (IsVoiceRawCandidate(0xFF, 0x5E))',
+  'throw new InvalidOperationException("The power key\'s shared raw form is still treated as the microphone")',
+  'if (!IsVoiceRawCandidate(0x74, 0x3F))',
+]), "The record key and the power key are no longer kept apart");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

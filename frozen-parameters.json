@@ -4,8 +4,8 @@
     "version":  "V2.0.0",
     "releaseName":  "V2.0.0 候选版 2",
     "tag":  "v2.0.0-candidate.2",
-    "commit":  "da58b6709b65046f46fa3b1db6ad1f4616a90a6a",
-    "frozenAt":  "2026-09-13 00:34:09",
+    "commit":  "32b18415a1526bba85c4a1da42c8b971a95f85a1",
+    "frozenAt":  "2026-09-13 01:49:17",
     "releaseAssets":  {
                           "Vibe-Flow-Windows-x64.zip":  "ABAC859AD53A9609D899B32478A300330A74292F5DC11C83D3F0A31775E561B7",
                           "VibeFlow-Setup.exe":  "93F2D635E3749A193ADB77BA7879D1DA2C50F0297B1057634A306956557E8C64",
@@ -48,22 +48,32 @@
                                          "auto-Enter",
                                          "cloud-recognition",
                                          "webpage-text"
-                                     ]
+                                     ],
+                       "inputMethod":  "bage",
+                       "inputMethodHotkey":  "rightalt",
+                       "inputMethodTrigger":  "toggle"
                    },
     "keysAndGestures":  {
                             "powerKey":  {
                                              "vk":  "0xFF",
                                              "scan":  "0x5E",
-                                             "frozen":  "short/long/double all empty",
-                                             "reason":  "shares the scan code with the microphone key after a Bluetooth reconnect",
+                                             "voiceCandidate":  false,
+                                             "bridgeProjection":  "enabled=true, suppress=true, mode=shortlong",
                                              "storedIn":  [
-                                                              "vibe-mic-config.json",
-                                                              "UserData/gesture-layers.json (higher priority)"
+                                                              "vibe-mic-config.json mappings[\"电源键\"] (global + active profile)",
+                                                              "UserData/gesture-layers.json {\"key\":\"power\"} (takes precedence)"
                                                           ],
-                                             "bridgeDefault":  "enabled=false, suppress=false"
+                                             "machineValues":  {
+                                                                   "short":  "open-url:https://platform.deepseek.com/usage",
+                                                                   "long":  "open-url:https://www.bilibili.com/video/BV1wJ8x6nEAW/",
+                                                                   "double":  "task-switcher"
+                                                               },
+                                             "successLog":  "Gesture action executed label=电源键 phase=短按 action=… success=True",
+                                             "ownershipLog":  "Voice shared form vk=0xFF scan=0x5E belongs to the power key; the translated F5 form is the microphone",
+                                             "revertNote":  "If a remote ever reports the microphone only in this form, make it a voice candidate again in IsVoiceRawCandidate."
                                          },
                             "recordKey":  {
-                                              "frozen":  "must never reach the foreground application",
+                                              "frozen":  "F5 vk=0x74 scan=0x3F; hold-to-talk; intercepted by the hook while the remote is present; not in the mapping table at all",
                                               "guard":  "actionless mappings are treated as absent (MappingHasNoAction/IsActionless)",
                                               "isolation":  "presence window 5 s == raw-input probe 5 s",
                                               "remappable":  false,
@@ -72,6 +82,7 @@
                                               "leakLog":  "RAW KEY DOWN vk=0x74 without a Key 录音键 line"
                                           },
                             "gestureTable":  {
+                                                 "order":  "short, long, double",
                                                  "up":  [
                                                             "",
                                                             "pageup",
@@ -113,11 +124,23 @@
                                                             "volumedown"
                                                         ],
                                                  "power":  [
-                                                               "",
-                                                               "",
-                                                               ""
+                                                               "open-url:https://platform.deepseek.com/usage",
+                                                               "open-url:https://www.bilibili.com/video/BV1wJ8x6nEAW/",
+                                                               "task-switcher"
                                                            ],
-                                                 "order":  "short, long, double"
+                                                 "mappingTable":  {
+                                                                      "确认键":  "enter",
+                                                                      "Home":  "win+d",
+                                                                      "Home:long":  "win+shift+s",
+                                                                      "TV":  "task-switcher",
+                                                                      "功能键":  "ctrl+c",
+                                                                      "功能键:long":  "ctrl+v",
+                                                                      "上键":  "up",
+                                                                      "下键":  "down",
+                                                                      "左键":  "left",
+                                                                      "右键":  "right",
+                                                                      "电源键":  "open-url:https://platform.deepseek.com/usage"
+                                                                  }
                                              },
                             "builtInRecommendedWritesOnce":  [
                                                                  "up long pageup",

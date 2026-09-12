@@ -250,3 +250,56 @@
 
 **本机当前值** ✔（用户原有设置，已按原样还原 ✔）：短按 = `open-url:https://platform.deepseek.com/usage` ✔；长按 = B 站视频页 ✔；双击 = `task-switcher` ✔。
 备份 ✔：`vibe-mic-config.json.before-restore-*.bak`、`gesture-layers.json.before-restore-*.bak`。
+
+## 13. 按键固化（2026-09-13 晚，用户真机确认可用后 ✔）
+
+以下值均为**实测自运行中的应用**（配置 / 手势层 / 桥投影 / 日志 ✔），不是凭记忆 ✔。
+
+### 13.1 录音键 ✔（**不可映射、不可分层** ✗）
+
+| 项 | 冻结值 |
+| --- | --- |
+| 上报形态 | `vk=0x74` / `scan=0x3F`（翻译后的 F5 ✔） |
+| 行为 | 按住说话、松开结束 ✔（`voiceMode = hold` ✔） |
+| 隔离 | 遥控器在场时由钩子**拦截** ✔，不落给前台应用 ✔（浏览器不再刷新 ✔） |
+| 映射表里 | **没有**录音键映射 ✔（桥投影中查无此键 ✔ = 设计如此 ✔） |
+| 正常日志 | `Key 录音键 DOWN vk=0x74 scan=0x3F source=rc003_present_hook` ✔ |
+| 异常信号 | 出现 `RAW KEY DOWN vk=0x74 …` 而无 `Key 录音键` 行 ✗ = F5 直通到了前台应用 ✔ |
+
+### 13.2 开机键（电源）✔（**当普通映射键使用** ✔，且**绝不触发录音** ✔）
+
+| 项 | 冻结值 |
+| --- | --- |
+| 上报形态 | `vk=0xFF` / `scan=0x5E` ✔（与录音键的形态**完全不相交** ✔） |
+| 语音候选 | **否** ✗（`IsVoiceRawCandidate` 返回 false ✔，并有自测断言 ✔）→ 按下**不会开始录音** ✔ |
+| 桥投影 | `enabled=true`、`suppress=true`、`mode=shortlong` ✔ |
+| **动作存储（两处必须一致 ✗）** | ① `vibe-mic-config.json` 的 `mappings["电源键"]`（全局 + **当前激活 Profile** ✔）② `UserData\gesture-layers.json` 的 `{"key":"power",…}`（**优先级更高 ✗**） |
+| 本机当前值 ✔ | **短按** = `open-url:https://platform.deepseek.com/usage` ✔；**长按** = B 站视频页 ✔；**双击** = `task-switcher` ✔ |
+| 成功日志 ✔ | `Gesture action executed label=电源键 phase=短按 action=… success=True` ✔ + `Action receipt button=电源键 … success=True` ✔ |
+| 判别日志 ✔ | `Voice shared form vk=0xFF scan=0x5E belongs to the power key; the translated F5 form is the microphone` ✔ |
+| 可逆性 ✗ | 若某遥控器**只在重连后**用该形态上报麦克风 ✔，把 `IsVoiceRawCandidate` 里那一处 `return false` 改回语音候选 ✔（注释已标注"唯一要改的一行" ✔） |
+
+### 13.3 其他快捷键 ✔（本机**实测**现值，来自 `gesture-layers.json` ✔）
+
+| 键 | 短按 | 长按 | 双击 |
+| --- | --- | --- | --- |
+| 上 | 空 | `pageup` ✔ | `ctrl+x`（剪切）✔ |
+| 下 | 空 | `pagedown` ✔ | `ctrl+a`（全选）✔ |
+| 左 | 空 | `browserback` ✔ | `ctrl+z`（撤销）✔ |
+| 右 | 空 | `ctrl+shift+z`（重做）✔ | `ctrl+s`（保存）✔ |
+| 确认 | 空 | `volumemute` ✔ | `mediaplaypause` ✔ |
+| 菜单 | 空 | 空 | `volumeup` ✔ |
+| Home | 空 | 空 | `launch-client:cursor` ✔ |
+| TV | 空 | `launch-client:chatgpt` ✔ | `volumedown` ✔ |
+| **电源** | 见 §13.2 ✔ | 见 §13.2 ✔ | 见 §13.2 ✔ |
+
+**映射表（`mappings`）里另有** ✔：`确认键 = enter` ✔、`Home = win+d`（`Home:long = win+shift+s` ✔）、`TV = task-switcher` ✔、`功能键 = ctrl+c`（`:long = ctrl+v` ✔）、`上/下/左/右键 = up/down/left/right` ✔。
+
+**注意** ✗：手势层（§13.3 表）**优先于**映射表 ✔ —— 同一键两层都有配置时，**手势层生效** ✔；要改就用「快捷键」页（会同时写两处 ✔）或**两处都改 + 重启 + 反查投影** ✔。
+
+### 13.4 两类必须同时成立的验收清单 ✔
+
+1. **按住录音键** → 正常录音 ✔，**前台页面不被刷新** ✔（日志见 13.1 ✔）
+2. **短按开机键** → 执行你设的短按动作 ✔（日志 `success=True` ✔），**不开始录音** ✔
+3. **长按 / 双击开机键** → 各自动作 ✔
+4. 改完任何按键后 **必须**：`node scripts/validate.js` → `VibeMic.exe --self-test` / `VoxDeckInputBridge.exe --self-test` → `scripts/check-ui-matrix.ps1`（12 例）✔
