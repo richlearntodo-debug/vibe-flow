@@ -1,8 +1,10 @@
-# 言灵 · Vibe Flow Remote V2.0.0 候选版
+# 言灵 · Vibe Flow Remote V2.0.0 候选版 2
 
 **把遥控器变成桌面上最顺手的输入方式 —— 按住录音键说话，松开，文字就落在你指定的应用里。**
 
 V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、可自证、可回退**的桌面工具：六个页面各司其职，文字可以固定送进你指定的应用，按键从"一个动作"扩展到**短按 / 长按 / 双击**，每个结论都有证据可查。
+
+> **本版（候选版 2）相比上一个候选包新增**：**开机键（电源键）可配置**、**语音页显示最近一次收音的实测电平**、快捷键页按实体遥控器排布、六个页面与首次设置向导的文案整体简化。
 
 > 当前状态：**候选版（candidate）**。构建、自检、界面矩阵、安装包逐文件一致性与本机实测均已通过；真机与安装生命周期验收仍在进行，见文末「已知限制」。
 
@@ -10,9 +12,9 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 
 | 文件 | 直接下载 |
 | --- | --- |
-| **推荐安装版** | [**VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/VibeFlow-Setup.exe) |
-| 免安装版 | [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/Vibe-Flow-Windows-x64.zip) |
-| 完整性校验 | [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.1/SHA256SUMS.txt) |
+| **推荐安装版** | [**VibeFlow-Setup.exe**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe) |
+| 免安装版 | [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip) |
+| 完整性校验 | [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt) |
 
 > **普通用户请选择第一行安装版。** GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是 Windows 安装程序。当前构建**未配置商业代码签名**，首次运行可能出现 SmartScreen 提醒，请核对仓库地址与 SHA-256，不要从非项目所有者渠道获取安装包。
 
@@ -51,18 +53,21 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 
 | 首页：一眼看清设备与语音状态 | 工作流：文字固定进哪个应用 |
 |---|---|
-| ![首页](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/01-overview.png) | ![工作流](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/02-workflow.png) |
+| ![首页](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/01-overview.png) | ![工作流](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/02-workflow.png) |
 
 | 快捷键：按实物排布，电源键与录音键在最上 | 自检：结论 + 原因 + 下一步 |
 |---|---|
-| ![快捷键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/03-shortcuts.png) | ![自检](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/04-diagnostics.png) |
+| ![快捷键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/03-shortcuts.png) | ![自检](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/04-diagnostics.png) |
 
 | 设置：外观、后台、隐私与诊断 | 首次设置的 5 项任务 |
 |---|---|
-| ![设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/05-settings.png) | ![首次设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/00-setup-01-device.png) |
+| ![设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/05-settings.png) | ![首次设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/00-setup-01-device.png) |
 
-> 截图取自本候选构建（1280 × 840，白天模式）。如果在 GitHub Release 编辑器里图片没有显示，把 `docs/images/xxx.png` 换成绝对地址即可：
-> `https://github.com/richlearntodo-debug/vibe-flow/raw/<tag>/docs/images/xxx.png`
+| 语音：显示最近一次收音的实测电平 | 开机键与录音键就在快捷键页最上一行 |
+|---|---|
+| ![语音页：收音电平](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/06-voice.png) | ![快捷键页顶格的两个键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/03-shortcuts-screenshot.png) |
+
+> 截图取自本候选构建（1280 × 840，白天模式），全部指向本候选版的标签 `v2.0.0-candidate.2`，所以发布页展示的就是这一版自己的界面。
 
 ---
 
@@ -78,7 +83,7 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 4. **选择工具并完成听写** —— 选微信输入法 / Typeless / Windows 语音输入 / 其他，并**真的说一句**；
 5. **开机即用** —— 选择后台行为；常用应用与 Smart Profiles 都可以稍后再说。
 
-![首次设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/00-setup-01-device.png)
+![首次设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/00-setup-01-device.png)
 
 > 走不完也没关系：点「稍后再说」即可关闭向导并保留进度，下次从同一任务继续。
 
@@ -95,7 +100,7 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 - **录音键（F5）固定**在稳定语音链路上，不可修改、也不参与分层 —— 这是保证语音链路稳定的硬约束。
 - 破坏性操作（新建 / 重命名 / 删除 / 导入 / 导出）都收在「管理」菜单里。
 
-![快捷键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.1/docs/images/03-shortcuts.png)
+![快捷键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.2/docs/images/03-shortcuts.png)
 
 ### 5. 日常听写路径
 1. 打开或激活目标应用（例如 ChatGPT）；
@@ -172,16 +177,16 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 加入社群可以获得**配置答疑、设备兼容反馈、版本更新通知和 Vibe Coding 工作流分享**。遇到问题时，先在「自检」页从第一个警告开始处理，并把错误码一起带上。
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/richlearntodo-debug/vibe-flow/v2.0.0-candidate.1/docs/images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
+  <img src="https://raw.githubusercontent.com/richlearntodo-debug/vibe-flow/v2.0.0-candidate.2/docs/images/vibe-flow-community.png" alt="扫码加入 Vibe Flow 用户社区" width="760">
 </p>
 
 ---
 
 ## 🔗 相关文档
 
-- [完整功能看板](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/FEATURES_ZH.md)
-- [使用教程](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_USER_GUIDE_ZH.md)
-- [快速开始](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/QUICK_START_ZH.md)
-- [更新说明](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_RELEASE_NOTES_ZH.md) · [V2.0 更新梳理（相对 V1.5）](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_UPDATE_SUMMARY_ZH.md)
-- [真机测试状态](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_HARDWARE_TEST_MATRIX_ZH.md) · [已知限制](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/docs/V2_0_KNOWN_LIMITATIONS_ZH.md)
-- [完整变更日志](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.1/CHANGELOG.md)
+- [完整功能看板](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/FEATURES_ZH.md)
+- [使用教程](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/V2_0_USER_GUIDE_ZH.md)
+- [快速开始](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/QUICK_START_ZH.md)
+- [更新说明](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/V2_0_RELEASE_NOTES_ZH.md) · [V2.0 更新梳理（相对 V1.5）](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/V2_0_UPDATE_SUMMARY_ZH.md)
+- [真机测试状态](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/V2_0_HARDWARE_TEST_MATRIX_ZH.md) · [已知限制](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/docs/V2_0_KNOWN_LIMITATIONS_ZH.md)
+- [完整变更日志](https://github.com/richlearntodo-debug/vibe-flow/blob/v2.0.0-candidate.2/CHANGELOG.md)
