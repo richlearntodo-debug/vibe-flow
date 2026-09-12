@@ -1,0 +1,147 @@
+{
+    "schema":  1,
+    "product":  "言灵 · Vibe Flow Remote",
+    "version":  "V2.0.0",
+    "releaseName":  "V2.0.0 候选版 2",
+    "tag":  "v2.0.0-candidate.2",
+    "commit":  "667d9fad07754a7a195e85b33d95abf646f66d96",
+    "frozenAt":  "2026-09-12 16:00:59",
+    "releaseAssets":  {
+                          "Vibe-Flow-Windows-x64.zip":  "B8AEBCDA1D0239658E4C35B03FA9EB58B58CCB267A9B49465CAE11FA720565FF",
+                          "VibeFlow-Setup.exe":  "B08E50B0F3BA39F14E3C8B6523B2ACEB852D86BFE682FB29CECFC46A0CEF032B",
+                          "SHA256SUMS.txt":  "70629776C021E3FC331BBC5A5280C6F8732D0D4FBA18D9A5BE53522BEB45707C"
+                      },
+    "versioning":  {
+                       "captureFileVersion":  "1.2.1.0",
+                       "bridgeFileVersion":  "2.0.0.0",
+                       "recordingKernel":  "v1.0.3",
+                       "stableVoiceProfileVersion":  11
+                   },
+    "frozenCapture":  {
+                          "sha256":  "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683",
+                          "enforcedIn":  [
+                                             "scripts/Get-StableCaptureBinary.ps1",
+                                             "scripts/Prepare-DevelopmentRuntime.ps1",
+                                             ".github/workflows/validate.yml"
+                                         ],
+                          "requiredRuntimeFiles":  [
+                                                       "VibeFlow.exe",
+                                                       "VoxDeckInputBridge.exe",
+                                                       "VibeMicAtvvCapture.exe",
+                                                       "NAudio.Core.dll",
+                                                       "NAudio.Wasapi.dll"
+                                                   ]
+                      },
+    "voiceChain":  {
+                       "mode":  "hold",
+                       "maxSegmentSeconds":  60,
+                       "gain":  1,
+                       "autoLevel":  true,
+                       "processing":  "speech",
+                       "drainMs":  180,
+                       "endpoint":  "CABLE Input",
+                       "recordEndpoint":  "CABLE Output",
+                       "forbidden":  [
+                                         "MIC_EXTEND",
+                                         "auto-continuation",
+                                         "click-to-toggle",
+                                         "auto-Enter",
+                                         "cloud-recognition",
+                                         "webpage-text"
+                                     ]
+                   },
+    "keysAndGestures":  {
+                            "layers":  [
+                                           "short",
+                                           "long",
+                                           "double"
+                                       ],
+                            "fallbackOrder":  [
+                                                  "double",
+                                                  "long",
+                                                  "short"
+                                              ],
+                            "longPressMs":  600,
+                            "doubleTapWindowMs":  "GetDoubleClickTime(), floor 500",
+                            "recordKey":  "fixed, not customisable, not layered",
+                            "powerKey":  {
+                                             "vk":  "0xFF",
+                                             "scan":  "0x5E",
+                                             "unassigned":  "passthrough to Windows",
+                                             "assigned":  "enabled+suppress+tap"
+                                         },
+                            "powerKeyTradeoff":  "the same scan code is the microphone key after a Bluetooth reconnect; clear the power key if recording reliability matters more",
+                            "unsupported":  [
+                                                "Back",
+                                                "independent volume"
+                                            ]
+                        },
+    "captureQuality":  {
+                           "comfortableRmsPercent":  [
+                                                         10,
+                                                         30
+                                                     ],
+                           "warnBelowPercent":  10,
+                           "source":  "UserData/remote-voice-session/vibe-mic-runtime.log last REMOTE STREAM STOP, tail 64 KB",
+                           "baseline":  {
+                                            "sessions":  920,
+                                            "medianOutputRmsPercent":  5,
+                                            "below10Percent":  92,
+                                            "linkDrops":  0,
+                                            "autoGainApprox":  4
+                                        },
+                           "doNotRaiseGain":  "the automatic gain is already about 4x and a third of sessions already peak at 100%"
+                       },
+    "uiInvariants":  {
+                         "minimumFontPt":  8,
+                         "pages":  [
+                                       "首页",
+                                       "工作流",
+                                       "快捷键",
+                                       "语音",
+                                       "自检",
+                                       "设置"
+                                   ],
+                         "matrixThemes":  [
+                                              "light",
+                                              "dark",
+                                              "system"
+                                          ],
+                         "matrixSizes":  [
+                                             "default",
+                                             "1366x768",
+                                             "1920x1080",
+                                             "880x500"
+                                         ],
+                         "matrixCases":  12,
+                         "geometry":  "no overlapping siblings, no clipped text",
+                         "knownBlindSpot":  "geometry measures rectangles only; screenshot review is mandatory for copy and layering changes"
+                     },
+    "releaseGates":  {
+                         "validate":  "node scripts/validate.js exit 0",
+                         "selfTests":  [
+                                           "VibeMic.exe --self-test",
+                                           "VoxDeckInputBridge.exe --self-test"
+                                       ],
+                         "interfaceMatrix":  "12 case(s) passed",
+                         "installerExitCode":  0,
+                         "payloadFiles":  "51/51 byte-identical"
+                     },
+    "paths":  {
+                  "userData":  "%LOCALAPPDATA%\\\\Vibe Flow Remote\\\\UserData",
+                  "sessionArtifacts":  "%LOCALAPPDATA%\\\\Vibe Flow Remote\\\\UserData\\\\remote-voice-session",
+                  "config":  "%LOCALAPPDATA%\\\\Vibe Flow Remote\\\\UserData\\\\vibe-mic-config.json",
+                  "bridgeMappings":  "\u003cinstall dir\u003e\\\\voxdeck-shortcuts.json",
+                  "installDir":  "%LOCALAPPDATA%\\\\Programs\\\\Vibe Flow Remote"
+              },
+    "localNetwork":  {
+                         "desktopProxy":  "127.0.0.1:7897",
+                         "powershell":  "uses the system proxy",
+                         "gitAndGh":  "do NOT use the system proxy; pass http.proxy / HTTPS_PROXY explicitly"
+                     },
+    "ci":  {
+               "frozenCaptureDelivery":  "repository secrets VIBE_FLOW_CAPTURE_B64_1..4 (base64, 4 parts; one secret is capped at 48 KB while the component encodes to ~126 KB)",
+               "workingSteps":  "validate, installer requirements, V2 feature suite",
+               "knownFailure":  "Build release needs tools/VBCABLE_Driver_Pack45.zip, which .gitignore excludes and which exceeds the secret size cap; deliver it as a release asset or accept source-only CI"
+           }
+}
