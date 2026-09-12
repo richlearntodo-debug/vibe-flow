@@ -1266,7 +1266,7 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 // configured inside each tool, so a duplicate default silently means two tools react to one key. 微信输入法的 ctrl+win is
 // frozen (it is the verified stable value) and Windows 语音输入 is fixed by Windows, so the other two moved.
 assert(includesAll(app, [
-  'case "typeless": return "rightctrl";',
+  'case "typeless": return "rightalt";',
   'case "bage": return "rightalt";',
   'case "windows": return "win+h";',
   'case "custom": return "rightshift";',

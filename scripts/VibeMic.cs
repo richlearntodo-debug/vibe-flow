@@ -19844,7 +19844,7 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "typeless": return "在 Typeless 设置中确认录音快捷键。本应用内默认填 Right Ctrl；请在 Typeless 里把录音快捷键设为同一个组合（按一下开始、再按一下结束）。";
+            case "typeless": return "在 Typeless 设置中确认录音快捷键。按 Typeless 客户端要求配置快捷键；常见默认值是 Right Alt（按一下开始、再按一下结束）。";
             case "windows": return "Windows 语音输入使用 Win + H。首次使用时请先在任意输入框中手动按一次完成系统初始化。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
@@ -19877,7 +19877,7 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "typeless": return "rightctrl";
+            case "typeless": return "rightalt";
             case "bage": return "rightalt";
             case "windows": return "win+h";
             case "custom": return "rightshift";
