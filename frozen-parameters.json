@@ -55,11 +55,11 @@
                        "providerDefaults":  {
                                                 "wechat":  "ctrl+win",
                                                 "bage":  "rightalt",
-                                                "xunfei":  "ctrl+shift+alt+[",
+                                                "xunfei":  "f6",
                                                 "custom":  "rightshift"
                                             },
                        "effectiveTrigger":  "wechat is pinned to toggle whatever the stored value says; every other tool honours the stored hold/toggle choice (EffectiveTriggerForProvider)",
-                       "machineConfigVerifiedAt":  "2026-09-13 03:0x - user config read back before migration: provider=windows, hotkey=win+h, trigger=toggle, voiceMode=hold; migrates to wechat",
+                       "machineConfigVerifiedAt":  "2026-09-13 03:2x - user reported 讯飞 input only accepts F6 as its voice shortcut, so the app stores f6 for it; config switched to provider=xunfei hotkey=f6 trigger=hold",
                        "providerTriggerDefaults":  {
                                                        "wechat":  "toggle",
                                                        "bage":  "toggle",

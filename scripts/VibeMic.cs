@@ -4774,28 +4774,31 @@ deck.Hide();
                 if (triggerProbe.Items.Count != 2)
                     throw new InvalidOperationException("讯飞语音输入法 lost its hold / toggle choice");
             }
-            // The voice tools must keep distinct default shortcuts: 八哥说 owns Right Alt, so 讯飞
-            // uses its own stock Ctrl + Shift + Alt + [. Sharing one form was measured on the user's
-            // machine as selecting Typeless and triggering 八哥说 instead.
+            // The voice tools must keep distinct default shortcuts: 八哥说 owns Right Alt, 讯飞 input's
+            // voice bar can only be bound to F6, and sharing one form was measured on the user's machine
+            // as selecting Typeless and triggering 八哥说 instead.
             if (DefaultHotkeyForProvider("bage") != "rightalt" ||
                 DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey ||
+                XunfeiVoiceHotkey != "f6" ||
                 DefaultHotkeyForProvider("bage") == DefaultHotkeyForProvider("xunfei") ||
-                !ProviderSetupInstruction("xunfei").Contains("Ctrl + Shift + Alt + ["))
+                !ProviderSetupInstruction("xunfei").Contains("F6"))
                 throw new InvalidOperationException("The voice-tool default shortcuts collided again");
-            // 讯飞's shortcut is stored as the character the tool documents, while the shortcut recorder
-            // stores a recorded key as its own hex token. Both spellings have to mean the same key for
-            // the host sender and for the display, and the frozen capture must be unable to send either
-            // one — that is what makes the host the sender and keeps the press single-owner.
+            // 讯飞's F6 is inside the frozen capture's reach, so the capture is the sender and the host
+            // must stay out of it. A tool whose shortcut names a key the capture cannot send still has to
+            // work, which is what the host's own punctuation support is for; both halves are pinned here,
+            // together with the recorder's hex spelling of a recorded key.
             if (TranscriptionVirtualKey("[") != 0xDB ||
                 TranscriptionVirtualKey("0xDB") != 0xDB ||
                 MappingShortcutVirtualKey("[") != 0xDB ||
                 MappingShortcutVirtualKey("0xdb") != 0xDB ||
                 !IsValidTranscriptionHotkey(XunfeiVoiceHotkey) ||
                 !IsValidTranscriptionHotkey("ctrl+shift+alt+0xDB") ||
-                MappingShortcutDisplay(XunfeiVoiceHotkey) != "Ctrl + Shift + Alt + [" ||
-                FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
-                FrozenCaptureCanSendShortcut("ctrl+shift+alt+0xDB"))
-                throw new InvalidOperationException("The bracket key of the 讯飞 shortcut is not reachable both ways");
+                MappingShortcutDisplay("ctrl+shift+alt+[") != "Ctrl + Shift + Alt + [" ||
+                !FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
+                FrozenCaptureCanSendShortcut("ctrl+shift+alt+0xDB") ||
+                ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
+                !ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false))
+                throw new InvalidOperationException("The 讯飞 shortcut is not sent by exactly one component");
             RunInputEngineCatalogSelfTests();
             RunVbCableInstallCompletionSelfTests();
             RunLinkQualityPolicySelfTests();
@@ -7706,7 +7709,7 @@ deck.Hide();
             if (!IsValidTranscriptionHotkey(value))
             {
                 hotkey.Text = config.inputMethodHotkey;
-                Toast("快捷键格式不正确，请使用例如 ctrl+win、rightalt 或 ctrl+shift+alt+[");
+                Toast("快捷键格式不正确，请使用例如 ctrl+win、rightalt 或 f6");
                 return;
             }
             if (value == config.inputMethodHotkey) return;
@@ -12418,8 +12421,9 @@ deck.Hide();
     // other out and two holds overlap: before this rule existed the host and the capture both pressed
     // it, and the user saw the result as a tool that stopped by itself, or as the Windows start and
     // stop cue sounds running together. The frozen capture keeps ownership whenever it can parse the
-    // shortcut; the host takes over only for a shortcut outside the capture's parser (讯飞 input's
-    // Ctrl + Shift + Alt + [) and in trigger-only mode, where no capture is running at all.
+    // shortcut, which covers 讯飞's F6; the host takes over only for a shortcut outside the capture's
+    // parser (a punctuation key such as Ctrl + Shift + Alt + [) and in trigger-only mode, where no
+    // capture is running at all.
     internal static bool ProviderHotkeyIsHostDriven(string provider, string shortcut, bool triggerOnlyMode)
     {
         if (NormalizeProviderKey(provider) == "wechat") return false;
@@ -13567,7 +13571,7 @@ deck.Hide();
     {
         string value = (raw ?? "").Trim().ToLowerInvariant();
         // The shortcut recorder stores a recorded key as its own hex token (0xDB for the bracket key),
-        // while a tool's documented shortcut is written as the character (讯飞's Ctrl + Shift + Alt + [).
+        // while a tool's documented shortcut is written as the character (Ctrl + Shift + Alt + [).
         // Both spellings have to reach the same key here.
         if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
         {
@@ -19968,7 +19972,7 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "xunfei": return "打开讯飞输入法「设置 → 语音」，把语音快捷键设为 Ctrl + Shift + Alt + [（讯飞安装后的默认值），并选择「长按说话」；Vibe Link 此处必须与它保持一致。";
+            case "xunfei": return "打开讯飞输入法「设置 → 语音」，把语音快捷键设为 F6（讯飞只允许 F6），并选择「长按说话」；Vibe Link 此处必须与它保持一致。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
         }
@@ -20008,9 +20012,15 @@ deck.Hide();
         return "稳定参数：Ctrl + Win · 单击切换";
     }
 
-    // The tool's own shortcut, as it is written in the tool's settings. Only characters a shortcut
-    // can actually contain appear here, and 讯飞's XunfeiVoiceHotkey is its installer default.
-    private const string XunfeiVoiceHotkey = "ctrl+shift+alt+[";
+    // The tool's own shortcut, as it is written in the tool's own settings. 讯飞 input's voice bar can
+    // only be bound to F6 — the user tried to change it and reported that F6 is the only value the
+    // client accepts — so F6 is what this app stores and what the user must see there.
+    //
+    // F6 is also inside the frozen capture's reach, so for 讯飞 the capture presses the key and the host
+    // stays out of it: ProviderHotkeyIsHostDriven answers that question from this one string. The host's
+    // own punctuation support (see PunctuationVirtualKey) therefore exists for a tool whose documented
+    // shortcut names a key the capture cannot send, and is pinned by the host self-test.
+    private const string XunfeiVoiceHotkey = "f6";
 
     private static string DefaultHotkeyForProvider(string provider)
     {
@@ -20091,9 +20101,10 @@ deck.Hide();
         return true;
     }
 
-    // A tool's own shortcut may name a punctuation key — 讯飞 input's stock voice shortcut is
-    // Ctrl + Shift + Alt + [ — so the host has to be able to press one. Every entry is an OEM key
-    // whose virtual-key code is fixed by Windows, and the scan code is derived at send time.
+    // A tool's own shortcut may name a punctuation key — 讯飞's installer default was Ctrl + Shift + Alt + [
+    // before its settings turned out to accept only F6, and another tool may use one — so the host has to be
+    // able to press one. Every entry is an OEM key whose virtual-key code is fixed by Windows, and the scan
+    // code is derived at send time.
     private static int PunctuationVirtualKey(char character)
     {
         switch (character)
@@ -22804,7 +22815,7 @@ deck.Hide();
             { "volumemute", 0xAD }, { "mediaplaypause", 0xB3 },
             // Punctuation is spelled both ways: the shortcut recorder stores the recorded key as its
             // own hex token (0xDB), while a tool's documented shortcut is written as the character
-            // (讯飞 input's Ctrl + Shift + Alt + [). Both have to mean the same key.
+            // (for example Ctrl + Shift + Alt + [). Both have to mean the same key.
             { ";", 0xBA }, { "+", 0xBB }, { ",", 0xBC }, { "-", 0xBD }, { ".", 0xBE },
             { "/", 0xBF }, { "`", 0xC0 }, { "[", 0xDB }, { "\\", 0xDC }, { "]", 0xDD }, { "'", 0xDE }
         };
@@ -25427,12 +25438,14 @@ deck.Hide();
         // Getting this wrong is what made two components press the same toggle in earlier builds.
         if (ProviderHotkeyIsHostDriven("wechat", XunfeiVoiceHotkey, true) ||
             ProviderHotkeyIsHostDriven("wechat", WeChatStableHotkey, false) ||
-            !ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
+            ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
             ProviderHotkeyIsHostDriven("xunfei", "rightalt", false) ||
+            !ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false) ||
             ProviderHotkeyIsHostDriven("bage", "rightalt", false) ||
             !ProviderHotkeyIsHostDriven("bage", "rightalt", true))
             throw new InvalidOperationException("The owner of a tool shortcut is ambiguous");
-        if (FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
+        if (!FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
+            FrozenCaptureCanSendShortcut("ctrl+shift+alt+[") ||
             !FrozenCaptureCanSendShortcut("rightalt") ||
             !FrozenCaptureCanSendShortcut("ctrl+win") ||
             !FrozenCaptureCanSendShortcut("f6"))

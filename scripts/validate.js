@@ -1203,12 +1203,13 @@ assert(includesAll(app, [
 // held shortcut re-triggers its single-tap toggle. Both values must now be migrated visibly instead of quietly
 // behaving like another tool, and neither may remain selectable.
 //
-// 讯飞 input is installed on this machine (D:\iFlyIME\3.0.1750) and its own installer writes the voice shortcut
-// into HKCU\Software\iFly Info Tek\iFlyIME -> iFlyImeVoiceShiftHotKey = "Ctrl + Shift + Alt + [". A tool is only
-// really supported when it is known in every place that makes the option real: the key normaliser (a stored
-// value has to survive a reload, including the Chinese label), the display name and summary, the default
-// shortcut and trigger, the startup delay, the process match that decides whether its client is running, the
-// label/index mapping the combo boxes rely on, and every dropdown literal.
+// 讯飞 input is installed on this machine (D:\iFlyIME\3.0.1750) and its voice bar can only be bound to F6 —
+// the user tried to change it and reported that F6 is the only value the client accepts — so F6 is the
+// shortcut this app stores for it. A tool is only really supported when it is known in every place that
+// makes the option real: the key normaliser (a stored value has to survive a reload, including the Chinese
+// label), the display name and summary, the default shortcut and trigger, the startup delay, the process
+// match that decides whether its client is running, the label/index mapping the combo boxes rely on, and
+// every dropdown literal.
 assert(includesAll(app, [
   'provider == "xunfei" || provider == "ifly"',
   'case "xunfei": return "讯飞语音输入法";',
@@ -1218,7 +1219,7 @@ assert(includesAll(app, [
   'case "xunfei": return 2;',
   'case "xunfei": return IsProcessRunning("iFlyInput")',
   'index == 2 ? "xunfei" : index == 3 ? "custom"',
-  'private const string XunfeiVoiceHotkey = "ctrl+shift+alt+[";',
+  'private const string XunfeiVoiceHotkey = "f6";',
   'case "bage": return "八哥说";',
   'case "bage": return "rightalt";',
   'case "bage": return 150;',
@@ -1232,11 +1233,12 @@ assert(includesAll(app, [
 
 // Exactly one component may press a tool's shortcut.
 //
-// The frozen capture presses it itself whenever its own parser can read it; the host has to take over for a
-// shortcut the capture cannot send (讯飞's Ctrl + Shift + Alt + [, because the capture's parser knows only
-// letters, digits, F1-F24 and a short list of named keys) and in trigger-only mode, where no capture runs at
-// all. Both halves are pinned, including the negative half: the two key lists have to stay identical, because
-// the capture is frozen and a shortcut added on the host side alone would silently hand the press to nobody.
+// The frozen capture presses it itself whenever its own parser can read it — which is the case for 讯飞's F6 —
+// and the host has to take over for a shortcut the capture cannot send (a punctuation key such as
+// Ctrl + Shift + Alt + [, because the capture's parser knows only letters, digits, F1-F24 and a short list of
+// named keys) and in trigger-only mode, where no capture runs at all. Both halves are pinned, including the
+// negative half: the two key lists have to stay identical, because the capture is frozen and a shortcut added
+// on the host side alone would silently hand the press to nobody.
 const captureShortcutNames = (() => {
   const body = section(capture, "private static int VirtualKeyFromName(string raw)", "internal sealed class");
   return [...body.matchAll(/\{\s*"([a-z0-9]+)",\s*0x[0-9A-Fa-f]+\s*\}/g)].map((match) => match[1]).sort();
@@ -1254,7 +1256,9 @@ assert(includesAll(app, [
   "if (ShouldHoldProviderHotkeyForSession(config.inputMethod, config.inputMethodTrigger))",
   "case '[': return 0xDB;",
   'TranscriptionVirtualKey("0xDB") != 0xDB',
-  'MappingShortcutDisplay(XunfeiVoiceHotkey) != "Ctrl + Shift + Alt + ["',
+  'MappingShortcutDisplay("ctrl+shift+alt+[") != "Ctrl + Shift + Alt + ["',
+  '!FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey)',
+  '!ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false)',
 ]) && !app.includes("if (ShouldHoldProviderHotkeyForSession(config.inputMethod) && held)"),
   "The host and the frozen capture can both press the same tool shortcut again, or a shortcut the capture cannot send has no sender");
 
@@ -1308,14 +1312,14 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 // and "其他语音工具" defaulted to ctrl+win, the same stable value as 微信输入法. The stored value has to match the
 // shortcut configured inside each tool, so a duplicate default silently means two tools react to one key — measured
 // on this machine as selecting Typeless and triggering 八哥说. 微信输入法's ctrl+win is frozen (it is the verified
-// stable value), so the other slots hold 八哥说's Right Alt and 讯飞's own stock Ctrl + Shift + Alt + [, which the
-// host can now press even though the frozen capture's parser cannot name it.
+// stable value), so the other slots hold 八哥说's Right Alt and 讯飞's F6, which is the only value 讯飞's own
+// settings let the user bind its voice bar to.
 assert(includesAll(app, [
   'case "bage": return "rightalt";',
   'case "xunfei": return XunfeiVoiceHotkey;',
   'case "custom": return "rightshift";',
   'private const string WeChatStableHotkey = "ctrl+win";',
-  'private const string XunfeiVoiceHotkey = "ctrl+shift+alt+[";',
+  'private const string XunfeiVoiceHotkey = "f6";',
   'DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey',
 ]), "The voice-tool default shortcuts collide again");// The two key classes must stay disjoint, which is what lets both work at once.
 //
