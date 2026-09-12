@@ -4,8 +4,8 @@
     "version":  "V2.0.0",
     "releaseName":  "V2.0.0 候选版 2",
     "tag":  "v2.0.0-candidate.2",
-    "commit":  "ad179a0da32b2a4511c8dc35bce47c5691e62f0f",
-    "frozenAt":  "2026-09-13 00:05:06",
+    "commit":  "da58b6709b65046f46fa3b1db6ad1f4616a90a6a",
+    "frozenAt":  "2026-09-13 00:34:09",
     "releaseAssets":  {
                           "Vibe-Flow-Windows-x64.zip":  "ABAC859AD53A9609D899B32478A300330A74292F5DC11C83D3F0A31775E561B7",
                           "VibeFlow-Setup.exe":  "93F2D635E3749A193ADB77BA7879D1DA2C50F0297B1057634A306956557E8C64",
@@ -51,30 +51,82 @@
                                      ]
                    },
     "keysAndGestures":  {
-                            "layers":  [
-                                           "short",
-                                           "long",
-                                           "double"
-                                       ],
-                            "fallbackOrder":  [
-                                                  "double",
-                                                  "long",
-                                                  "short"
-                                              ],
-                            "longPressMs":  600,
-                            "doubleTapWindowMs":  "GetDoubleClickTime(), floor 500",
-                            "recordKey":  "fixed, not customisable, not layered",
                             "powerKey":  {
                                              "vk":  "0xFF",
                                              "scan":  "0x5E",
-                                             "unassigned":  "passthrough to Windows",
-                                             "assigned":  "enabled+suppress+tap"
+                                             "frozen":  "short/long/double all empty",
+                                             "reason":  "shares the scan code with the microphone key after a Bluetooth reconnect",
+                                             "storedIn":  [
+                                                              "vibe-mic-config.json",
+                                                              "UserData/gesture-layers.json (higher priority)"
+                                                          ],
+                                             "bridgeDefault":  "enabled=false, suppress=false"
                                          },
-                            "powerKeyTradeoff":  "the same scan code is the microphone key after a Bluetooth reconnect; clear the power key if recording reliability matters more",
-                            "unsupported":  [
-                                                "Back",
-                                                "independent volume"
-                                            ]
+                            "recordKey":  {
+                                              "frozen":  "must never reach the foreground application",
+                                              "guard":  "actionless mappings are treated as absent (MappingHasNoAction/IsActionless)",
+                                              "isolation":  "presence window 5 s == raw-input probe 5 s",
+                                              "remappable":  false,
+                                              "layered":  false,
+                                              "healthyLog":  "Key 录音键 DOWN/UP vk=0x74 scan=0x3F source=rc003_present_hook",
+                                              "leakLog":  "RAW KEY DOWN vk=0x74 without a Key 录音键 line"
+                                          },
+                            "gestureTable":  {
+                                                 "up":  [
+                                                            "",
+                                                            "pageup",
+                                                            "ctrl+x"
+                                                        ],
+                                                 "down":  [
+                                                              "",
+                                                              "pagedown",
+                                                              "ctrl+a"
+                                                          ],
+                                                 "left":  [
+                                                              "",
+                                                              "browserback",
+                                                              "ctrl+z"
+                                                          ],
+                                                 "right":  [
+                                                               "",
+                                                               "ctrl+shift+z",
+                                                               "ctrl+s"
+                                                           ],
+                                                 "ok":  [
+                                                            "",
+                                                            "volumemute",
+                                                            "mediaplaypause"
+                                                        ],
+                                                 "menu":  [
+                                                              "",
+                                                              "",
+                                                              "volumeup"
+                                                          ],
+                                                 "home":  [
+                                                              "",
+                                                              "",
+                                                              "launch-client:cursor"
+                                                          ],
+                                                 "tv":  [
+                                                            "",
+                                                            "launch-client:chatgpt",
+                                                            "volumedown"
+                                                        ],
+                                                 "power":  [
+                                                               "",
+                                                               "",
+                                                               ""
+                                                           ],
+                                                 "order":  "short, long, double"
+                                             },
+                            "builtInRecommendedWritesOnce":  [
+                                                                 "up long pageup",
+                                                                 "down long pagedown",
+                                                                 "left long browserback",
+                                                                 "ok long volumemute",
+                                                                 "ok double mediaplaypause",
+                                                                 "tv long launch-client:chatgpt"
+                                                             ]
                         },
     "captureQuality":  {
                            "comfortableRmsPercent":  [

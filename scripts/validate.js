@@ -1229,7 +1229,19 @@ assert(includesAll(bridge, [
   "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(",
 ]), "An actionless mapping can swallow the record key: the guard is missing from the bridge");
 assert(bridge.split("MappingHasNoAction(mapping)) && IsVoiceRawCandidate(").length - 1 === 2,
-  "One of the two fallback paths lost the actionless-mapping guard");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  "One of the two fallback paths lost the actionless-mapping guard");// The frozen keys-and-gestures rules (user-confirmed 2026-09-13).
+//
+// Three facts have to stay true or the recorded bug comes back: the bridge's built-in power mapping stays disabled
+// (unassigned means the scan code belongs to Windows and to the record fallback), an actionless mapping never takes the
+// key away from the record fallback, and the record-key suppression window stays the same size as the probe that keeps
+// it fresh. The last one matters because the probe is the only thing refreshing presence while the remote is idle: with
+// a 30 s probe against a 5 s window the first press of a session was not suppressed and the page refreshed.
+assert(includesAll(bridge, [
+  'name = "power", label = "电源键", vk = "0xFF", scan = "0x5E", enabled = false, suppress = false',
+  "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(",
+  "private const int Rc003PresenceWindowMs = 5000;",
+  "int healthIntervalMs = Rc003PresenceWindowMs;",
+]), "The frozen power-key or record-key rules no longer hold in the bridge");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

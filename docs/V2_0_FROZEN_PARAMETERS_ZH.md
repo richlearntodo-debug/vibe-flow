@@ -99,3 +99,46 @@
 2. 断言钉的是**契约**，不是文案字面量：文案可以变，但 `validate.js` 对应字符串必须同步更新（本会话已多次因此被拦下，属预期保护）。
 3. 采样/录音、蓝牙、按键钩子与隐私链路**不属于可自由重构范围**；UI 与文案改动同样必须过几何检查与目视截图两道。
 4. 涉及多行代码的改动**使用编辑工具**，不要用脚本批量替换（本会话有两次因此误删行）。
+
+## 10. 本轮固化的按键与手势（2026-09-13 用户确认 ✔）
+
+### 10.1 开机键（电源键）：三层全部留空 ✔
+
+| 层 | 冻结值 | 理由 |
+| --- | --- | --- |
+| 短按 | **无动作** ✔ | 它与蓝牙重连后的**麦克风键共用扫描码 `0xFF/0x5E`** ✗ —— 一旦指派动作，按住录音键可能被当成电源键执行 ✔（本机实测过一次：长按层配了 `open-url` ✗，表现为"当前页面被刷掉" ✗）。 |
+| 长按 | **无动作** ✔ | 同上 ✔ |
+| 双击 | **无动作** ✔ | 同上 ✔ |
+
+- 代码侧默认值 ✔：桥内置的 power 映射为 `enabled = false, suppress = false` ✔（未指派即完全交给 Windows ✔）。
+- **动作有两个存储位置** ✗：Profile 映射（`vibe-mic-config.json` ✔）**与手势层覆盖（`UserData\gesture-layers.json` ✔，优先级更高 ✗）** —— 清空时必须**两处都清** ✔，并**从投影结果反查** ✔（`voxdeck-shortcuts.json` 里 `power` 的 `enabled=true` 计数应为 **0** ✔、且全文无 `open-url` ✔）。
+- 备份命名 ✔：`*.before-power-fix-<时间戳>.bak` ✔。
+
+### 10.2 录音键：**绝不刷新页面** ✔（三重保证）
+
+| 保证 | 实现 | 验证方式 |
+| --- | --- | --- |
+| ① 共码不抢键 ✔ | 桥：**动作全是 `none`/`passthrough` 的映射一律视为未启用** ✔（`MappingHasNoAction` / `IsActionless` ✔，两处兜底判定均含 ✔） | `validate` 门禁 + 已安装二进制内含该符号 ✔ |
+| ② 窗口内拦截 ✔ | "遥控器在线范围"隔离：抑制窗口 **5 秒** ✔ 与 Raw Input 健康探测 **5 秒** ✔ **同频** ✔（探测必须落在它自己喂的窗口内 ✗ 否则会话第一下会漏 ✗） | 桥日志启动行 `Raw Input health timer interval_ms=5000 presence_window_ms=5000` ✔ |
+| ③ 录音键不可改 ✔ | 录音键（F5）固定在稳定语音链路 ✔，不参与自定义映射、不参与手势分层 ✔ | `validate` 门禁 ✔ |
+
+- **正常日志** ✔：`Key 录音键 DOWN/UP vk=0x74 scan=0x3F source=rc003_present_hook` ✔（说明由钩子接管 ✔）。
+- **异常信号** ✗：出现 `RAW KEY DOWN vk=0x74 …` 而无 `Key 录音键` 行 ✔ → 表示 F5 直通到了前台应用 ✔（页面被刷新 ✗）。
+
+### 10.3 其他快捷键：常用情况 ✔
+
+**本机实测可用（用户确认 ✔）**：
+
+| 键 | 短按 | 长按 | 双击 |
+| --- | --- | --- | --- |
+| 上 | 空 | `pageup` ✔ | `ctrl+x`（剪切）✔ |
+| 下 | 空 | `pagedown` ✔ | `ctrl+a`（全选）✔ |
+| 左 | 空 | `browserback`（返回上一页）✔ | `ctrl+z`（撤销）✔ |
+| 右 | 空 | `ctrl+shift+z`（重做）✔ | `ctrl+s`（保存）✔ |
+| 确认 | 空 | `volumemute`（静音）✔ | `mediaplaypause`（播放-暂停）✔ |
+| 菜单 | 空 | 空 | `volumeup` ✔ |
+| Home | 空 | 空 | `launch-client:cursor` ✔ |
+| TV | 空 | `launch-client:chatgpt` ✔ | `volumedown` ✔ |
+| **电源** | **空** ✔ | **空** ✔ | **空** ✔ |
+
+**内置推荐表**（仅在**还没有手势表的机器**上写入一次 ✔，用户改过后不再覆盖 ✔）：`up/down/left` 长按 = `pageup/pagedown/browserback` ✔、`ok` 长按 = `volumemute` ✔、`ok` 双击 = `mediaplaypause` ✔、`tv` 长按 = `launch-client:chatgpt` ✔（其余见 `scripts/features/GestureBindingStore.cs` 的 `UpsertLayer` 调用 ✔ 与 `docs/V2_0_USER_GUIDE_ZH.md` ✔）。
