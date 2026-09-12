@@ -1112,8 +1112,8 @@ assert(includesAll(app, [
 // power mapping win even when unassigned, which would have broken the microphone path; the check below is the
 // corrected rule, and a fallback that ignored `enabled` again would take the key back.
 assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
-  "if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
-  "if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
+  "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(virtualKey, input.MakeCode))",
+  "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))",
   "return vk == 0x74 || vk == 0xF5 || (vk == 0xFF && scan == 0x5E);",
   "if (expectedScan < 0 || expectedScan == scanCode)",
 ]) && includesAll(app, [
@@ -1215,7 +1215,21 @@ assert(includesAll(app, [
   '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具"',
   '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "Voquill（开源）", "其他语音工具"',
 ]) && !app.includes('八哥说", "Typeless"'),
-  "The 八哥说 provider is offered but not wired through, or the dropdown order drifted from ProviderIndex");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  "The 八哥说 provider is offered but not wired through, or the dropdown order drifted from ProviderIndex");// An actionless mapping must not swallow the record key.
+//
+// Reported as a real bug: pressing the microphone refreshed the page. The power key had an open-url action and shares
+// the raw form 0xFF/0x5E with the microphone after a Bluetooth reconnect, so the press was routed to the power action.
+// Clearing the action exposed a second half: the host still projects the key as enabled with every layer empty, and the
+// record fallback only ran for a disabled mapping, so an actionless power key swallowed the key and did nothing.
+// Both fallback paths must therefore treat an actionless mapping as absent.
+assert(includesAll(bridge, [
+  "private static bool MappingHasNoAction(ShortcutMapping mapping)",
+  "private static bool IsActionless(string action)",
+  'value.Equals("none", StringComparison.OrdinalIgnoreCase)',
+  "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(",
+]), "An actionless mapping can swallow the record key: the guard is missing from the bridge");
+assert(bridge.split("MappingHasNoAction(mapping)) && IsVoiceRawCandidate(").length - 1 === 2,
+  "One of the two fallback paths lost the actionless-mapping guard");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

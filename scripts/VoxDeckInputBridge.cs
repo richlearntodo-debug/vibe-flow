@@ -602,7 +602,7 @@ internal static class VoxDeckInputBridge
         // VK 0xFF / scan 0x5E — RC003 has emitted the power form in place of F5 across Bluetooth reconnects, and this
         // machine's own bridge log shows the microphone arriving that way. So an *unassigned* power key leaves the
         // record fallback exactly as it was; once the user assigns it an action the mapping is enabled and wins.
-        if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(virtualKey, input.MakeCode))
+        if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(virtualKey, input.MakeCode))
             mapping = FindVoiceMapping();
         bool isVoice = IsVoiceMapping(mapping);
 
@@ -3236,7 +3236,7 @@ internal static class VoxDeckInputBridge
                 ShortcutMapping mapping = FindRc003FilterMapping(keyboard.VKey, keyboard.MakeCode);
                 // Same rule as the filter path: an unassigned (disabled) power key hands the shared raw form 0xFF/0x5E
                 // back to the record fallback, so a microphone that reports that way keeps working.
-                if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
+                if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(keyboard.VKey, keyboard.MakeCode))
                 {
                     ShortcutMapping fallbackVoice = FindVoiceMapping();
                     if (fallbackVoice != null && fallbackVoice.enabled)
@@ -4120,6 +4120,27 @@ internal static class VoxDeckInputBridge
     {
         try { if (File.Exists(CustomCaptureRequestPath)) File.Delete(CustomCaptureRequestPath); }
         catch (Exception ex) { Log("Custom capture request cleanup failed: " + ex.Message); }
+    }
+
+    // A mapping whose every layer is "no action" must not take the key away from the record fallback.
+    //
+    // The host projects a key as enabled even when the user has cleared its action: after the power key's action was
+    // set to "none", the projected mapping still read enabled=true with every layer empty, so the shared raw form
+    // 0xFF/0x5E was intercepted and executed as "nothing" — the key was swallowed, and the record fallback, which
+    // only runs for a disabled mapping, never fired. An actionless mapping is not an assignment: treat it as absent.
+    private static bool MappingHasNoAction(ShortcutMapping mapping)
+    {
+        if (mapping == null) return true;
+        return IsActionless(mapping.shortcut) && IsActionless(mapping.shortShortcut) &&
+            IsActionless(mapping.longShortcut) && IsActionless(mapping.doubleShortcut);
+    }
+
+    private static bool IsActionless(string action)
+    {
+        if (string.IsNullOrWhiteSpace(action)) return true;
+        string value = action.Trim();
+        return value.Equals("none", StringComparison.OrdinalIgnoreCase) ||
+            value.Equals("passthrough", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsVoiceRawCandidate(int vk, int scan)
