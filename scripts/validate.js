@@ -2834,10 +2834,10 @@ assert(includesAll(uiDesignTokens, [
 ]) && !uiDesignTokens.includes("Projects = 1") && !uiDesignTokens.includes("QuickEntries = 7"),
 "The V2 UI tokens do not reserve stable removed-page IDs while bounding the five-page navigation");
 assert(includesAll(read("scripts/ui/PageShell.cs"), [
-  "首页", "工作流", "快捷键", "语音", "自检", "设置",
+  "首页", "语音", "快捷键", "工作流", "自检", "设置",
   "VibePageId.Workflow", "BuildWorkflowPage();",
 ]) && includesAll(read("scripts/ui/DesignTokens.cs"), ["Workflow = 1"]),
-"The shell must expose 首页/工作流/快捷键/语音/自检/设置 with the workflow page wired");
+"The shell must expose 首页/语音/快捷键/工作流/自检/设置 with the voice page wired second");
 assert(includesAll(uiComponents, [
   "CreateEmptyStateCard", "AccessibleName", "AutoEllipsis",
 ]), "Reusable UI components do not expose an accessible empty state");
@@ -3250,7 +3250,7 @@ assert(includesAll(uiDesignTokens, ["PageCount = 6", "Notes = 6"]) &&
   !uiDesignTokens.includes("Projects = 1") && !uiDesignTokens.includes("QuickEntries = 7"),
   "Page count does not bound the five-page navigation while reserving stable removed-page IDs");
 assert(includesAll(pageShell, [
-  'NavigationText = { "首页", "工作流", "快捷键", "语音", "自检", "设置" }',
+  'NavigationText = { "首页", "语音", "快捷键", "工作流", "自检", "设置" }',
   "NavigationPageIds",
 ]), "The main navigation does not expose the stable shortcut and voice pages");
 assert(includesAll(app, ["navButtons.Count != NavigationText.Length", "NavigationText.Length != 6"]),

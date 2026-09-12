@@ -6,11 +6,16 @@ internal sealed partial class VibeMicForm
     // Keep the stable V1.5 destinations first-class. Notes and the removed
     // Quick Entries surface remain reserved page IDs only; neither is a
     // user-facing product page anymore.
-    private static readonly string[] NavigationText = { "首页", "工作流", "快捷键", "语音", "自检", "设置" };
-    private static readonly string[] NavigationIcons = { "overview", "shortcuts", "shortcuts", "voice", "diagnostics", "settings" };
+    //
+    // The order follows how the app is actually used: while dictating, the voice page is what a user keeps coming back
+    // to, so it sits second, and the workflow page — where the text is aimed — follows the shortcuts page. The page IDs
+    // are deliberately unchanged: the buttons carry ids rather than positions, so nothing else depends on this order.
+    // The three arrays must stay index-aligned, including the icons.
+    private static readonly string[] NavigationText = { "首页", "语音", "快捷键", "工作流", "自检", "设置" };
+    private static readonly string[] NavigationIcons = { "overview", "voice", "shortcuts", "shortcuts", "diagnostics", "settings" };
     private static readonly int[] NavigationPageIds = {
-        (int)VibePageId.Home, (int)VibePageId.Workflow, (int)VibePageId.Controls,
-        (int)VibePageId.Voice, (int)VibePageId.Diagnostics, (int)VibePageId.Settings
+        (int)VibePageId.Home, (int)VibePageId.Voice, (int)VibePageId.Controls,
+        (int)VibePageId.Workflow, (int)VibePageId.Diagnostics, (int)VibePageId.Settings
     };
 
     private void BuildPage(VibePageId page)
