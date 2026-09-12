@@ -3186,13 +3186,13 @@ internal sealed partial class VibeMicForm : Form
                     throw new InvalidOperationException("Live HUD did not apply the dark palette");
                 VibeUiStatusSnapshot processingSnapshot = VibeUiStatusSnapshot.Create(
                     "设备已连接", "录音已结束，等待语音工具处理", "Vibe Coding", "Cursor",
-                    "Cursor Chat", "未进入项目", "", false, waitingResult, unsafeMappings, "八哥说");
+                    "Cursor Chat", "未进入项目", "", false, waitingResult, unsafeMappings, "网易八哥说");
                 hud.ApplySnapshot(processingSnapshot);
                 if (!ControlTreeContainsText(hud, "录音已结束，等待语音工具处理"))
                     throw new InvalidOperationException("Live HUD hid the verified recording-ended state behind a stale action");
                 // The HUD has to name the tool and the target, not just the state: those are the two things a user
                 // cannot see from the window when the HUD is the only surface left on screen.
-                if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))
+                if (!ControlTreeContainsPartialText(hud, "工具 · 网易八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))
                     throw new InvalidOperationException("Live HUD did not name the voice tool and the workflow target");
             }
             using (var deck = new ContextDeckForm())
@@ -4774,9 +4774,9 @@ deck.Hide();
                 if (triggerProbe.Items.Count != 2)
                     throw new InvalidOperationException("讯飞语音输入法 lost its hold / toggle choice");
             }
-            // The voice tools must keep distinct default shortcuts: 八哥说 owns Right Alt, 讯飞 input's
+            // The voice tools must keep distinct default shortcuts: 网易八哥说 owns Right Alt, 讯飞 input's
             // voice bar can only be bound to F6, and sharing one form was measured on the user's machine
-            // as selecting Typeless and triggering 八哥说 instead.
+            // as selecting Typeless and triggering 网易八哥说 instead.
             if (DefaultHotkeyForProvider("bage") != "rightalt" ||
                 DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey ||
                 XunfeiVoiceHotkey != "f6" ||
@@ -4799,6 +4799,42 @@ deck.Hide();
                 ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
                 !ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false))
                 throw new InvalidOperationException("The 讯飞 shortcut is not sent by exactly one component");
+            // 搜狗 input (Right Ctrl, held) and 豆包 input (Alt + Space, held) are selectable tools as well,
+            // and 豆包 came back at the user's request after an earlier retirement. Every tool needs its own
+            // shortcut — a duplicate silently means two tools react to one key — and the retired set must
+            // still contain only the two the user rejected.
+            if (DefaultHotkeyForProvider("sogou") != "rightctrl" ||
+                DefaultHotkeyForProvider("doubao") != "alt+space" ||
+                DefaultTriggerForProvider("sogou") != "hold" ||
+                DefaultTriggerForProvider("doubao") != "hold" ||
+                DefaultTriggerForProvider("bage") != "toggle" ||
+                DefaultTriggerForProvider("custom") != "toggle" ||
+                ProviderDisplayName("bage") != "网易八哥说" ||
+                ProviderDisplayName("sogou") != "搜狗输入法" ||
+                ProviderDisplayName("doubao") != "豆包输入法" ||
+                IsRetiredProviderValue("doubao") ||
+                IsRetiredProviderValue("sogou") ||
+                !IsRetiredProviderValue("typeless") ||
+                !IsRetiredProviderValue("windows") ||
+                ProviderIndex("sogou") != 3 ||
+                ProviderIndex("doubao") != 4 ||
+                ProviderIndex("custom") != 5 ||
+                ProviderKeyFromIndex(3) != "sogou" ||
+                ProviderKeyFromIndex(4) != "doubao" ||
+                ProviderKeyFromIndex(5) != "custom" ||
+                !ProviderSetupInstruction("sogou").Contains("右 Ctrl") ||
+                !ProviderSetupInstruction("doubao").Contains("Alt + 空格"))
+                throw new InvalidOperationException("The 搜狗 / 豆包 voice tools are wired inconsistently");
+            // Every selectable tool's default shortcut has to be different from every other one.
+            string[] toolShortcuts = {
+                DefaultHotkeyForProvider("wechat"), DefaultHotkeyForProvider("bage"),
+                DefaultHotkeyForProvider("xunfei"), DefaultHotkeyForProvider("sogou"),
+                DefaultHotkeyForProvider("doubao"), DefaultHotkeyForProvider("custom")
+            };
+            for (int first = 0; first < toolShortcuts.Length; first++)
+                for (int second = first + 1; second < toolShortcuts.Length; second++)
+                    if (string.Equals(toolShortcuts[first], toolShortcuts[second], StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("Two voice tools share the default shortcut " + toolShortcuts[first]);
             RunInputEngineCatalogSelfTests();
             RunVbCableInstallCompletionSelfTests();
             RunLinkQualityPolicySelfTests();
@@ -6517,7 +6553,24 @@ deck.Hide();
                     process.StartsWith("iflyplatform", StringComparison.OrdinalIgnoreCase) ||
                     process.StartsWith("iflyvoice", StringComparison.OrdinalIgnoreCase) ||
                     process.StartsWith("iflyime", StringComparison.OrdinalIgnoreCase);
-            default: return false;        }
+            case "sogou":
+                // 搜狗 ships the input method itself plus a family of helpers; the voice assistant runs as
+                // its own process, which is the clearest sign that 搜狗 is the tool in question. The family
+                // is named explicitly rather than matched by a bare "sg" prefix, which would also claim
+                // unrelated third-party processes.
+                return process.StartsWith("sogou", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("sgtool", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("sgmyinput", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("sgsmartassistant", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("sgbizlauncher", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("sgiguidehelper", StringComparison.OrdinalIgnoreCase);
+            case "doubao":
+                // Measured on this machine when 豆包 was first adapted: the input method runs as ImeService
+                // and its settings window as DoubaoImeSet.
+                return process.StartsWith("imeservice", StringComparison.OrdinalIgnoreCase) ||
+                    process.StartsWith("doubao", StringComparison.OrdinalIgnoreCase);
+            default: return false;
+        }
     }
 
     private void RestoreLockedVoiceFocus(string phase)
@@ -7437,7 +7490,7 @@ deck.Hide();
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -11597,7 +11650,7 @@ deck.Hide();
             : retired == "windows" || retired == "win+h" ? "Windows 语音输入"
             : "豆包输入法";
         ShowActionToast(null,
-            retiredName + "不再作为Vibe Link的语音工具选项：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页改用八哥说或讯飞语音输入法",
+            retiredName + "不再作为Vibe Link的语音工具选项：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页改用网易八哥说、讯飞语音输入法或搜狗输入法",
             "info", false, 14000);
     }
 
@@ -12209,7 +12262,7 @@ deck.Hide();
             HostLog("VOICE WAKE provider_launch skipped=true reason=" +
                 (focusLockArmed ? "focus_lock" : held ? "recording_priority" : "provider_warmup_in_progress"));
 
-        // Shortcut-driven tools (八哥说, 讯飞输入法, a custom tool) have no panel adapter. A hold-trigger
+        // Shortcut-driven tools (网易八哥说, 讯飞输入法, 搜狗输入法, 豆包输入法, a custom tool) have no panel adapter. A hold-trigger
         // tool gets its configured shortcut held for exactly the voice-key hold duration, a toggle
         // tool gets one tap on the way down and one on the way up — but only from whichever side owns
         // the press: the frozen capture sends it when it can parse it, and the host only takes over a
@@ -12645,40 +12698,25 @@ deck.Hide();
         var directCandidates = new List<string>();
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        // The three input methods that install outside the user profile — 讯飞 (D:\iFlyIME\<version>),
+        // 搜狗 (D:\SogouInput\<version>) and 豆包 (C:\Program Files\DoubaoIME) — are located through their
+        // uninstall record, whose name is stable while the version directory is not. The Start Menu
+        // shortcut search below stays as the fallback.
         if (normalized == "xunfei")
         {
-            // 讯飞 input installs outside the user profile (this machine: D:\iFlyIME\<version>), so the
-            // uninstall record is the only reliable place to read its launcher from, with the Start
-            // Menu shortcut search below as the fallback.
-            string uninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\讯飞输入法";
-            foreach (RegistryKey root in new RegistryKey[] { Registry.CurrentUser, Registry.LocalMachine })
-            {
-                try
-                {
-                    using (RegistryKey key = root.OpenSubKey(uninstallKey))
-                    {
-                        if (key == null) continue;
-                        string location = key.GetValue("InstallLocation") as string;
-                        if (!string.IsNullOrWhiteSpace(location))
-                        {
-                            string loader = Path.Combine(location.Trim(), "iFlyIMELoader.exe");
-                            if (File.Exists(loader)) return loader;
-                        }
-                        string icon = key.GetValue("DisplayIcon") as string;
-                        if (!string.IsNullOrWhiteSpace(icon))
-                        {
-                            string uninstaller = icon.Trim().Trim('"');
-                            string directory = Path.GetDirectoryName(uninstaller);
-                            if (!string.IsNullOrWhiteSpace(directory))
-                            {
-                                string loader = Path.Combine(directory, "iFlyIMELoader.exe");
-                                if (File.Exists(loader)) return loader;
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
+            string launcher = FindInstalledToolLauncher("讯飞", new string[] { "iFlyIMELoader.exe" });
+            if (launcher.Length > 0) return launcher;
+        }
+        else if (normalized == "sogou")
+        {
+            string launcher = FindInstalledToolLauncher("搜狗", new string[] { "SGTool.exe", "SGMyInput.exe" });
+            if (launcher.Length > 0) return launcher;
+        }
+        else if (normalized == "doubao")
+        {
+            string launcher = FindInstalledToolLauncher("豆包",
+                new string[] { @"bootstrap\SettingsLauncher.exe", @"bootstrap\ImeWatchdog.exe" });
+            if (launcher.Length > 0) return launcher;
         }
         else if (normalized == "voquill")
         {
@@ -12689,7 +12727,10 @@ deck.Hide();
 
         string[] needles = normalized == "wechat"
             ? new string[] { "微信输入法", "wetype" }
-            : normalized == "xunfei" ? new string[] { "讯飞输入法", "iFlyIME" } : new string[] { "voquill" };
+            : normalized == "xunfei" ? new string[] { "讯飞输入法", "iFlyIME" }
+            : normalized == "sogou" ? new string[] { "搜狗输入法", "SogouInput" }
+            : normalized == "doubao" ? new string[] { "豆包输入法", "DoubaoIME" }
+            : new string[] { "voquill" };
         string[] startMenuRoots =
         {
             Environment.GetFolderPath(Environment.SpecialFolder.Programs),
@@ -12711,6 +12752,80 @@ deck.Hide();
             catch { }
         }
         return "";
+    }
+
+    // Reads an installed input method's launcher out of its uninstall record. The record's display name is
+    // stable across versions while its install directory is not (this machine: 讯飞 D:\iFlyIME\3.0.1750,
+    // 搜狗 D:\SogouInput\16.6.0.4073), so the directory is collected from both InstallLocation and
+    // DisplayIcon and each candidate is looked for in that directory and in its immediate version
+    // subdirectories. It returns "" when nothing is found, which callers treat as "no launcher known".
+    private static string FindInstalledToolLauncher(string displayNameNeedle, string[] relativeFileNames)
+    {
+        if (string.IsNullOrWhiteSpace(displayNameNeedle) || relativeFileNames == null || relativeFileNames.Length == 0)
+            return "";
+        string[] uninstallRoots =
+        {
+            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+            @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+        };
+        foreach (RegistryKey root in new RegistryKey[] { Registry.CurrentUser, Registry.LocalMachine })
+        {
+            foreach (string uninstallRoot in uninstallRoots)
+            {
+                try
+                {
+                    using (RegistryKey key = root.OpenSubKey(uninstallRoot))
+                    {
+                        if (key == null) continue;
+                        foreach (string subKeyName in key.GetSubKeyNames())
+                        {
+                            using (RegistryKey entry = key.OpenSubKey(subKeyName))
+                            {
+                                if (entry == null) continue;
+                                string display = entry.GetValue("DisplayName") as string;
+                                if (string.IsNullOrWhiteSpace(display) ||
+                                    display.IndexOf(displayNameNeedle, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                                var directories = new List<string>();
+                                AddExistingDirectory(directories, entry.GetValue("InstallLocation") as string);
+                                string icon = entry.GetValue("DisplayIcon") as string;
+                                if (!string.IsNullOrWhiteSpace(icon))
+                                    AddExistingDirectory(directories, Path.GetDirectoryName(icon.Trim().Trim('"')));
+                                foreach (string directory in directories.ToArray())
+                                {
+                                    try
+                                    {
+                                        foreach (string child in Directory.GetDirectories(directory))
+                                            AddExistingDirectory(directories, child);
+                                    }
+                                    catch { }
+                                }
+                                foreach (string directory in directories)
+                                {
+                                    foreach (string relative in relativeFileNames)
+                                    {
+                                        string candidate = Path.Combine(directory, relative);
+                                        if (File.Exists(candidate)) return candidate;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+        }
+        return "";
+    }
+
+    private static void AddExistingDirectory(List<string> directories, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate)) return;
+        string directory;
+        try { directory = Path.GetFullPath(candidate.Trim().Trim('"')); }
+        catch { return; }
+        if (!Directory.Exists(directory)) return;
+        if (directories.Contains(directory)) return;
+        directories.Add(directory);
     }
 
     private void StopOrphanCaptureCore()
@@ -14253,7 +14368,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 104);
                         providerLabel.Size = new Size(140, 24);
                         providerChoice = StyledCombo(new Point(8, 132), new Size(238, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var shortcutLabel = NewLabel("全局快捷键", 8.9f, FontStyle.Bold, ink);
                         shortcutLabel.Location = new Point(264, 104);
@@ -15097,7 +15212,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 112);
                         providerLabel.Size = new Size(150, 26);
                         var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15596,7 +15711,7 @@ deck.Hide();
                         providerLabel.Location = new Point(4, 105);
                         providerLabel.Size = new Size(140, 28);
                         var providerChoice = StyledCombo(new Point(4, 137), new Size(336, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -16043,7 +16158,7 @@ deck.Hide();
                             else
                             {
                                 firstDictationStatus.Text = "●  " + ProviderDisplayName(config.inputMethod) +
-                                    " 无法被免驱动模式唤起：请返回上一步改选八哥说或讯飞语音输入法，或先安装 VB-CABLE";
+                                    " 无法被免驱动模式唤起：请返回上一步改选网易八哥说、讯飞语音输入法或搜狗输入法，或先安装 VB-CABLE";
                                 firstDictationStatus.ForeColor = coral;
                             }
                             return;
@@ -17137,7 +17252,7 @@ deck.Hide();
                     session.NextAction + LinkBaselineNote(),
             triggerOnly ? (triggerOnlyProviderWakes ?
                 "按住遥控器录音键说一句话，松开后目视确认文字；安装 VB-CABLE 可切换完整模式" :
-                "改用八哥说或讯飞语音输入法，或在语音页安装 VB-CABLE 后使用 " + ProviderDisplayName(config.inputMethod)) :
+                "改用网易八哥说、讯飞语音输入法或搜狗输入法，或在语音页安装 VB-CABLE 后使用 " + ProviderDisplayName(config.inputMethod)) :
                 sessionState == "pass" ? "请在目标输入框目视确认文字与所选工具的整理效果" : "聚焦输入框，按住录音键说一句完整的话，松开后等待转译",
             triggerOnly ? "聚焦输入框后按住录音键测试" :
                 sessionState == "pass" ? "" : "真实链路测试",
@@ -19086,7 +19201,7 @@ deck.Hide();
         ShowActionToast(null,
             "Vibe Link检测到输入法上下文是" + activeInputEngine.DisplayName + "，默认语音工具是" +
             ProviderDisplayName(config.inputMethod) + "：如果这次没有出字，可先切回该输入法再试，" +
-            "或把默认语音工具改为八哥说或讯飞语音输入法",
+            "或把默认语音工具改为网易八哥说、讯飞语音输入法或搜狗输入法",
             "warning", false, 12000);
         return true;
     }
@@ -19217,7 +19332,7 @@ deck.Hide();
         if (now - lastTriggerOnlyGuidanceTick < 60000) return;
         lastTriggerOnlyGuidanceTick = now;
         ShowActionToast(null,
-            "免驱动模式只能自行唤起八哥说、讯飞语音输入法或自定义工具；继续使用 " +
+            "免驱动模式只能自行唤起网易八哥说、讯飞语音输入法、搜狗输入法或自定义工具；继续使用 " +
             ProviderDisplayName(config.inputMethod) + " 请安装 VB-CABLE 切换到完整模式",
             "warning", false, 12000);
     }
@@ -19901,24 +20016,26 @@ deck.Hide();
         if (provider == "wetype" || provider == "wechat") return "wechat";
         if (provider == "xunfei" || provider == "ifly" || provider == "iflytek" || provider == "iflyime" ||
             provider == "讯飞" || provider == "讯飞输入法" || provider == "讯飞语音输入法") return "xunfei";
+        if (provider == "sogou" || provider == "sogouinput" || provider == "sogou-ime" ||
+            provider == "搜狗" || provider == "搜狗输入法" || provider == "搜狗拼音输入法") return "sogou";
+        if (provider == "doubao" || provider == "doubao-ime" || provider == "doubaoime" ||
+            provider == "豆包" || provider == "豆包输入法") return "doubao";
         if (provider == "voquill" || provider == "vokie") return "custom";
         if (provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" || provider == "八哥说" || provider == "八哥") return "bage";
         return provider == "custom" ? "custom" : "wechat";
     }
 
-    // V2.0 retired the Doubao input method as a selectable voice tool: it filters
-    // synthetic input and its panel records its own microphone, so no automatic
-    // remote dictation is possible. Candidate 3 retired Typeless and Windows 语音输入
-    // on the user's verdict: selecting Typeless actually triggered 八哥说 (both had
-    // been given Right Alt), and Windows dictation started and stopped repeatedly
-    // because a held shortcut re-triggers its single-tap toggle. A configuration left
-    // over from an earlier build must be migrated explicitly instead of silently
+    // Candidate 3 retired Typeless and Windows 语音输入 on the user's verdict: selecting Typeless actually
+    // triggered 网易八哥说 (both had been given Right Alt), and Windows dictation started and stopped repeatedly
+    // because a held shortcut re-triggers its single-tap toggle. 豆包输入法 was retired earlier for two
+    // reasons and came back at the user's request, so the retired set no longer contains it: it is a
+    // selectable tool again, with its recorded shortcut (Alt + Space) and the two risks left to a real test.
+    // A configuration left over from an earlier build must be migrated explicitly instead of silently
     // behaving like another tool.
     internal static bool IsRetiredProviderValue(string rawValue)
     {
         string provider = (rawValue ?? "").Trim().ToLowerInvariant();
-        return provider == "doubao" || provider == "豆包" || provider == "doubao-ime" ||
-            provider == "typeless" || provider == "windows" || provider == "win+h";
+        return provider == "typeless" || provider == "windows" || provider == "win+h";
     }
 
     private static string NormalizeVoiceMode(string value)
@@ -19950,8 +20067,10 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "bage": return "八哥说";
+            case "bage": return "网易八哥说";
             case "xunfei": return "讯飞语音输入法";
+            case "sogou": return "搜狗输入法";
+            case "doubao": return "豆包输入法";
             case "custom": return "其他语音工具";
             default: return "微信输入法";
         }
@@ -19963,6 +20082,8 @@ deck.Hide();
         {
             case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "xunfei": return "讯飞输入法：已安装在本机，用它在「设置 → 语音」里配置的语音快捷键启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
+            case "sogou": return "搜狗输入法：已安装在本机，用它在按键设置里配置的语音快捷键启动与结束听写；按住右 Ctrl 说话的用法与应用里的「按住触发」对应。";
+            case "doubao": return "豆包输入法：已安装在本机，用它的语音快捷键启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
             default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，Vibe Link不会代替微信开启润色。";
         }
@@ -19973,6 +20094,8 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "xunfei": return "打开讯飞输入法「设置 → 语音」，把语音快捷键设为 F6（讯飞只允许 F6），并选择「长按说话」；Vibe Link 此处必须与它保持一致。";
+            case "sogou": return "打开搜狗输入法「设置 → 按键」，把语音输入的快捷键设为右 Ctrl，并保持「按住说话」（与 Vibe Link 的「按住触发」一致）；Vibe Link 此处必须与它保持一致。";
+            case "doubao": return "打开豆包输入法的设置，确认语音快捷键是 Alt + 空格，并保持按住说话的用法；Vibe Link 此处必须与它保持一致。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
         }
@@ -20028,6 +20151,11 @@ deck.Hide();
         {
             case "bage": return "rightalt";
             case "xunfei": return XunfeiVoiceHotkey;
+            // The user's own 搜狗 configuration: its voice input is bound to Right Ctrl and spoken into
+            // by holding it. 豆包 keeps the shortcut measured on this machine when it was first adapted
+            // (Alt + Space).
+            case "sogou": return "rightctrl";
+            case "doubao": return "alt+space";
             case "custom": return "rightshift";
             default: return WeChatStableHotkey;
         }
@@ -20035,10 +20163,18 @@ deck.Hide();
 
     private static string DefaultTriggerForProvider(string provider)
     {
-        // 讯飞's voice bar is documented as 长按说话 (release ends), so the shortcut is held for the
-        // duration of the voice key rather than tapped at both ends. The voice page offers both
-        // options, and the user's own choice is stored.
-        return NormalizeProviderKey(provider) == "xunfei" ? "hold" : "toggle";
+        // Every voice bar that is spoken into by holding its shortcut is a hold here: 讯飞's
+        // 长按说话, 搜狗's 按住说话 and 豆包's held voice key. 网易八哥说 and a custom tool are toggles.
+        // The voice page offers both options and the user's own choice is stored.
+        switch (NormalizeProviderKey(provider))
+        {
+            case "xunfei":
+            case "sogou":
+            case "doubao":
+                return "hold";
+            default:
+                return "toggle";
+        }
     }
 
     private static int DefaultStartupDelayForProvider(string provider)
@@ -20047,6 +20183,8 @@ deck.Hide();
         {
             case "bage": return 150;
             case "xunfei": return 200;
+            case "sogou": return 150;
+            case "doubao": return 150;
             case "custom": return 150;
             default: return 80;
         }
@@ -20058,14 +20196,17 @@ deck.Hide();
         {
             case "bage": return 1;
             case "xunfei": return 2;
-            case "custom": return 3;
+            case "sogou": return 3;
+            case "doubao": return 4;
+            case "custom": return 5;
             default: return 0;
         }
     }
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "bage" : index == 2 ? "xunfei" : index == 3 ? "custom" : "wechat";
+        return index == 1 ? "bage" : index == 2 ? "xunfei" : index == 3 ? "sogou"
+            : index == 4 ? "doubao" : index == 5 ? "custom" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)
@@ -20180,6 +20321,10 @@ deck.Hide();
                 IsProcessRunning("wetype_server") || IsProcessRunning("wetype_service");
             case "xunfei": return IsProcessRunning("iFlyInput") || IsProcessRunning("iFlyPlatform") ||
                 IsProcessRunning("iFlyVoice");
+            case "sogou": return IsProcessRunning("SGTool") || IsProcessRunning("SOGOUSmartAssistant") ||
+                IsProcessRunning("sogou_voice_assistant") || IsProcessRunning("SogouCloud");
+            case "doubao": return IsProcessRunning("ImeService") || IsProcessRunning("DoubaoImeSet") ||
+                IsProcessRunning("ImeWatchdog");
             default: return true;
         }
     }
@@ -20790,8 +20935,8 @@ deck.Hide();
         if (IsRetiredProviderValue(value.inputMethod))
         {
             // Three values are retired, for three measured reasons: Doubao filters every synthetic
-            // keystroke and its panel records its own microphone, Typeless and 八哥说 shared one
-            // shortcut so selecting Typeless triggered 八哥说, and Windows dictation starts and stops
+            // keystroke and its panel records its own microphone, Typeless and 网易八哥说 shared one
+            // shortcut so selecting Typeless triggered 网易八哥说, and Windows dictation starts and stops
             // repeatedly under the held shortcut this app sends. Migrate the stored tool to the
             // verified WeChat input method instead of leaving an unsupported tool silently in place,
             // and tell the user once, naming the value that was actually replaced.
@@ -25478,6 +25623,8 @@ deck.Hide();
             // 讯飞 registers a second text service that is only a launcher entry; it never owns the
             // keyboard, so matching it would name 讯飞 input for a window that is not typing with it.
             InputEngineCatalog.ClassifyEngine("{2FCE7706-DDD8-42A9-8B59-B84D454022FC}", "") != InputEngineCatalog.UnknownEngine ||
+            InputEngineCatalog.ClassifyEngine("{E7EA138E-69F8-11D7-A6EA-00065B844310}", "") != InputEngineCatalog.SogouEngine ||
+            InputEngineCatalog.ClassifyEngine("", "{E7EA138F-69F8-11D7-A6EA-00065B844311}") != InputEngineCatalog.SogouEngine ||
             InputEngineCatalog.ClassifyEngine("{81d4e9c9-1d3b-41bc-9e6c-4b40bf79e35e}", "") != InputEngineCatalog.MicrosoftPinyinEngine ||
             InputEngineCatalog.ClassifyEngine("", "{fa550b04-5ad7-411f-a5ac-ca038ec515d7}") != InputEngineCatalog.MicrosoftPinyinEngine ||
             InputEngineCatalog.ClassifyEngine("", "") != InputEngineCatalog.UnknownEngine ||
@@ -25485,11 +25632,13 @@ deck.Hide();
             InputEngineCatalog.DescribeEngine(InputEngineCatalog.DoubaoEngine) != "豆包输入法" ||
             InputEngineCatalog.DescribeEngine(InputEngineCatalog.WeChatEngine) != "微信输入法" ||
             InputEngineCatalog.DescribeEngine(InputEngineCatalog.XunfeiEngine) != "讯飞输入法" ||
+            InputEngineCatalog.DescribeEngine(InputEngineCatalog.SogouEngine) != "搜狗输入法" ||
             InputEngineCatalog.DescribeEngine(InputEngineCatalog.MicrosoftPinyinEngine) != "微软拼音")
             throw new InvalidOperationException("Input engine identification is wrong");
         if (!InputEngineCatalog.ProviderRequiresOwnInputMethod("wechat") ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.DoubaoEngine) ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.XunfeiEngine) ||
+            InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.SogouEngine) ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod("bage") ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod("custom"))
             throw new InvalidOperationException("Input engine provider-ownership policy is wrong");
@@ -25498,7 +25647,8 @@ deck.Hide();
             InputEngineCatalog.ActiveEngineBlocksProvider("wechat", InputEngineCatalog.UnknownEngine) ||
             InputEngineCatalog.ActiveEngineBlocksProvider(InputEngineCatalog.DoubaoEngine, InputEngineCatalog.WeChatEngine) ||
             InputEngineCatalog.ActiveEngineBlocksProvider("xunfei", InputEngineCatalog.DoubaoEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider("xunfei", InputEngineCatalog.DoubaoEngine) ||
+            InputEngineCatalog.ActiveEngineBlocksProvider("sogou", InputEngineCatalog.DoubaoEngine) ||
+            InputEngineCatalog.ActiveEngineBlocksProvider("doubao", InputEngineCatalog.WeChatEngine) ||
             InputEngineCatalog.ActiveEngineBlocksProvider("custom", InputEngineCatalog.DoubaoEngine))
             throw new InvalidOperationException("Input engine conflict policy is wrong");
         // The foreground window's layout is a different question from the per-thread TSF profile,

@@ -18,6 +18,7 @@ internal static class InputEngineCatalog
     internal const string DoubaoEngine = "doubao";
     internal const string WeChatEngine = "wechat";
     internal const string XunfeiEngine = "xunfei";
+    internal const string SogouEngine = "sogou";
     internal const string MicrosoftPinyinEngine = "microsoft-pinyin";
     internal const string UnknownEngine = "unknown";
 
@@ -43,6 +44,13 @@ internal static class InputEngineCatalog
         "0C7479AF-F27F-488C-A46B-5BDA6BF43E50"
     };
 
+    // 搜狗拼音输入法's own pair, read off this machine (2026-09-13).
+    private static readonly string[] SogouIdentifiers =
+    {
+        "E7EA138E-69F8-11D7-A6EA-00065B844310",
+        "E7EA138F-69F8-11D7-A6EA-00065B844311"
+    };
+
     private static readonly string[] MicrosoftPinyinIdentifiers =
     {
         "81D4E9C9-1D3B-41BC-9E6C-4B40BF79E35E",
@@ -57,6 +65,8 @@ internal static class InputEngineCatalog
             return WeChatEngine;
         if (Matches(XunfeiIdentifiers, classId) || Matches(XunfeiIdentifiers, profileGuid))
             return XunfeiEngine;
+        if (Matches(SogouIdentifiers, classId) || Matches(SogouIdentifiers, profileGuid))
+            return SogouEngine;
         if (Matches(MicrosoftPinyinIdentifiers, classId) || Matches(MicrosoftPinyinIdentifiers, profileGuid))
             return MicrosoftPinyinEngine;
         return UnknownEngine;
@@ -69,6 +79,7 @@ internal static class InputEngineCatalog
             case DoubaoEngine: return "豆包输入法";
             case WeChatEngine: return "微信输入法";
             case XunfeiEngine: return "讯飞输入法";
+            case SogouEngine: return "搜狗输入法";
             case MicrosoftPinyinEngine: return "微软拼音";
             default: return "未知输入法";
         }

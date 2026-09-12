@@ -1196,20 +1196,18 @@ assert(includesAll(app, [
   "收音偏小 · 上次 ",
   "建议 ≥10%",
   "上次没有收到音频",
-]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The voice tool list is 微信输入法, 八哥说, 讯飞语音输入法 and one custom slot.
+]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The voice tool list is 微信输入法, 网易八哥说, 讯飞语音输入法, 搜狗输入法, 豆包输入法 and one custom slot.
 //
 // Candidate 3 retired Typeless and Windows 语音输入 on the user's verdict: selecting Typeless triggered 八哥说
 // instead (both tools had been given Right Alt), and Windows dictation started and stopped repeatedly because a
 // held shortcut re-triggers its single-tap toggle. Both values must now be migrated visibly instead of quietly
-// behaving like another tool, and neither may remain selectable.
+// behaving like another tool, and neither may remain selectable. 豆包输入法 was retired in an earlier round and
+// came back at the user's request, so "doubao" is a supported key again and must NOT be in the retired set.
 //
-// 讯飞 input is installed on this machine (D:\iFlyIME\3.0.1750) and its voice bar can only be bound to F6 —
-// the user tried to change it and reported that F6 is the only value the client accepts — so F6 is the
-// shortcut this app stores for it. A tool is only really supported when it is known in every place that
-// makes the option real: the key normaliser (a stored value has to survive a reload, including the Chinese
-// label), the display name and summary, the default shortcut and trigger, the startup delay, the process
-// match that decides whether its client is running, the label/index mapping the combo boxes rely on, and
-// every dropdown literal.
+// Each tool is only really supported when it is known in every place that makes the option real: the key
+// normaliser (a stored value has to survive a reload, including the Chinese label), the display name and
+// summary, the default shortcut and trigger, the startup delay, the process match that decides whether its
+// client is running, the label/index mapping the combo boxes rely on, and every dropdown literal.
 assert(includesAll(app, [
   'provider == "xunfei" || provider == "ifly"',
   'case "xunfei": return "讯飞语音输入法";',
@@ -1218,15 +1216,34 @@ assert(includesAll(app, [
   'case "xunfei": return 200;',
   'case "xunfei": return 2;',
   'case "xunfei": return IsProcessRunning("iFlyInput")',
-  'index == 2 ? "xunfei" : index == 3 ? "custom"',
   'private const string XunfeiVoiceHotkey = "f6";',
-  'case "bage": return "八哥说";',
+  // 搜狗输入法: the user's own tool, its voice input bound to Right Ctrl and spoken into by holding it.
+  'provider == "sogou" || provider == "sogouinput"',
+  'case "sogou": return "搜狗输入法";',
+  'case "sogou": return "rightctrl";',
+  'case "sogou": return 150;',
+  'case "sogou": return 3;',
+  'case "sogou": return IsProcessRunning("SGTool")',
+  'case "sogou": return "打开搜狗输入法「设置 → 按键」',
+  'case "sogou":\r\n                // 搜狗 ships the input method itself',
+  // 豆包输入法: re-added at the user's request, with the shortcut measured when it was first adapted.
+  'provider == "doubao" || provider == "doubao-ime"',
+  'case "doubao": return "豆包输入法";',
+  'case "doubao": return "alt+space";',
+  'case "doubao": return 150;',
+  'case "doubao": return 4;',
+  'case "doubao": return IsProcessRunning("ImeService")',
+  'case "doubao":\r\n                // Measured on this machine when 豆包 was first adapted',
+  // 网易八哥说: the display name spells out the vendor, as the user asked.
+  'case "bage": return "网易八哥说";',
   'case "bage": return "rightalt";',
   'case "bage": return 150;',
   'case "bage": return 1;',
+  // The two rejected tools stay retired and stay out of the code entirely.
   'provider == "typeless" || provider == "windows" || provider == "win+h";',
+  'index == 3 ? "sogou"\r\n            : index == 4 ? "doubao" : index == 5 ? "custom" : "wechat";',
 ]) &&
-  (app.match(/"微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具"/g) || []).length >= 3 &&
+  (app.match(/"微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具"/g) || []).length >= 4 &&
   !app.includes('case "typeless"') && !app.includes('case "windows"') &&
   !app.includes('return "Typeless"') && !app.includes('return "Windows 语音输入"'),
   "A voice tool is offered but not wired through, a retired tool is still selectable, or the dropdown order drifted from ProviderIndex");
@@ -1304,7 +1321,7 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 ]) && includesAll(read("scripts/ui/ContextDeckForm.cs"), [
   'snapshot.VoiceToolName + " · ")',
 ]) && includesAll(app, [
-  'if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))',
+  'if (!ControlTreeContainsPartialText(hud, "工具 · 网易八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))',
   "ControlTreeContainsPartialText",
 ]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The default shortcut of every voice tool must not collide.
 //
@@ -1345,7 +1362,11 @@ assert(includesAll(app, [
   'if (normalized == "wechat") return "toggle";',
   "SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))",
   'target.Items.Add("单击切换（稳定）");',
-  'return NormalizeProviderKey(provider) == "xunfei" ? "hold" : "toggle";',
+  // The three voice bars that are spoken into by holding their shortcut default to hold; 网易八哥说 and a
+  // custom tool stay toggles, and all of them keep the user's own choice.
+  'case "xunfei":\r\n            case "sogou":\r\n            case "doubao":\r\n                return "hold";',
+  'DefaultTriggerForProvider("sogou") != "hold"',
+  'DefaultTriggerForProvider("doubao") != "hold"',
 ]), "The frozen stable voice tool can be driven with the wrong trigger again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
@@ -2237,14 +2258,17 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   "RunVbCableInstallCompletionSelfTests", "VB-CABLE install completion policy is wrong",
 ]), "The install-completion policy is not pinned by the host self-test");
-// Candidate 3 retired two more selectable voice tools, and the supported list must stay the two
-// verified tools plus the custom entry. A stored value from an earlier build — Doubao, Typeless or
-// Windows 语音输入 — must be migrated visibly and by name instead of silently behaving like another tool.
+// Candidate 3 retired two selectable voice tools, and those two must stay retired: a stored Typeless or
+// Windows 语音输入 value has to be migrated visibly and by name instead of silently behaving like another
+// tool. 豆包输入法 is a supported tool again at the user's request, so it must be selectable and must NOT be
+// in the retired set — the retired predicate is pinned to exactly the two rejected values.
 assert(includesAll(app, [
-  '"微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具"',
-  'provider == "typeless" || provider == "windows" || provider == "win+h";',
-]) && !app.includes('case "doubao"') && !app.includes('"豆包输入法", "讯飞'),
-"The voice tool list still offers a retired voice tool");
+  '"微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具"',
+  'return provider == "typeless" || provider == "windows" || provider == "win+h";',
+  'IsRetiredProviderValue("doubao") ||',
+  'case "doubao": return "豆包输入法";',
+]) && !app.includes('case "typeless"') && !app.includes('case "windows"'),
+"The voice tool list still offers a retired voice tool, or 豆包输入法 is not selectable again");
 assert(includesAll(app, [
   "IsRetiredProviderValue", "retiredProviderMigrated", "retiredProviderMigratedValue",
   'HostLog("PROVIDER MIGRATED retired=" + SafeLogValue(retired)',
