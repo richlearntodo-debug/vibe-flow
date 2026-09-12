@@ -1,8 +1,10 @@
 # 言灵 · Vibe Flow Remote 更新说明
 
-## V2.0.0 语音输入候选版
+## V2.0.0 candidate.2 语音输入候选版
 
-**Release status: candidate。V1.5.0 仍是最新已发布稳定版。**
+**Release status: public candidate。V2.0.0 candidate.2 已有公开安装包和便携 ZIP；V1.5.0 仍是最新已发布稳定版。**
+
+下载：[安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe) · [便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip) · [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
 
 V2.0 主线是“锁定目标、按住说话、检查文字、手动确认”：
 
@@ -10,6 +12,8 @@ V2.0 主线是“锁定目标、按住说话、检查文字、手动确认”：
 - 快捷键页保留 V1.5 Profiles、实体映射、组合键录制和 Bridge ACK；
 - Smart Focus 只保存验证过的编辑控件描述符，失败时不发送按键；
 - 便签本、Notes Deck 和便签 AI 不属于当前候选功能，历史数据与源码仅作兼容归档。
+
+完整的逐步教程和故障排查见：[V2.0 图文使用教程](V2_0_USER_GUIDE_ZH.md) · [V2.0 FAQ](V2_0_FAQ_ZH.md)。
 
 冻结 Capture 继续为 `1.2.1.0`，按住开始、松开结束，约 60 秒设备边界不变。完整结果见 [V2 更新说明](V2_0_RELEASE_NOTES_ZH.md) 和 [真机测试状态](V2_0_HARDWARE_TEST_MATRIX_ZH.md)。
 
@@ -75,7 +79,7 @@ Smart Profiles 默认关闭，手动 Profile 继续作为稳定默认模式。�
 | 增益 / 处理 / 排空 | `1.0` / `speech` / `180 ms` |
 | 音频端点 | `CABLE Input -> CABLE Output` |
 | 微信输入法 | `Ctrl + Win` / toggle / `80 ms` |
-| 文本交付 | 语音工具直接写入聚焦输入框，无剪贴板兜底 |
+| 文本交付 | 以语音工具实际能力为准；Windows 语音输入通常直写，微信输入法部分版本可能使用剪贴板 |
 
 V1.5 没有加入长录音续接、双击手势、宏、多步骤自动化、云端转写或新的录音状态机。
 

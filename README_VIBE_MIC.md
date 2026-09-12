@@ -20,11 +20,20 @@ The stable voice contract remains: **lock a verified editable target, hold Recor
 - Complete a five-task first-run setup and ten-item self-check.
 - Use Light, Dark, or Follow Windows themes.
 
-V2.0.0 is an unsigned local candidate and has not completed the full hardware, Windows, DPI, and installer lifecycle matrix. V1.5.0 remains the latest published stable release.
+V2.0.0 candidate.2 is an unsigned public pre-release and has not completed the full hardware, Windows, DPI, and installer lifecycle matrix. V1.5.0 remains the latest fully verified stable release.
+
+## Downloads
+
+- [V2.0.0 candidate.2 installer](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
+- [V2.0.0 candidate.2 portable ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
+- [V2.0.0 candidate.2 SHA256SUMS](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
+- [V1.5.0 stable release](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)
+
+The installer is the recommended choice for ordinary users. Verify the downloaded files with the matching `SHA256SUMS.txt`; GitHub's generated source archive is not an application package.
 
 ## Voice and privacy
 
-RC003 audio travels through Bluetooth ATVV to `CABLE Input`; the selected voice tool reads `CABLE Output` and writes directly into the focused field. Vibe Flow does not read transcription text and has no clipboard or synthetic-paste fallback. Normal operation does not save audio.
+RC003 audio travels through Bluetooth ATVV to `CABLE Input`; the selected voice tool reads `CABLE Output` and writes to the focused field. Vibe Flow does not read or store transcription text. Some WeChat Input Method versions put their own transcription result on the clipboard; candidate.2 may dispatch one controlled `Ctrl+V` only after the target is verified and a provider completion receipt exists, but this is not guaranteed for every target. Normal operation does not save audio or press Enter automatically.
 
 Supported providers include WeChat Input Method, Typeless, Doubao Input Method, Windows Voice Typing, and tools with a global start/stop hotkey. The default WeChat profile remains `Ctrl + Win`, toggle, `80 ms`.
 

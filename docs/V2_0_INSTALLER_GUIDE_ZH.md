@@ -2,6 +2,14 @@
 
 > 当前安装器只交付 Vibe Flow 的语音输入、快捷键、语音、自检和设置页面。便签本、Notes Deck 及便签 AI 不属于当前安装包功能。
 
+## 下载
+
+- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
+
+以上是公开候选版入口，不是正式稳定版。安装器未配置商业 Authenticode 签名，请核对 SHA-256，不要绕过 Windows 安全机制。
+
 ## 安装前
 
 - 支持目标：Windows 10 / 11 x64。

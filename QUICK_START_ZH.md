@@ -1,52 +1,62 @@
-# 言灵 · Vibe Flow Remote V2.0 候选版快速开始
+# 言灵 · Vibe Flow Remote V2.0 快速开始
 
-日常操作：**打开目标 APP，锁定并测试输入框，按住录音键说话，松开结束，检查文字后手动确认。**
+日常操作只有一条主路径：**打开目标 APP → 点击或锁定输入框 → 按住录音键说话 → 松开 → 检查文字 → 按确认键发送**。
 
-当前稳定模式遵循 RC003 的物理按键周期，单段约 `60 秒`；提前松开立即结束，不会自动创建第二个麦克风会话。
+RC003 单段录音约 `60 秒`，提前松开会立即结束，不会自动创建第二个会话。
 
-> **录音键隔离（安装前请先读）**：未安装签名设备过滤器前，录音键使用“遥控器在线范围内”的钩子隔离——遥控器**已连接**时 F5 被拦截、不会触发浏览器刷新；遥控器**不在线**时普通键盘的 F5 **原样直通**；用户态无法做逐事件设备归属隔离，因此它与签名过滤器**不等同**。安装后「首页」「快捷键」「自检」与首启向导第一步都会显示当前状态。
+## 直接下载 V2.0
 
-## 下载
+- [安装版 VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
+- [便携版 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
 
-V2.0.0 当前是本地候选版，产物位于 `release/VibeFlow-Setup.exe`、`release/Vibe-Flow-Windows-x64.zip` 和 `release/SHA256SUMS.txt`，未发布、未签名且仍需真机验收。普通用户请继续下载 [V1.5.0 稳定安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe)。不要下载 GitHub 自动生成的源码 ZIP。
+V2.0.0 candidate.2 是公开候选版，不是正式稳定版。需要稳定版本时使用 [V1.5.0](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)。不要下载 GitHub 自动生成的源码 ZIP 代替应用程序。
 
-## 首次设置 5 项
+> **录音键隔离（安装前请先读）**：未安装签名设备过滤器前，录音键使用“遥控器在线范围内”的钩子隔离——遥控器已连接时 F5 被拦截；遥控器**不在线**时普通键盘的 F5 **原样直通**；该机制不能与签名过滤器等同。
 
-1. 确认 Windows 10/11、RC003 和按住说话方式；
-2. 配对 `MI RC` / RC003，并按方向键验证真实设备事件；
-3. 安装或检查 VB-CABLE，确认 `CABLE Input` 与 `CABLE Output`；
-4. 选择微信输入法、Typeless、Windows 语音输入或其他工具，并完成真实转译；
-5. 选择后台行为；常用应用学习和 Smart Profiles 都可以稍后完成。
+## 首次设置五项
+
+1. 了解按住说话、松开结束、检查文字和手动发送；
+2. 配对 `MI RC` / RC003，并按方向键验证真实遥控器事件；
+3. 检查 VB-CABLE 的 `CABLE Input` / `CABLE Output` 方向；
+4. 选择语音工具，设置与客户端一致的快捷键，并完成一次真实听写；
+5. 选择后台、托盘和 Smart Profiles 行为，未完成项目可以稍后处理。
 
 ![首次设置](docs/images/00-setup-01-device.png)
 
-## 微信输入法推荐配置
+## 推荐的第一次听写
 
-- 全局快捷键：`Ctrl + Win`；
-- 触发方式：单击切换；
-- 启动等待：`80 ms`；
-- 麦克风输入：`CABLE Output`。
+1. 打开 ChatGPT，在消息输入框中点击出插入光标。
+2. 在“工作流”页添加 ChatGPT，点击“学习目标输入框”。
+3. 在 ChatGPT 输入框中点击一次，等待学习完成。
+4. 点击“立即测试”和“设为当前”，看到目标已验证。
+5. 按住 RC003 录音键说一句短句，松开等待语音工具处理。
+6. 目视检查文字，按确认键发送一次。
 
-其他工具以客户端实际快捷键为准，言灵与工具两边必须完全一致。
+需要排查“文字进剪贴板”时，优先用 Windows 语音输入（`Win+H`）做对照。微信输入法部分版本会把识别结果放入剪贴板，这是第三方行为；Vibe Flow 不读取转写文字，也不保证所有微信输入法目标都能直写。
+
+## VB-CABLE 方向
+
+```text
+RC003 麦克风 -> Vibe Flow -> CABLE Input
+                                  |
+               语音工具麦克风 <- CABLE Output
+```
+
+Vibe Flow 播放端选择 `CABLE Input`，语音工具的麦克风输入选择 `CABLE Output`。自检显示“已安装”后仍需确认端点未静音、输入级别可用并完成真实听写。
 
 ## 快捷键
 
-打开“快捷键”页后，可以切换 Profile、绑定 APP、选择动作，或点击“录制键盘快捷键”并直接按下目标组合。Smart Profiles 默认关闭，需要按前台应用自动切换时再开启。
+“快捷键”页保留 V1.5 的 Profiles 和映射，可为上/下/左/右、确认、Home、TV、功能键设置动作和短按/长按/双击。电源键（Windows 上报为 VK 0xFF / 扫描码 E0 5E）也有配置入口，但与蓝牙重连后的麦克风键存在扫描码取舍，重视录音可靠性时保持“不执行动作”。返回键和独立音量键在当前 RC003 / Windows 组合中没有稳定事件，不提供映射。录音键固定在稳定语音链路，不参与自定义。
 
 ![快捷键配置](docs/images/03-shortcuts.png)
 
-电源键（Windows 上报为 VK 0xFF / 扫描码 E0 5E）现在提供配置入口；返回与独立音量键仍没有稳定的用户态事件，故不提供映射。录音键固定使用稳定链路，不参与自定义。
+## 出问题先做什么
 
-## 日常语音输入路径
+1. 打开“自检”，从第一个警告或错误开始处理；
+2. 查看语音页的最近一次收音电平；低于 10% 时靠近遥控器、对准麦克风孔并检查 `CABLE Output` 级别；
+3. 确认目标输入框仍有光标或 Smart Focus 状态为“已验证”；
+4. 保存快捷键后等待 Bridge ACK；
+5. 仍无法解决时导出诊断，反馈版本、错误码、语音工具和最短复现步骤。
 
-1. 打开或激活 ChatGPT 等目标 APP；
-2. 在“语音”页选择常用应用并学习它的输入框，或按提示手动点击输入框；
-3. 按住录音键说话，松开结束，等待语音工具处理并目视检查文字；
-4. 如果文字不对或没进来，看语音页的「**最近一次收音电平**」：低于 10% 就是声音偏小，按提示把遥控器靠近到 10–20 cm、对准顶部麦克风孔，并检查 Windows「CABLE Output → 属性 → 级别」是否为 100%。
-4. 按确认键手动发送；Vibe Flow 不读取、不保存、不回填转写文字。
-
-## 遇到问题
-
-打开“自检”，从第一项橙色或红色结果开始处理。反馈时导出诊断包；日志不包含录音或转译文字。
-
-[完整 V2.0 候选版教程](docs/V2_0_USER_GUIDE_ZH.md) · [V1.5 稳定版教程](docs/V1_5_USER_GUIDE_ZH.md)
+完整教程：[V2.0 图文使用教程](docs/V2_0_USER_GUIDE_ZH.md) · [V2.0 FAQ](docs/V2_0_FAQ_ZH.md) · [V2.0 已知限制](docs/V2_0_KNOWN_LIMITATIONS_ZH.md)

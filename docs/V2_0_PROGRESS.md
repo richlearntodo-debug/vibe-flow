@@ -5916,3 +5916,36 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - **用真实日志验证"偏低"分支** ✔：把本机真实采集日志放进 smoke 会话目录 → 语音页实测文字为 **「最近一次收音电平 7.2%（偏低…）」** ✔（数据驱动 ✔，不是写死文案 ✔）
 - host self-test ✔、`validate` ✔、几何（语音页无重叠/无裁切 ✔）、门禁已钉住读取器、阈值与引导文案 ✔
 - 脚本可运行 ✔（输出近 15 次会话：中位 4.9% ✗、可用 0 ✗、太低 14 ✗、疑似杂音 6 ✗、无音频 1 ✗）
+
+## 2026-09-12 文档与 V2.0 下载入口收口
+
+### 本阶段目标
+
+- 让 README 首屏同时提供 V2.0 candidate.2 的 EXE、ZIP、SHA-256 和 Release 入口，并明确 V1.5 稳定版的区别。
+- 提供覆盖首次设置、VB-CABLE、语音工具、Smart Focus、录音闭环、快捷键、HUD/Deck、自检、升级恢复和 FAQ 的中文教程，并使用仓库内真实截图。
+- 对候选版边界、RC003 不稳定按键、第三方输入法剪贴板行为和未验证硬件项目做诚实说明。
+
+### 本阶段修改
+
+- `README.md`：V2.0/V1.5 下载表、校验说明、首条使用路径、功能教程索引、页面预览和 8 张截图入口。
+- `QUICK_START_ZH.md`：五项首次设置、ChatGPT + Smart Focus、VB-CABLE 方向、快捷键和快速排错。
+- `docs/V2_0_USER_GUIDE_ZH.md`：完整图文教程、`VOICE-RUNTIME-INCOMPLETE` 排错说明和 RC003 返回/独立音量键限制。
+- `docs/V2_0_FAQ_ZH.md`、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`、`docs/V2_0_RELEASE_NOTES_ZH.md`：下载、剪贴板、焦点、安装、升级、候选状态和未验证边界。
+- `docs/FEATURES_ZH.md`、`docs/RELEASE_NOTES_ZH.md`、`docs/VERSION_ARCHIVE_ZH.md`、`docs/V2_0_INSTALLER_GUIDE_ZH.md`：功能看板、版本导航和安装说明同步到 V2.0。
+
+### 验证
+
+- `npm test`：PASS，输出 `Vibe Flow V2.0.0 candidate validation passed; Capture remains frozen at 1.2.1.0.`
+- `git diff --check`：PASS（仅 Git 的 LF/CRLF 转换提示）。
+- Markdown 本地链接和截图引用：10 份入口文档，缺失链接 `0`；必需截图缺失 `0`。
+- 冻结 Capture SHA-256：源码 `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`；二进制 `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`。
+- GitHub Release 下载地址：静态链接和标签已通过仓库文案门禁；本环境对 `github.com:443` 的 HEAD 请求超时，远端网络可达性仍需在用户网络或浏览器中确认。
+- Computer Use/真实 Windows、RC003、VB-CABLE、第三方语音工具和多 DPI 本阶段未重新执行，继续沿用各测试矩阵中的“未验证”标记。
+
+### Release gate
+
+**PASS WITH MANUAL HARDWARE CHECKS**。本阶段为文档和发布入口收口；没有修改 Capture、Raw Input、键盘 Hook、设备过滤或录音状态机。未提交的用户源码/配置改动保持原样。
+
+### 下一阶段
+
+在目标 Windows 设备上打开 README 的 V2.0 下载链接，按图文教程完成安装/升级、真实 RC003 录音入框、VB-CABLE、快捷键和多 DPI 人工复核，再决定是否将 candidate.2 升级为正式版。
