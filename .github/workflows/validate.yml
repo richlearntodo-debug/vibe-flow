@@ -18,6 +18,34 @@ jobs:
       - name: Test installer operating-system requirements
         shell: powershell
         run: .\scripts\tests\Test-InstallerRequirements.ps1
+      - name: Restore the frozen capture component
+        shell: powershell
+        env:
+          CAPTURE_PART_1: ${{ secrets.VIBE_FLOW_CAPTURE_B64_1 }}
+          CAPTURE_PART_2: ${{ secrets.VIBE_FLOW_CAPTURE_B64_2 }}
+          CAPTURE_PART_3: ${{ secrets.VIBE_FLOW_CAPTURE_B64_3 }}
+          CAPTURE_PART_4: ${{ secrets.VIBE_FLOW_CAPTURE_B64_4 }}
+        run: |
+          # The frozen capture component cannot live in the repository: .gitignore excludes *.exe, so no checkout has
+          # ever contained it, and the development-runtime preparation step threw on every runner. It arrives through
+          # repository secrets instead, in four base64 parts, because one secret is capped at 48 KB while the component
+          # encodes to about 126 KB.
+          #
+          # The hash is verified here rather than trusted: a missing, truncated or wrong secret must fail loudly. The
+          # point of that guard is that a runtime which is not the frozen one is never tested or packaged as if it were.
+          $expected = "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683"
+          $parts = @($env:CAPTURE_PART_1, $env:CAPTURE_PART_2, $env:CAPTURE_PART_3, $env:CAPTURE_PART_4)
+          $missing = @($parts | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
+          if ($missing -gt 0) {
+              throw "The frozen capture secrets are not all set (VIBE_FLOW_CAPTURE_B64_1..4; $missing missing)."
+          }
+          $path = Join-Path $env:GITHUB_WORKSPACE "VibeMicAtvvCapture.exe"
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String(($parts -join "")))
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash
+          if ($actual -ne $expected) {
+              throw "Frozen capture SHA-256 mismatch: got $actual, expected $expected"
+          }
+          Write-Host "Frozen capture restored and verified: $actual"
       - name: Build and run V2 focused feature tests
         shell: powershell
         run: .\scripts\tests\Test-V2FeatureSuite.ps1
