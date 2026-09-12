@@ -7382,7 +7382,7 @@ deck.Hide();
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "Typeless", "Windows 语音输入", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他语音工具" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -7494,41 +7494,41 @@ deck.Hide();
         cableEndpoint.TextAlign = ContentAlignment.MiddleLeft;
         card.Controls.Add(cableEndpoint);
 
-        // The measured level of the last session, in the card's free space below the buttons (they end at y=568 and the
-        // card is 716 tall). It answers the question the transcription result cannot: was the capture loud enough?
+        // The measured level of the last session, on the one free line of the card: the state band is a panel at
+        // (30,64) sized 900x62, so it owns everything up to y=126, and the first field row starts at y=152. The label
+        // sits in the 26 px between them and is deliberately short: the first attempt at y=96 and 40 px tall was drawn
+        // *behind* the band (controls added earlier sit in front in WinForms) and only its top half was visible in the
+        // captured screenshot, which the geometry check cannot see because it measures rectangles, not pixels.
+        //
+        // The detailed advice lives in the user guide; this line exists so the number is visible where dictation is
+        // configured, which is the whole point: on this hardware the level, not the pipeline, decides whether it works.
         CaptureLevelReading level = ReadLastCaptureLevel();
         string levelText;
         Color levelColor;
         if (!level.Found)
         {
-            levelText = "最近一次收音电平：还没有记录 —— 完成一次听写后这里会显示实测值";
+            levelText = "还没有收音记录 —— 完成一次听写后这里会显示实测电平";
             levelColor = muted;
         }
         else if (level.AudioMs <= 0)
         {
-            levelText = "最近一次收音电平：这一次没有收到音频 —— 检查遥控器是否已连接并唤醒，再试一次";
+            levelText = "上次没有收到音频 —— 检查遥控器是否已连接并唤醒";
             levelColor = coral;
         }
         else if (level.OutputRms < 10)
         {
-            levelText = "最近一次收音电平 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) +
-                "%（偏低，识别舒适区约 10–30%）：把遥控器靠近到 10–20 cm、对准顶部麦克风孔并握稳；" +
-                "仍偏低时检查 Windows「声音 → 输入 → CABLE Output → 属性 → 级别」是否为 100%。";
+            levelText = "收音偏小 · 上次 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) +
+                "%（建议 ≥10%）：靠近 10–20 cm、对准顶部麦克风孔并握稳，详见「自检」";
             levelColor = amber;
         }
         else
         {
-            levelText = "最近一次收音电平 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) +
-                "%　·　处于识别舒适的区间";
+            levelText = "收音正常 · 上次 " + level.OutputRms.ToString("0.#", CultureInfo.InvariantCulture) + "%";
             levelColor = green;
         }
-        // The measured level of the last session, placed in the card's empty band between the title area (which ends
-        // near y=60) and the first field row at y=152. The lower half of the card is fully occupied: the first attempt
-        // at y=578 collided with the workflow entry line (430x34) and the second at y=628 with the provider note, both
-        // reported by scripts/check-ui-geometry.ps1.
         var levelLabel = NewLabel(levelText, 8.8f, FontStyle.Regular, levelColor);
-        levelLabel.Location = new Point(220, 96);
-        levelLabel.Size = new Size(670, 40);
+        levelLabel.Location = new Point(220, 128);
+        levelLabel.Size = new Size(670, 22);
         card.Controls.Add(levelLabel);
 
         var start = PrimaryButton(IsCapturing ? "暂停语音桥接" : "启动语音桥接", new Point(220, 524), new Size(152, 44));
@@ -14124,7 +14124,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 104);
                         providerLabel.Size = new Size(140, 24);
                         providerChoice = StyledCombo(new Point(8, 132), new Size(238, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "Windows 语音输入", "其他自定义工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var shortcutLabel = NewLabel("全局快捷键", 8.9f, FontStyle.Bold, ink);
                         shortcutLabel.Location = new Point(264, 104);
@@ -14968,7 +14968,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 112);
                         providerLabel.Size = new Size(150, 26);
                         var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "Windows 语音输入", "其他自定义工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15467,7 +15467,7 @@ deck.Hide();
                         providerLabel.Location = new Point(4, 105);
                         providerLabel.Size = new Size(140, 28);
                         var providerChoice = StyledCombo(new Point(4, 137), new Size(336, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "Windows 语音输入", "Voquill（开源）", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "Typeless", "八哥说", "Windows 语音输入", "Voquill（开源）", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -19773,6 +19773,7 @@ deck.Hide();
         if (provider == "typeless") return "typeless";
         if (provider == "windows" || provider == "win+h") return "windows";
         if (provider == "voquill" || provider == "vokie") return "custom";
+        if (provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" || provider == "八哥说" || provider == "八哥") return "bage";
         return provider == "custom" ? "custom" : "wechat";
     }
 
@@ -19816,6 +19817,7 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "Typeless";
+            case "bage": return "八哥说";
             case "windows": return "Windows 语音输入";
             case "custom": return "其他语音工具";
             default: return "微信输入法";
@@ -19827,6 +19829,7 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "适合跨应用长文本听写，可继续使用 Typeless 自己的润色、格式整理和词典能力。";
+            case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；言灵只派发触发动作，不读取它的转写内容。";
             case "windows": return "Windows 自带，无需安装额外客户端，适合快速开始和基础听写。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
             default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，言灵不会代替微信开启润色。";
@@ -19871,6 +19874,7 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "rightalt";
+            case "bage": return "rightalt";
             case "windows": return "win+h";
             case "custom": return "ctrl+win";
             default: return WeChatStableHotkey;
@@ -19888,6 +19892,7 @@ deck.Hide();
         {
             case "windows": return 300;
             case "typeless": return 120;
+            case "bage": return 150;
             case "custom": return 150;
             default: return 80;
         }
@@ -19898,15 +19903,16 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return 1;
-            case "windows": return 2;
-            case "custom": return 3;
+            case "bage": return 2;
+            case "windows": return 3;
+            case "custom": return 4;
             default: return 0;
         }
     }
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "typeless" : index == 2 ? "windows" : index == 3 ? "custom" : "wechat";
+        return index == 1 ? "typeless" : index == 2 ? "bage" : index == 3 ? "windows" : index == 4 ? "custom" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)

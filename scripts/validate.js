@@ -1193,10 +1193,29 @@ assert(includesAll(app, [
   'Path.Combine(sessionDir, "vibe-mic-runtime.log")',
   '"REMOTE STREAM STOP session="',
   "level.OutputRms < 10",
-  "最近一次收音电平 ",
-  "识别舒适区约 10–30%",
-  "这一次没有收到音频",
-]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  "收音偏小 · 上次 ",
+  "建议 ≥10%",
+  "上次没有收到音频",
+]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The 八哥说 (NetEase Bage) voice tool is wired in as a first-class provider.
+//
+// It is installed locally and driven by its own global hotkey, which the user reported as Right Alt. The application
+// has to know it in five places or the option is offered and does nothing: the key normaliser (so a stored value
+// survives a reload), the display name and summary, the default hotkey (rightalt, which the shortcut parser accepts as
+// 0xA5), the default startup delay, and the label/index mapping that the combo boxes rely on. The four dropdown
+// literals are separate copies, so all four are pinned here as well.
+assert(includesAll(app, [
+  'provider == "bage" || provider == "bageshuo"',
+  'case "bage": return "八哥说";',
+  'case "bage": return "网易八哥说',
+  'case "bage": return "rightalt";',
+  'case "bage": return 150;',
+  'case "bage": return 2;',
+  'index == 2 ? "bage" : index == 3 ? "windows" : index == 4 ? "custom"',
+  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他语音工具"',
+  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具"',
+  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "Voquill（开源）", "其他语音工具"',
+]) && !app.includes('八哥说", "Typeless"'),
+  "The 八哥说 provider is offered but not wired through, or the dropdown order drifted from ProviderIndex");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
@@ -2087,8 +2106,8 @@ assert(includesAll(app, [
 // must stay the three verified tools plus the custom entry, and a stored V1.5 value
 // must be migrated visibly instead of silently behaving like another tool.
 assert(includesAll(app, [
-  '"微信输入法", "Typeless", "Windows 语音输入", "其他语音工具"',
-  '"微信输入法", "Typeless", "Windows 语音输入", "其他自定义工具"',
+  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他语音工具"',
+  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具"',
 ]) && !app.includes('case "doubao"') && !app.includes('"豆包输入法", "Windows'),
 "The voice tool list still offers the retired Doubao input method");
 assert(includesAll(app, [
