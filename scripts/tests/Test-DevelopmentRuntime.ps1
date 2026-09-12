@@ -5,7 +5,12 @@ $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("vibe-flow-dev-runtime-test
 $destination = Join-Path $fixtureRoot "runtime"
 $invalidCapture = Join-Path $fixtureRoot "invalid-capture.exe"
 $tamperedNAudioCore = Join-Path $fixtureRoot "NAudio.Core.dll"
-$stableCapture = Join-Path $root "release\Vibe-Flow-Windows-x64\VibeMicAtvvCapture.exe"
+# Resolve the frozen capture the same way the build resolves it, instead of assuming that a previous packaging run has
+# left a copy under release\. On a clean checkout that folder does not exist, so this test failed on CI for a reason
+# that had nothing to do with what it checks: that preparing a development runtime copies the frozen binary and its
+# NAudio dependencies intact, and refuses a tampered one.
+$stableCapture = & (Join-Path $root "scripts\Get-StableCaptureBinary.ps1") `
+    -Destination (Join-Path $fixtureRoot "stable-capture.exe")
 $naudioCore = Join-Path $root "tools\naudio.core.2.2.1\lib\netstandard2.0\NAudio.Core.dll"
 $naudioWasapi = Join-Path $root "tools\naudio.wasapi.2.2.1\lib\netstandard2.0\NAudio.Wasapi.dll"
 $expectedCaptureHash = "B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683"
