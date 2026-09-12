@@ -5949,3 +5949,39 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 ### 下一阶段
 
 在目标 Windows 设备上打开 README 的 V2.0 下载链接，按图文教程完成安装/升级、真实 RC003 录音入框、VB-CABLE、快捷键和多 DPI 人工复核，再决定是否将 candidate.2 升级为正式版。
+
+## 2026-09-13 **修复"点麦克风把当前页面刷掉"** ✗→✔（用户报告的新 bug ✔）
+
+### 症状与真因
+
+用户反馈：**点击麦克风后，当前页面的对话被刷掉** ✗ ✔。
+
+真因是**我上一轮警告过的那个地雷真的爆了** ✗ ✔：电源键与蓝牙重连后的麦克风键**共用扫描码 `0xFF/0x5E`** ✗，而电源键被指派了动作 ✔：
+
+| 存储位置 | 内容 | 说明 |
+| --- | --- | --- |
+| `vibe-mic-config.json`（Profile 映射 ✔） | `"电源键":"none"`（原本两处是 `open-url:https://platform.deepseek.com/usage` ✗） | 已清 ✔ |
+| **`UserData\gesture-layers.json`（手势层覆盖 ✔）** | `{"key":"power","longAction":"open-url:https://www.bilibili.com/video/…","doubleAction":"task-switcher"}` ✗ | **优先级更高** ✗，只改前者不生效 ✔，已清 ✔ |
+
+→ 于是**长按那个键 = 打开 B 站页面** ✗ → 页面被导航走 ✔ = "对话被刷掉" ✔。
+
+### 两处修复
+
+1. **配置（治标亦必要）** ✔：清空**两个**存储里的电源键动作 ✔（各留 `before-power-fix-*` 备份 ✔）；只动 power 一项 ✔，其它 8 个手势键不动 ✔ ✔。
+2. **代码（治本）** ✔：新增 `MappingHasNoAction` / `IsActionless` ✔，并把**两处兜底判定**扩展为
+   `(mapping == null || !mapping.enabled || MappingHasNoAction(mapping))` ✔ ——
+   因为宿主即使动作清空也会把映射投影成 `enabled=true` ✗，导致"无动作"的映射**既吞掉按键 ✗、又挡住录音兜底** ✗（`enabled==false` 才让位 ✗）。现在**动作全是 `none`/`passthrough` 的映射一律视为未启用** ✔ ✔。
+
+### 验证
+
+- 桥与 Host 编译通过 ✔、自测通过 ✔；`validate` ✔（含新增门禁 + 同步更新的旧门禁字面量 ✔）
+- 发布链 **12/12 矩阵** ✔、安装器 exit 0、**51/51 逐文件一致** ✔
+- **二进制级证据** ✔：已安装的 `VoxDeckInputBridge.exe` 内含 `MappingHasNoAction` ✔
+- 重启后复核 ✔：桥映射里 `power` 的 `enabled=true` 计数为 **0** ✔、全文**无 `open-url`** ✔、`gesture-layers.json` 电源键三层全为 null ✔
+- 提交 `16ca455` ✔ 已推送 ✔
+
+### 过程中的自我纠错（如实记录 ✗）
+
+- 门禁里我误用了 C# 的 `StringSplitOptions` ✗ → `validate` 语法错误 ✗ → 改成两条独立断言 ✔
+- 又一次因"多行/结构化替换"出问题 ✗（脚本替换静默失效 ✗）→ 回到**编辑工具** ✔
+- **只改了 Profile 映射就以为修好了** ✗ —— 复核桥文件时发现长按层仍挂着 URL ✗，才找到 `gesture-layers.json` ✗ ✔（教训：**同一动作可能有多个存储** ✔，修完必须**从投影结果反查** ✔）
