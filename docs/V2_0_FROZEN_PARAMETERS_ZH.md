@@ -192,7 +192,7 @@
 | **微信输入法**（默认 ✔） | **`ctrl+win`** ✔ | 单击切换（稳定 ✔） | **冻结值** ✗，不得改（真机验证过的稳定参数 ✔） |
 | **八哥说（网易）** | **`rightalt`** ✔ | 单击切换 ✔ | 用户确认其客户端即为**右 Alt** ✔ |
 | **Typeless** | **`rightctrl`** ✔ | 单击切换 ✔（应用内"按住触发"亦可 ✔） | **由 `rightalt` 改为 `rightctrl`** ✗：此前与八哥说**重复** ✗ |
-| **Windows 语音输入** | `win+h` ✔ | 单击切换 ✔ | 由 Windows 固定 ✔ |
+| **Windows 语音输入** | `win+h` ✔ | 单击切换 ✔（应用内**强制** ✔，见 §12.6 ✔） | 由 Windows 固定 ✔ |
 | **其他语音工具**（自定义 ✔） | **`rightshift`** ✔ | 单击切换 ✔ | **由 `ctrl+win` 改为 `rightshift`** ✗：此前与微信输入法**重复** ✗ |
 
 - **不变式** ✔（已加门禁 ✔）：以上四个默认值**两两不同** ✔；改动前请同时更新 `scripts/validate.js` 的断言 ✔。
@@ -250,6 +250,23 @@
 
 **本机当前值** ✔（用户原有设置，已按原样还原 ✔）：短按 = `open-url:https://platform.deepseek.com/usage` ✔；长按 = B 站视频页 ✔；双击 = `task-switcher` ✔。
 备份 ✔：`vibe-mic-config.json.before-restore-*.bak`、`gesture-layers.json.before-restore-*.bak`。
+
+### 12.6 触发方式的"有效值"（2026-09-13 深夜，按用户真机报告修复 ✔）
+
+**用户现场报告** ✗（两条 ✔）：
+
+1. 选 **Typeless** 却**实际触发了八哥说** ✗ —— 因为两者的默认快捷键那时都是 `rightalt` ✗。
+2. 选 **Windows 语音输入**后**停不下来** ✗、开始与结束提示音连成一片 ✗ —— 因为 Win+H 本身就是**单击切换** ✔，而应用按"按住触发"驱动它 ✗（按住期间系统反复开始 / 结束 ✗）。
+
+**修法** ✔（全部在 `scripts/VibeMic.cs` ✔）：
+
+- `DefaultHotkeyForProvider` ✔：Typeless 回到 `rightctrl` ✔（八哥说继续保持 `rightalt` ✔）；并加自测断言 ✗→✔：两者**不得相同** ✗、Typeless 的设置说明必须写明 **Right Ctrl** ✔。
+- 新增 `EffectiveTriggerForProvider(provider, trigger)` ✔：`windows` 与 `wechat` **一律** `toggle` ✔（**无论配置里存的是什么** ✔），其余工具**尊重用户选择** ✔（`hold` / `toggle` ✔）。采集参数改为传**有效值** ✔：`SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))` ✔。
+- `PopulateTriggerModeOptions` ✔：`windows` **只给一个**选项 ✔「单击切换（Win+H 固定为单击）」✔ —— 从界面上就**不可能**选中"按住触发" ✔。
+
+**证据** ✔（含负控 ✔）：把该 pin 临时改成 `if (false)` ✗ → `VibeMic.exe --self-test` **退出码 1** ✗，报错正是 `The effective trigger policy drifted from the frozen toggle-only voice tools` ✔；还原后自检**通过** ✔（退出码 0 ✔）。
+
+**仍未验证** ✗（如实记录 ✔）：以上是**逻辑层 + 负控证据** ✔；因本机当前 `inputMethod = wechat` ✔，Typeless / Windows 两条路径的**真机行为**需用户切到该工具后再实测 ✔。
 
 ## 13. 按键固化（2026-09-13 晚，用户真机确认可用后 ✔）
 

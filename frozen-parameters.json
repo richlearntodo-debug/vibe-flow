@@ -49,9 +49,19 @@
                                          "cloud-recognition",
                                          "webpage-text"
                                      ],
-                       "inputMethod":  "bage",
-                       "inputMethodHotkey":  "rightalt",
-                       "inputMethodTrigger":  "toggle"
+                       "inputMethod":  "wechat",
+                       "inputMethodHotkey":  "ctrl+win",
+                       "inputMethodTrigger":  "toggle",
+                       "providerDefaults":  {
+                                                "wechat":  "ctrl+win",
+                                                "bage":  "rightalt",
+                                                "typeless":  "rightctrl",
+                                                "windows":  "win+h",
+                                                "custom":  "rightshift"
+                                            },
+                       "effectiveTrigger":  "windows and wechat are always driven as toggle; every other tool honours the stored hold/toggle choice (EffectiveTriggerForProvider)",
+                       "collidingToolsNote":  "Right Alt belongs to 八哥说, so Typeless defaults to Right Ctrl; sharing one form made selecting Typeless trigger 八哥说 on the user machine",
+                       "machineConfigVerifiedAt":  "2026-09-13 02:35 - user config read back: provider=windows, hotkey=win+h, trigger=toggle, voiceMode=hold"
                    },
     "keysAndGestures":  {
                             "powerKey":  {

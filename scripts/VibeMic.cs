@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -4750,6 +4750,36 @@ deck.Hide();
             RunProjectProfileGatewaySelfTests();
             RunAudioEndpointShapeSelfTests();
             RunTriggerOnlyVoiceModeSelfTests();
+            // The effective trigger is what actually reaches the frozen capture. Two tools are toggles
+            // by their own design and must never be driven in hold mode, whatever the saved
+            // configuration says: Win+H starts dictation on one tap and stops it on the next, so holding
+            // it made Windows start and stop repeatedly, and 微信输入法 is the frozen stable path that
+            // is documented as 单击切换. Every other tool honours the user's own hold / toggle choice.
+            if (EffectiveTriggerForProvider("windows", "hold") != "toggle" ||
+                EffectiveTriggerForProvider("wechat", "hold") != "toggle" ||
+                EffectiveTriggerForProvider("typeless", "hold") != "hold" ||
+                EffectiveTriggerForProvider("typeless", "toggle") != "toggle" ||
+                EffectiveTriggerForProvider("bage", "hold") != "hold" ||
+                EffectiveTriggerForProvider("custom", "toggle") != "toggle")
+                throw new InvalidOperationException(
+                    "The effective trigger policy drifted from the frozen toggle-only voice tools");
+            // A toggle-only tool must not offer a hold option either: offering one and then ignoring it
+            // is exactly how the Windows start / stop loop reached a user in the first place.
+            using (var triggerProbe = new ComboBox())
+            {
+                PopulateTriggerModeOptions(triggerProbe, "windows");
+                if (triggerProbe.Items.Count != 1 || !triggerProbe.Items[0].ToString().Contains("固定为单击"))
+                    throw new InvalidOperationException("Windows 语音输入 offered a hold trigger mode");
+                PopulateTriggerModeOptions(triggerProbe, "typeless");
+                if (triggerProbe.Items.Count != 2)
+                    throw new InvalidOperationException("A hold-capable voice tool lost its 按住触发 option");
+            }
+            // The two colliding tools must keep distinct default hotkeys: 八哥说 owns Right Alt, so
+            // Typeless defaults to Right Ctrl. Sharing one form made selecting Typeless trigger 八哥说.
+            if (DefaultHotkeyForProvider("typeless") != "rightctrl" ||
+                DefaultHotkeyForProvider("bage") != "rightalt" ||
+                !ProviderSetupInstruction("typeless").Contains("Right Ctrl"))
+                throw new InvalidOperationException("The voice-tool default hotkeys collided again");
             RunInputEngineCatalogSelfTests();
             RunVbCableInstallCompletionSelfTests();
             RunLinkQualityPolicySelfTests();
@@ -11817,7 +11847,7 @@ deck.Hide();
                 start.Arguments = config.captureSeconds + " \"" + sessionDir + "\" \"" + config.audioEndpointName + "\" " +
                     config.gain.ToString(CultureInfo.InvariantCulture) + " " + config.drainMs + " " + config.autoLevel + " " +
                     SafeCaptureArgument(config.inputMethod) + " " + SafeCaptureArgument(config.inputMethodHotkey) + " " +
-                    SafeCaptureArgument(config.inputMethodTrigger) + " " + config.providerStartupDelayMs + " " +
+                    SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger)) + " " + config.providerStartupDelayMs + " " +
                     SafeCaptureArgument(config.audioProcessingMode) + " " + config.autoRouteVirtualMicrophone + " " +
                     SafeCaptureArgument(config.voiceMode);
             }
@@ -19844,7 +19874,7 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "typeless": return "在 Typeless 设置中确认录音快捷键。按 Typeless 客户端要求配置快捷键；常见默认值是 Right Alt（按一下开始、再按一下结束）。";
+            case "typeless": return "在 Typeless 设置中确认录音快捷键。请在 Typeless 客户端里把录音快捷键设为 Right Ctrl（按一下开始、再按一下结束）；Vibe Link 此处必须与它保持一致。";
             case "windows": return "Windows 语音输入使用 Win + H。首次使用时请先在任意输入框中手动按一次完成系统初始化。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
@@ -19857,11 +19887,26 @@ deck.Hide();
         return MappingShortcutDisplay(DefaultHotkeyForProvider(provider)) + " · " + trigger;
     }
 
+    private static string EffectiveTriggerForProvider(string provider, string trigger)
+    {
+        // Two providers are toggles by their own design and must never be driven in hold mode.
+        //
+        // Windows 语音输入 (Win+H) starts dictation on one tap and stops it on the next, so holding its hotkey makes it
+        // start and stop repeatedly — a user reported exactly that, with the start and stop cue sounds running together.
+        // 微信输入法 is the frozen stable path and is documented as 单击切换, so it is pinned here as well.
+        string normalized = NormalizeProviderKey(provider);
+        if (normalized == "windows" || normalized == "wechat") return "toggle";
+        return string.Equals(trigger, "hold", StringComparison.OrdinalIgnoreCase) ? "hold" : "toggle";
+    }
+
     private static void PopulateTriggerModeOptions(ComboBox target, string provider)
     {
         target.Items.Clear();
-        if (NormalizeProviderKey(provider) == "wechat")
+        string normalized = NormalizeProviderKey(provider);
+        if (normalized == "wechat")
             target.Items.Add("单击切换（稳定）");
+        else if (normalized == "windows")
+            target.Items.Add("单击切换（Win+H 固定为单击）");
         else
             target.Items.AddRange(new object[] { "单击切换", "按住触发" });
     }
@@ -19877,7 +19922,7 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "typeless": return "rightalt";
+            case "typeless": return "rightctrl";
             case "bage": return "rightalt";
             case "windows": return "win+h";
             case "custom": return "rightshift";

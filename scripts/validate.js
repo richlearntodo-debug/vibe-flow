@@ -1266,7 +1266,7 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 // configured inside each tool, so a duplicate default silently means two tools react to one key. 微信输入法的 ctrl+win is
 // frozen (it is the verified stable value) and Windows 语音输入 is fixed by Windows, so the other two moved.
 assert(includesAll(app, [
-  'case "typeless": return "rightalt";',
+  'case "typeless": return "rightctrl";',
   'case "bage": return "rightalt";',
   'case "windows": return "win+h";',
   'case "custom": return "rightshift";',
@@ -1284,7 +1284,17 @@ assert(includesAll(bridge, [
   'if (IsVoiceRawCandidate(0xFF, 0x5E))',
   'throw new InvalidOperationException("The power key\'s shared raw form is still treated as the microphone")',
   'if (!IsVoiceRawCandidate(0x74, 0x3F))',
-]), "The record key and the power key are no longer kept apart");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The record key and the power key are no longer kept apart");// Windows 语音输入 must never be driven in hold mode.
+//
+// Win+H is a toggle: tapping it starts dictation, tapping it again stops it. Driving it in hold mode held the hotkey
+// down and made Windows start and stop repeatedly — a user described the start and stop cue sounds running together.
+// 微信输入法's stable path is a toggle too, so both are pinned in the effective-trigger helper the capture arguments use.
+assert(includesAll(app, [
+  "private static string EffectiveTriggerForProvider(string provider, string trigger)",
+  'if (normalized == "windows" || normalized == "wechat") return "toggle";',
+  "SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))",
+  'else if (normalized == "windows")',
+]), "Windows 语音输入 can be driven in hold mode again, which makes it start and stop repeatedly");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

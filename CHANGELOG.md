@@ -12,6 +12,9 @@
 - Fixed the home page's shortcut summary being ellipsised away. The geometry check measures control bounds, not text, so a label that dropped half its own sentence still passed it; the summary now keeps an unset long layer quiet, which is both the clearer sentence and the one that fits, and the cell went back to the width it always had after the interface matrix caught an attempt to widen it running 4 px into the next column.
 - Added docs/V2_0_UPDATE_SUMMARY_ZH.md: what changed against V1.5, grouped by capability, with the remaining unverified items listed separately.
 
+- Fixed selecting Typeless actually triggering 八哥说. Both tools had been given Right Alt as their default, so the host pressed a shortcut that the other tool owned; Typeless is back on Right Ctrl and the host self-test now fails if the two defaults ever collide again or if the Typeless setup instruction stops naming Right Ctrl. Confirmed by a negative control that made the assertion fail.
+- Fixed Windows 语音输入 being driven in hold mode. Win+H is a toggle by Windows' own design, so holding its hotkey made Windows start and stop dictation repeatedly with the two cue sounds running together — the exact symptom a user reported. An effective-trigger helper now pins Windows 语音输入 and 微信输入法 to a single tap whatever the stored configuration says, the capture arguments pass that effective value, and the voice page offers Windows no hold option at all. The policy and its two single-option / two-option dropdowns are asserted by the host self-test, with a negative control that inverted the pin and made it fail.
+
 ## 2.0.0 candidate - 2026-09-05
 
 - Added Quick Entries for opening or activating user-selected apps, verified Smart Focus targets, a non-activating Live HUD, a read-only Context Deck, Capture & Ask, and Browser Remote Lite.
