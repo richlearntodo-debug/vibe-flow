@@ -823,6 +823,20 @@ internal static class VoxDeckInputBridge
         selfTestMode = true;
         try
         {
+            // Who owns the shared raw form 0xFF/0x5E. A user reported that pressing the power key started and stopped
+            // dictation, because an actionless mapping handed the shared form to the record fallback. These four
+            // assertions pin the corrected rule: the translated F5 form is always the microphone, the shared form is the
+            // power key while that form is fresh, and it becomes the microphone again once the window has passed so a
+            // remote that only reports the shared form still dictates.
+            if (!IsVoiceRawCandidate(0x74, 0x3F))
+                throw new InvalidOperationException("The translated F5 form stopped being a voice candidate");
+            if (IsVoiceRawCandidate(0xFF, 0x5E))
+                throw new InvalidOperationException("The shared raw form started dictation while the F5 form was fresh");
+            if (SharedFormBelongsToVoice(SharedFormVoiceWindow.TotalSeconds - 1))
+                throw new InvalidOperationException("The shared form belongs to the microphone before the window elapses");
+            if (!SharedFormBelongsToVoice(SharedFormVoiceWindow.TotalSeconds + 1))
+                throw new InvalidOperationException("A remote that only reports the shared form can no longer dictate");
+            lastTranslatedVoiceFormUtc = DateTime.MinValue;
             var gesture = new ShortLongGestureState();
             int shortActions = 0;
             int longActions = 0;
@@ -4166,7 +4180,7 @@ internal static class VoxDeckInputBridge
         if (vk == 0xFF && scan == 0x5E)
         {
             double silentSeconds = (DateTime.UtcNow - lastTranslatedVoiceFormUtc).TotalSeconds;
-            bool translatedFormFresh = silentSeconds < SharedFormVoiceWindow.TotalSeconds;
+            bool translatedFormFresh = !SharedFormBelongsToVoice(silentSeconds);
             if (translatedFormFresh)
             {
                 Log("Voice shared form vk=0xFF scan=0x5E treated as the power key: the F5 form was seen " +
@@ -4175,6 +4189,13 @@ internal static class VoxDeckInputBridge
             return !translatedFormFresh;
         }
         return false;
+    }
+
+    // Kept pure so the decision can be asserted without waiting for a window to elapse: given how long ago the
+    // translated form was last seen, does the shared raw form belong to the microphone?
+    internal static bool SharedFormBelongsToVoice(double secondsSinceTranslatedForm)
+    {
+        return secondsSinceTranslatedForm >= SharedFormVoiceWindow.TotalSeconds;
     }
 
     private static void TryCaptureKeyboardButton(int vk, int scan)
