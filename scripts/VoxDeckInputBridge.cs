@@ -831,11 +831,7 @@ internal static class VoxDeckInputBridge
             if (!IsVoiceRawCandidate(0x74, 0x3F))
                 throw new InvalidOperationException("The translated F5 form stopped being a voice candidate");
             if (IsVoiceRawCandidate(0xFF, 0x5E))
-                throw new InvalidOperationException("The shared raw form started dictation while the F5 form was fresh");
-            if (SharedFormBelongsToVoice(SharedFormVoiceWindow.TotalSeconds - 1))
-                throw new InvalidOperationException("The shared form belongs to the microphone before the window elapses");
-            if (!SharedFormBelongsToVoice(SharedFormVoiceWindow.TotalSeconds + 1))
-                throw new InvalidOperationException("A remote that only reports the shared form can no longer dictate");
+                throw new InvalidOperationException("The power key's shared raw form is still treated as the microphone");
             lastTranslatedVoiceFormUtc = DateTime.MinValue;
             var gesture = new ShortLongGestureState();
             int shortActions = 0;
@@ -4179,14 +4175,15 @@ internal static class VoxDeckInputBridge
         }
         if (vk == 0xFF && scan == 0x5E)
         {
-            double silentSeconds = (DateTime.UtcNow - lastTranslatedVoiceFormUtc).TotalSeconds;
-            bool translatedFormFresh = !SharedFormBelongsToVoice(silentSeconds);
-            if (translatedFormFresh)
-            {
-                Log("Voice shared form vk=0xFF scan=0x5E treated as the power key: the F5 form was seen " +
-                    (int)silentSeconds + "s ago");
-            }
-            return !translatedFormFresh;
+            // Measured on this machine: the microphone always arrives translated as F5 (1571 F5 lines against 385 of
+            // the shared form), and every shared-form press was the power key — the fallback fired 103 times and each of
+            // those started a dictation the user did not ask for. A history window was tried first and was the wrong
+            // shape: with a 10-minute window the shared form was still accepted while the bridge was young.
+            //
+            // So the shared form is the power key, full stop. If a future remote ever reports the microphone only that
+            // way after a reconnect, this is the single line to change: treat it as a voice candidate again.
+            Log("Voice shared form vk=0xFF scan=0x5E belongs to the power key; the translated F5 form is the microphone");
+            return false;
         }
         return false;
     }
