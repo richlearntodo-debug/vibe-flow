@@ -5985,3 +5985,41 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - 门禁里我误用了 C# 的 `StringSplitOptions` ✗ → `validate` 语法错误 ✗ → 改成两条独立断言 ✔
 - 又一次因"多行/结构化替换"出问题 ✗（脚本替换静默失效 ✗）→ 回到**编辑工具** ✔
 - **只改了 Profile 映射就以为修好了** ✗ —— 复核桥文件时发现长按层仍挂着 URL ✗，才找到 `gesture-layers.json` ✗ ✔（教训：**同一动作可能有多个存储** ✔，修完必须**从投影结果反查** ✔）
+
+## 候选版 3：下线 Typeless / Windows 语音输入，接入讯飞语音输入法（2026-09-13 深夜 ✔）
+
+### 用户判定（原话 ✔）
+
+- 「经过测试，我发现 **Typeless 和 Windows 原装语音都不支持**，帮我去掉它们所有相关的代码」✗
+- 「接下来，帮我支持新的**讯飞语音输入法**。讯飞语音输入法已经安装且在本地运行」✔
+- 追问讯飞快捷键时用户答：**「没有快捷键，如果不能实现可以去除」** ✗ —— 因此本轮按"讯飞自带默认值 ✔ + 主机发送 ✔"实现 ✔，是否可用由用户实测决定 ✔。
+
+### 本机实测到的讯飞事实（不是猜的 ✔）
+
+| 事实 | 证据 ✔ |
+| --- | --- |
+| 安装位置 `D:\iFlyIME\3.0.1750` ✔ | 卸载表 `讯飞输入法 3.0.1750` ✔ + 目录 ✔ |
+| 语音快捷键默认 `Ctrl + Shift + Alt + [` ✔ | `HKCU\Software\iFly Info Tek\iFlyIME → iFlyImeVoiceShiftHotKey` ✔，与安装包二进制里写入的默认值**逐字一致** ✔ |
+| 语音是**长按说话** ✔ | `iFlyVoice.exe` 内字符串「松手结束语音输入」✔「点击/长按说话」✔（两种模式都存在 ✔，默认按长按 ✔） |
+| 进程名 ✔ | `iFlyInput` / `iFlyPlatform` ✔（运行中 ✔），另有 `iFlyVoice` ✔ |
+| TSF 身份 ✔ | CLSID `{B722B5D7-…}` + profile `{0C7479AF-…}` ✔（另一个 `{2FCE7706-…}` 只是"快捷入口" ✔，**不匹配** ✗） |
+
+### 关键新增：快捷键的"唯一归属"规则 ✔
+
+**日志实证的问题** ✗：旧版对 Typeless / Windows **主机与冻结采集件都在发**快捷键 ✗（同一会话里 `PROVIDER HOTKEY SESSION action=down` ✔ 与 `TRANSCRIPTION TRIGGER … sent=True` ✔ 并存 ✔）→ 切换键被按两次 ✗ = 自己开始又自己停止 ✗（这正是用户看到的"八哥说停不下来" ✗ 与 Windows 反复开始/结束 ✗）。
+
+**新规则** ✔（`ProviderHotkeyIsHostDriven` ✔）：采集件能发就采集件发 ✔；采集件发不出（讯飞的 `[` ✗）或免驱动模式（没有采集件 ✔）才由主机发 ✔；微信输入法始终由采集件的面板路径负责 ✔。
+
+**配套** ✔：主机发送器学会**标点键** ✔（`PunctuationVirtualKey` ✔，`[`=`0xDB` ✔）与**录制器的十六进制写法** ✔（`0xDB` ✔ 两种写法等价 ✔）；`validate.js` **逐字比对**主机镜像解析器与冻结采集件的键名表 ✔（单边改动 = 没人发送 ✗）。
+
+### 证据 ✔
+
+- 主机自测：**唯一归属六种组合** ✔、镜像解析器 ✔、hold/tap 归属 ✔、`[`/`0xDB` 等价 ✔、`Ctrl + Shift + Alt + [` 显示 ✔；
+- **负控** ✗→✔：把 `return !FrozenCaptureCanSendShortcut(shortcut);` 改成 `return false;` ✗ → 自检**退出码 1** ✗ 报 `The owner of a tool shortcut is ambiguous` ✔；还原 → 通过 ✔；
+- **迁移实测** ✔（安装版 ✔）：把用户配置临时写成已下线的 `windows` ✔ → 重启后配置变 `wechat` ✔，日志出现 `PROVIDER MIGRATED retired=windows action=use_wechat_input_method defaults=applied` ✔；随后切到讯飞 ✔，采集启动行实测为 `provider=xunfei provider_hotkey=ctrl+shift+alt+[ provider_trigger=hold` ✔；
+- 发布链 ✔：矩阵 **12/12** ✔、载荷 **51/51** ✔、安装器 exit 0 ✔、冻结采集件哈希未变 ✔（`B62DE035…2E683` ✔）、已安装程序自检通过 ✔。
+
+### 仍未验证 ✗（如实记录 ✔）
+
+讯飞链路是**逻辑层 + 迁移层 + 参数层**证据 ✔；**"按住录音键真的能让讯飞出字"** 必须用户真机实测 ✔ —— 前提是讯飞里**语音快捷键确实是 `Ctrl + Shift + Alt + [` 且为「长按说话」** ✔；若用户那边实际没有快捷键 ✗，则讯飞无法被自动唤起 ✔（用户已同意此时可以不要它 ✔）。
+

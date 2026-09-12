@@ -35,7 +35,7 @@ The installer is the recommended choice for ordinary users. Verify the downloade
 
 RC003 audio travels through Bluetooth ATVV to `CABLE Input`; the selected voice tool reads `CABLE Output` and writes to the focused field. Vibe Flow does not read or store transcription text. Some WeChat Input Method versions put their own transcription result on the clipboard; candidate.2 may dispatch one controlled `Ctrl+V` only after the target is verified and a provider completion receipt exists, but this is not guaranteed for every target. Normal operation does not save audio or press Enter automatically.
 
-Supported providers include WeChat Input Method, Typeless, Doubao Input Method, Windows Voice Typing, and tools with a global start/stop hotkey. The default WeChat profile remains `Ctrl + Win`, toggle, `80 ms`.
+Supported providers are WeChat Input Method (default: `Ctrl + Win`, toggle, `80 ms`), NetEase Bage (八哥说: Right Alt, toggle), iFlytek Voice Input (讯飞语音输入法: `Ctrl + Shift + Alt + [`, hold), and one custom slot (其他语音工具). iFlytek is configured inside 讯飞输入法 → 设置 → 语音, where its own 语音快捷键 must equal the stored `Ctrl + Shift + Alt + [` and 长按说话 matches the app's hold trigger. Typeless and Windows Voice Typing are no longer selectable: a stored value for either is migrated to WeChat Input Method and reported to the user by name.
 
 ## Build
 

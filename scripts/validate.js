@@ -1196,26 +1196,69 @@ assert(includesAll(app, [
   "收音偏小 · 上次 ",
   "建议 ≥10%",
   "上次没有收到音频",
-]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The 八哥说 (NetEase Bage) voice tool is wired in as a first-class provider.
+]), "The voice page stopped reporting the measured capture level, or lost its low-level guidance");// The voice tool list is 微信输入法, 八哥说, 讯飞语音输入法 and one custom slot.
 //
-// It is installed locally and driven by its own global hotkey, which the user reported as Right Alt. The application
-// has to know it in five places or the option is offered and does nothing: the key normaliser (so a stored value
-// survives a reload), the display name and summary, the default hotkey (rightalt, which the shortcut parser accepts as
-// 0xA5), the default startup delay, and the label/index mapping that the combo boxes rely on. The four dropdown
-// literals are separate copies, so all four are pinned here as well.
+// Candidate 3 retired Typeless and Windows 语音输入 on the user's verdict: selecting Typeless triggered 八哥说
+// instead (both tools had been given Right Alt), and Windows dictation started and stopped repeatedly because a
+// held shortcut re-triggers its single-tap toggle. Both values must now be migrated visibly instead of quietly
+// behaving like another tool, and neither may remain selectable.
+//
+// 讯飞 input is installed on this machine (D:\iFlyIME\3.0.1750) and its own installer writes the voice shortcut
+// into HKCU\Software\iFly Info Tek\iFlyIME -> iFlyImeVoiceShiftHotKey = "Ctrl + Shift + Alt + [". A tool is only
+// really supported when it is known in every place that makes the option real: the key normaliser (a stored
+// value has to survive a reload, including the Chinese label), the display name and summary, the default
+// shortcut and trigger, the startup delay, the process match that decides whether its client is running, the
+// label/index mapping the combo boxes rely on, and every dropdown literal.
 assert(includesAll(app, [
-  'provider == "bage" || provider == "bageshuo"',
+  'provider == "xunfei" || provider == "ifly"',
+  'case "xunfei": return "讯飞语音输入法";',
+  'case "xunfei": return "讯飞输入法：已安装在本机',
+  'case "xunfei": return XunfeiVoiceHotkey;',
+  'case "xunfei": return 200;',
+  'case "xunfei": return 2;',
+  'case "xunfei": return IsProcessRunning("iFlyInput")',
+  'index == 2 ? "xunfei" : index == 3 ? "custom"',
+  'private const string XunfeiVoiceHotkey = "ctrl+shift+alt+[";',
   'case "bage": return "八哥说";',
-  'case "bage": return "网易八哥说',
   'case "bage": return "rightalt";',
   'case "bage": return 150;',
-  'case "bage": return 2;',
-  'index == 2 ? "bage" : index == 3 ? "windows" : index == 4 ? "custom"',
-  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他语音工具"',
-  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具"',
-  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "Voquill（开源）", "其他语音工具"',
-]) && !app.includes('八哥说", "Typeless"'),
-  "The 八哥说 provider is offered but not wired through, or the dropdown order drifted from ProviderIndex");// An actionless mapping must not swallow the record key.
+  'case "bage": return 1;',
+  'provider == "typeless" || provider == "windows" || provider == "win+h";',
+]) &&
+  (app.match(/"微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具"/g) || []).length >= 3 &&
+  !app.includes('case "typeless"') && !app.includes('case "windows"') &&
+  !app.includes('return "Typeless"') && !app.includes('return "Windows 语音输入"'),
+  "A voice tool is offered but not wired through, a retired tool is still selectable, or the dropdown order drifted from ProviderIndex");
+
+// Exactly one component may press a tool's shortcut.
+//
+// The frozen capture presses it itself whenever its own parser can read it; the host has to take over for a
+// shortcut the capture cannot send (讯飞's Ctrl + Shift + Alt + [, because the capture's parser knows only
+// letters, digits, F1-F24 and a short list of named keys) and in trigger-only mode, where no capture runs at
+// all. Both halves are pinned, including the negative half: the two key lists have to stay identical, because
+// the capture is frozen and a shortcut added on the host side alone would silently hand the press to nobody.
+const captureShortcutNames = (() => {
+  const body = section(capture, "private static int VirtualKeyFromName(string raw)", "internal sealed class");
+  return [...body.matchAll(/\{\s*"([a-z0-9]+)",\s*0x[0-9A-Fa-f]+\s*\}/g)].map((match) => match[1]).sort();
+})();
+const hostMirrorNames = (() => {
+  const body = section(app, "private static int FrozenCaptureVirtualKey(string raw)", "private bool IsProviderRunning(string provider)");
+  return [...body.matchAll(/\{\s*"([a-z0-9]+)",\s*0x[0-9A-Fa-f]+\s*\}/g)].map((match) => match[1]).sort();
+})();
+assert(captureShortcutNames.length >= 20 && captureShortcutNames.join(",") === hostMirrorNames.join(","),
+  "The host's mirror of the capture's shortcut parser no longer matches the capture's own key list");
+assert(includesAll(app, [
+  "internal static bool FrozenCaptureCanSendShortcut(string shortcut)",
+  "internal static bool ProviderHotkeyIsHostDriven(string provider, string shortcut, bool triggerOnlyMode)",
+  "if (held && ProviderHotkeyIsHostDriven(config.inputMethod, CurrentProviderShortcut(), IsTriggerOnlyVoiceMode()))",
+  "if (ShouldHoldProviderHotkeyForSession(config.inputMethod, config.inputMethodTrigger))",
+  "case '[': return 0xDB;",
+  'TranscriptionVirtualKey("0xDB") != 0xDB',
+  'MappingShortcutDisplay(XunfeiVoiceHotkey) != "Ctrl + Shift + Alt + ["',
+]) && !app.includes("if (ShouldHoldProviderHotkeyForSession(config.inputMethod) && held)"),
+  "The host and the frozen capture can both press the same tool shortcut again, or a shortcut the capture cannot send has no sender");
+
+// An actionless mapping must not swallow the record key.
 //
 // Reported as a real bug: pressing the microphone refreshed the page. The power key had an open-url action and shares
 // the raw form 0xFF/0x5E with the microphone after a Bluetooth reconnect, so the press was routed to the power action.
@@ -1259,19 +1302,22 @@ assert(includesAll(read("scripts/features/ActionResult.cs"), [
 ]) && includesAll(app, [
   'if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))',
   "ControlTreeContainsPartialText",
-]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The default hotkeys of the voice tools must not collide.
+]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The default shortcut of every voice tool must not collide.
 //
-// Two collisions existed and a user reported the resulting confusion: 八哥说 and Typeless both defaulted to rightalt, and
-// "其他语音工具" defaulted to ctrl+win, the same stable value as 微信输入法. The stored value has to match the hotkey
-// configured inside each tool, so a duplicate default silently means two tools react to one key. 微信输入法的 ctrl+win is
-// frozen (it is the verified stable value) and Windows 语音输入 is fixed by Windows, so the other two moved.
+// Two collisions existed and a user reported the resulting confusion: 八哥说 and Typeless both defaulted to rightalt,
+// and "其他语音工具" defaulted to ctrl+win, the same stable value as 微信输入法. The stored value has to match the
+// shortcut configured inside each tool, so a duplicate default silently means two tools react to one key — measured
+// on this machine as selecting Typeless and triggering 八哥说. 微信输入法's ctrl+win is frozen (it is the verified
+// stable value), so the other slots hold 八哥说's Right Alt and 讯飞's own stock Ctrl + Shift + Alt + [, which the
+// host can now press even though the frozen capture's parser cannot name it.
 assert(includesAll(app, [
-  'case "typeless": return "rightctrl";',
   'case "bage": return "rightalt";',
-  'case "windows": return "win+h";',
+  'case "xunfei": return XunfeiVoiceHotkey;',
   'case "custom": return "rightshift";',
   'private const string WeChatStableHotkey = "ctrl+win";',
-]), "The voice-tool default hotkeys collide again");// The two key classes must stay disjoint, which is what lets both work at once.
+  'private const string XunfeiVoiceHotkey = "ctrl+shift+alt+[";',
+  'DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey',
+]), "The voice-tool default shortcuts collide again");// The two key classes must stay disjoint, which is what lets both work at once.
 //
 // The record key reports vk=0x74 / scan=0x3F and is intercepted by the hook while the remote is present; the power key
 // reports vk=0xFF / scan 0x5E and is a normal mapped key. The bridge must never accept the power key's form as a voice
@@ -1284,17 +1330,19 @@ assert(includesAll(bridge, [
   'if (IsVoiceRawCandidate(0xFF, 0x5E))',
   'throw new InvalidOperationException("The power key\'s shared raw form is still treated as the microphone")',
   'if (!IsVoiceRawCandidate(0x74, 0x3F))',
-]), "The record key and the power key are no longer kept apart");// Windows 语音输入 must never be driven in hold mode.
+]), "The record key and the power key are no longer kept apart");// A tool whose trigger is a toggle must never be offered a hold option, and the frozen stable path is pinned.
 //
-// Win+H is a toggle: tapping it starts dictation, tapping it again stops it. Driving it in hold mode held the hotkey
-// down and made Windows start and stop repeatedly — a user described the start and stop cue sounds running together.
-// 微信输入法's stable path is a toggle too, so both are pinned in the effective-trigger helper the capture arguments use.
+// 微信输入法's stable path is documented as 单击切换, so the effective-trigger helper the capture arguments use pins
+// it whatever a hand-edited configuration says, and the voice page offers it exactly one option. Every other tool
+// keeps the user's own hold / toggle choice, because that choice has to match what the tool itself does with its
+// configured shortcut — offering a trigger the app then ignores is how a tool ends up starting and stopping by itself.
 assert(includesAll(app, [
   "private static string EffectiveTriggerForProvider(string provider, string trigger)",
-  'if (normalized == "windows" || normalized == "wechat") return "toggle";',
+  'if (normalized == "wechat") return "toggle";',
   "SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))",
-  'else if (normalized == "windows")',
-]), "Windows 语音输入 can be driven in hold mode again, which makes it start and stop repeatedly");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+  'target.Items.Add("单击切换（稳定）");',
+  'return NormalizeProviderKey(provider) == "xunfei" ? "hold" : "toggle";',
+]), "The frozen stable voice tool can be driven with the wrong trigger again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
@@ -2134,10 +2182,15 @@ assert(includesAll(inputMethodDetector, [
   "ProviderRequiresOwnInputMethod", "ActiveEngineBlocksProvider",
   "9D2B2E2B-3C93-4D2F-9D35-6EEB85F0D2B0", "2B4D4B3A-4D4F-4C0A-8E66-7F771A2B9C10",
   "86598FB9-66A2-463E-B9C2-AEB906D477AD", "607FDF85-FCC8-4DBD-A365-41296F980C9C",
+  "B722B5D7-0C4C-4933-A7B9-DF8C91F2C643", "0C7479AF-F27F-488C-A46B-5BDA6BF43E50",
   "81D4E9C9-1D3B-41BC-9E6C-4B40BF79E35E", "FA550B04-5AD7-411F-A5AC-CA038EC515D7",
   "33C53A50-F456-4884-B049-85FD643ECFED", "71C6E74C-0F28-11D8-A82A-00065B84435C",
   "34745C63-B2F0-4784-8B67-5E12C8701A31", "GetKeyboardLayout",
   "TFInputProcessorProfile", "AllocHGlobal", "FreeHGlobal",
+]) && includesAll(app, [
+  'InputEngineCatalog.ClassifyEngine("{B722B5D7-0C4C-4933-A7B9-DF8C91F2C643}", "") != InputEngineCatalog.XunfeiEngine',
+  'InputEngineCatalog.ClassifyEngine("{2FCE7706-DDD8-42A9-8B59-B84D454022FC}", "") != InputEngineCatalog.UnknownEngine',
+  'InputEngineCatalog.DescribeEngine(InputEngineCatalog.XunfeiEngine) != "讯飞输入法"',
 ]) && !/Clipboard\.|SendKeys\.|keybd_event|SendInput/.test(inputMethodDetector),
 "The input-method detector lost the verified identifiers, the TSF lookup, the caller-owned profile buffer, or gained an input-injection path");
 // The TSF read is per-thread, so it answers "which input method is active for this process" and not
@@ -2180,20 +2233,21 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   "RunVbCableInstallCompletionSelfTests", "VB-CABLE install completion policy is wrong",
 ]), "The install-completion policy is not pinned by the host self-test");
-// V2.0 retired the Doubao input method as a selectable voice tool: it filters every
-// synthetic keystroke and its panel records its own microphone. The supported list
-// must stay the three verified tools plus the custom entry, and a stored V1.5 value
-// must be migrated visibly instead of silently behaving like another tool.
+// Candidate 3 retired two more selectable voice tools, and the supported list must stay the two
+// verified tools plus the custom entry. A stored value from an earlier build — Doubao, Typeless or
+// Windows 语音输入 — must be migrated visibly and by name instead of silently behaving like another tool.
 assert(includesAll(app, [
-  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他语音工具"',
-  '"微信输入法", "Typeless", "八哥说", "Windows 语音输入", "其他自定义工具"',
-]) && !app.includes('case "doubao"') && !app.includes('"豆包输入法", "Windows'),
-"The voice tool list still offers the retired Doubao input method");
+  '"微信输入法", "八哥说", "讯飞语音输入法", "其他语音工具"',
+  'provider == "typeless" || provider == "windows" || provider == "win+h";',
+]) && !app.includes('case "doubao"') && !app.includes('"豆包输入法", "讯飞'),
+"The voice tool list still offers a retired voice tool");
 assert(includesAll(app, [
-  "IsRetiredProviderValue", "retiredProviderMigrated", "PROVIDER MIGRATED retired=doubao",
-  "豆包输入法不再作为Vibe Link的语音工具选项", "if (IsRetiredProviderValue(value.inputMethod))",
+  "IsRetiredProviderValue", "retiredProviderMigrated", "retiredProviderMigratedValue",
+  'HostLog("PROVIDER MIGRATED retired=" + SafeLogValue(retired)',
+  'retired == "typeless" ? "Typeless"',
+  "if (IsRetiredProviderValue(value.inputMethod))",
   'value.inputMethodHotkey = DefaultHotkeyForProvider("wechat");',
-]) && app.indexOf("retiredProviderMigrated = true;") > app.indexOf("private static bool MigrateConfig"),
+]) && app.indexOf("retiredProviderMigratedValue = value.inputMethod") > app.indexOf("private static bool MigrateConfig"),
 "A stored retired provider value is not migrated visibly by the configuration migration");
 assert(!app.includes("BeginDoubaoVoiceBarSession") && !app.includes("ShouldToggleProviderVoiceBarForSession"),
 "The retired Doubao automation path is still wired into the voice wake handler");

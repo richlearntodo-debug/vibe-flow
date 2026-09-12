@@ -142,7 +142,7 @@ internal static class WorkflowCards
             case GapNoProfile: return "为它选择一个键位 Profile，或把应用加入现有 Profile 的应用列表";
             case GapNoTarget: return "打开它并聚焦输入框，用“设置工作流”学习一次";
             case GapTargetUnverified: return "重新学习一次工作流；界面更新后旧目标可能失效";
-            case GapProviderNotRunning: return "先启动默认语音工具，或改用 Windows 语音输入";
+            case GapProviderNotRunning: return "先启动默认语音工具，或改用八哥说 / 讯飞语音输入法";
             case GapNeverObserved: return "切换到该应用后按一次遥控器录音键完成验证";
             default: return "无需操作";
         }

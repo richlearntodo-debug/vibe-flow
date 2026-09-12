@@ -191,13 +191,34 @@
 | --- | --- | --- | --- |
 | **微信输入法**（默认 ✔） | **`ctrl+win`** ✔ | 单击切换（稳定 ✔） | **冻结值** ✗，不得改（真机验证过的稳定参数 ✔） |
 | **八哥说（网易）** | **`rightalt`** ✔ | 单击切换 ✔ | 用户确认其客户端即为**右 Alt** ✔ |
-| **Typeless** | **`rightctrl`** ✔ | 单击切换 ✔（应用内"按住触发"亦可 ✔） | **由 `rightalt` 改为 `rightctrl`** ✗：此前与八哥说**重复** ✗ |
-| **Windows 语音输入** | `win+h` ✔ | 单击切换 ✔（应用内**强制** ✔，见 §12.6 ✔） | 由 Windows 固定 ✔ |
+| **讯飞语音输入法**（新增 ✔） | **`ctrl+shift+alt+[`** ✔ | **按住触发** ✔（长按说话 ✔） | 取**讯飞自己安装时写入的默认语音快捷键** ✔（`HKCU\Software\iFly Info Tek\iFlyIME → iFlyImeVoiceShiftHotKey` ✔） |
 | **其他语音工具**（自定义 ✔） | **`rightshift`** ✔ | 单击切换 ✔ | **由 `ctrl+win` 改为 `rightshift`** ✗：此前与微信输入法**重复** ✗ |
 
 - **不变式** ✔（已加门禁 ✔）：以上四个默认值**两两不同** ✔；改动前请同时更新 `scripts/validate.js` 的断言 ✔。
 - **注意** ✗：应用里存的快捷键**只是"我们发送什么"** ✔ —— 必须与**该工具自己的设置**完全一致 ✔，否则按下不会启动听写 ✔。
-- 本机当前配置 ✔：`inputMethod = bage` ✔、`inputMethodHotkey = rightalt` ✔、`inputMethodTrigger = toggle` ✔（改前备份 `vibe-mic-config.json.before-bage-hotkey-*.bak` ✔）。
+- **本机当前配置** ✔（读回 `vibe-mic-config.json` ✔）：迁移后为 `inputMethod = wechat` ✔、`inputMethodHotkey = ctrl+win` ✔、`inputMethodTrigger = toggle` ✔、`voiceMode = hold` ✔；改用讯飞时由应用把三个字段写成讯飞默认值 ✔。
+
+### 12.1.1 已下线：Typeless 与 Windows 语音输入（2026-09-13 深夜，用户判定 ✗）
+
+| 已下线工具 | 原因（用户实测 ✔） | 迁移方式 ✔ |
+| --- | --- | --- |
+| **Typeless** | 选 Typeless 却**实际触发八哥说** ✗（两者默认快捷键都是 `rightalt` ✗） | 存有该值的配置 **自动迁移为微信输入法** ✔ 并**弹窗点名** ✔ |
+| **Windows 语音输入** | Win+H 是**单击切换** ✔，被"按住"驱动 → **开始/结束反复触发** ✗、**停不下来** ✗ | 同上 ✔ |
+
+- 两者已从**所有下拉框**、`NormalizeProviderKey`、默认快捷键/触发/延时、进程匹配、状态文案中**彻底移除** ✔；`IsRetiredProviderValue` 现在同时覆盖 `doubao` / `typeless` / `windows` ✔（自测 + 门禁钉住 ✔）。
+- 迁移会记一行 `PROVIDER MIGRATED retired=<值> action=use_wechat_input_method defaults=applied` ✔ 并弹一次提示 ✔。
+
+### 12.1.2 讯飞的触发由**主机**发送（新的唯一归属规则 ✔）
+
+**实测发现的问题** ✗（2026-09-13 日志 ✔）：旧版对 Typeless / Windows 是**主机与冻结采集件同时发送**快捷键 ✗（`PROVIDER HOTKEY SESSION action=down` ✔ 与 `TRANSCRIPTION TRIGGER … sent=True` ✔ 同时出现 ✔）——两个组件各按一次切换键 ✔ = 自己开始/自己停止 ✗。
+
+**因此新增"唯一归属"规则** ✔（`ProviderHotkeyIsHostDriven` ✔）：
+
+1. **微信输入法** ✔ → 面板由**冻结采集件**驱动 ✔，主机**从不**碰它的快捷键 ✔。
+2. 其它工具 ✔ → **采集件能解析就该采集件发** ✔；只有**采集件发不出去**的快捷键 ✔（讯飞的 `ctrl+shift+alt+[` ✗ —— 冻结件只认字母/数字/F1–F24/少量具名键 ✗）或**免驱动模式**（根本没有采集件 ✔）才由**主机**发 ✔。
+3. 触发语义跟随**有效触发值** ✔：`hold` → 按下 KeyDown、松开发 KeyUp ✔；`toggle` → 按下与松开各 tap 一次 ✔。
+
+**证据** ✔：主机自测断言 ✔（`ProviderHotkeyIsHostDriven` 六种组合 ✔、镜像解析器 ✔、hold/tap 归属 ✔）；`scripts/validate.js` **逐字比对**主机镜像与冻结采集件的键名表 ✔（采集件冻结 ✔，单边改动会变成"没人发送" ✗）。
 
 ### 12.2 共用形态 `0xFF/0x5E` 的判别（电源键不再触发录音 ✔）
 
@@ -251,22 +272,20 @@
 **本机当前值** ✔（用户原有设置，已按原样还原 ✔）：短按 = `open-url:https://platform.deepseek.com/usage` ✔；长按 = B 站视频页 ✔；双击 = `task-switcher` ✔。
 备份 ✔：`vibe-mic-config.json.before-restore-*.bak`、`gesture-layers.json.before-restore-*.bak`。
 
-### 12.6 触发方式的"有效值"（2026-09-13 深夜，按用户真机报告修复 ✔）
+### 12.6 触发方式的"有效值"（2026-09-13 深夜 ✔；当天更晚随 §12.1.1 下线而收窄 ✔）
 
-**用户现场报告** ✗（两条 ✔）：
+**历史报告** ✗（两条 ✔，均已由下线处理 ✔）：
 
-1. 选 **Typeless** 却**实际触发了八哥说** ✗ —— 因为两者的默认快捷键那时都是 `rightalt` ✗。
-2. 选 **Windows 语音输入**后**停不下来** ✗、开始与结束提示音连成一片 ✗ —— 因为 Win+H 本身就是**单击切换** ✔，而应用按"按住触发"驱动它 ✗（按住期间系统反复开始 / 结束 ✗）。
+1. 选 **Typeless** 却**实际触发了八哥说** ✗ —— 因为两者的默认快捷键那时都是 `rightalt` ✗ → 现已**整条下线** ✔（§12.1.1 ✔）。
+2. 选 **Windows 语音输入**后**停不下来** ✗、开始与结束提示音连成一片 ✗ —— 因为 Win+H 本身就是**单击切换** ✔，被"按住"驱动就会反复开始 / 结束 ✗ → 现已**整条下线** ✔（§12.1.1 ✔）。
 
-**修法** ✔（全部在 `scripts/VibeMic.cs` ✔）：
+**保留下来的规则** ✔（`scripts/VibeMic.cs` ✔）：
 
-- `DefaultHotkeyForProvider` ✔：Typeless 回到 `rightctrl` ✔（八哥说继续保持 `rightalt` ✔）；并加自测断言 ✗→✔：两者**不得相同** ✗、Typeless 的设置说明必须写明 **Right Ctrl** ✔。
-- 新增 `EffectiveTriggerForProvider(provider, trigger)` ✔：`windows` 与 `wechat` **一律** `toggle` ✔（**无论配置里存的是什么** ✔），其余工具**尊重用户选择** ✔（`hold` / `toggle` ✔）。采集参数改为传**有效值** ✔：`SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))` ✔。
-- `PopulateTriggerModeOptions` ✔：`windows` **只给一个**选项 ✔「单击切换（Win+H 固定为单击）」✔ —— 从界面上就**不可能**选中"按住触发" ✔。
+- `EffectiveTriggerForProvider(provider, trigger)` ✔：**微信输入法一律 `toggle`** ✔（**无论配置里存的是什么** ✔，因为它是冻结的稳定路径 ✔）；其余工具**尊重用户选择** ✔（`hold` / `toggle` ✔）。采集参数传**有效值** ✔：`SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))` ✔。
+- `PopulateTriggerModeOptions` ✔：微信输入法**只给一个**选项 ✔「单击切换（稳定）」✔ —— 界面上就**不可能**给它选"按住触发" ✔。
+- 讯飞默认 **`hold`** ✔（`DefaultTriggerForProvider` ✔），因为讯飞自己的语音栏是**长按说话 / 松手结束** ✔；用户在语音页可改成"单击切换" ✔。
 
-**证据** ✔（含负控 ✔）：把该 pin 临时改成 `if (false)` ✗ → `VibeMic.exe --self-test` **退出码 1** ✗，报错正是 `The effective trigger policy drifted from the frozen toggle-only voice tools` ✔；还原后自检**通过** ✔（退出码 0 ✔）。
-
-**仍未验证** ✗（如实记录 ✔）：以上是**逻辑层 + 负控证据** ✔；因本机当前 `inputMethod = wechat` ✔，Typeless / Windows 两条路径的**真机行为**需用户切到该工具后再实测 ✔。
+**证据** ✔（含负控 ✔）：把 `toggle` 的 pin 临时改成 `if (false)` ✗ → `VibeMic.exe --self-test` **退出码 1** ✗，报错正是 `The effective trigger policy drifted from the frozen stable voice tool` ✔；还原后自检**通过** ✔（退出码 0 ✔）。
 
 ## 13. 按键固化（2026-09-13 晚，用户真机确认可用后 ✔）
 

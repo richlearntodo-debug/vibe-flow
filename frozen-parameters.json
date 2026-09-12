@@ -55,13 +55,20 @@
                        "providerDefaults":  {
                                                 "wechat":  "ctrl+win",
                                                 "bage":  "rightalt",
-                                                "typeless":  "rightctrl",
-                                                "windows":  "win+h",
+                                                "xunfei":  "ctrl+shift+alt+[",
                                                 "custom":  "rightshift"
                                             },
-                       "effectiveTrigger":  "windows and wechat are always driven as toggle; every other tool honours the stored hold/toggle choice (EffectiveTriggerForProvider)",
-                       "collidingToolsNote":  "Right Alt belongs to 八哥说, so Typeless defaults to Right Ctrl; sharing one form made selecting Typeless trigger 八哥说 on the user machine",
-                       "machineConfigVerifiedAt":  "2026-09-13 02:35 - user config read back: provider=windows, hotkey=win+h, trigger=toggle, voiceMode=hold"
+                       "effectiveTrigger":  "wechat is pinned to toggle whatever the stored value says; every other tool honours the stored hold/toggle choice (EffectiveTriggerForProvider)",
+                       "machineConfigVerifiedAt":  "2026-09-13 03:0x - user config read back before migration: provider=windows, hotkey=win+h, trigger=toggle, voiceMode=hold; migrates to wechat",
+                       "providerTriggerDefaults":  {
+                                                       "wechat":  "toggle",
+                                                       "bage":  "toggle",
+                                                       "xunfei":  "hold",
+                                                       "custom":  "toggle"
+                                                   },
+                       "retiredProviders":  "doubao, typeless, windows: a stored value is migrated to wechat and the user is told, by name, which tool was replaced",
+                       "providerOwnership":  "exactly one component presses a tool shortcut: the frozen capture owns the wechat panel and every shortcut it can parse; the host sends only a shortcut the capture cannot name (xunfei ctrl+shift+alt+[) or in trigger-only mode",
+                       "collidingToolsNote":  "Right Alt belongs to 八哥说, so 讯飞语音输入法 keeps its own stock Ctrl + Shift + Alt + [; sharing one shortcut was measured as selecting one tool and triggering another"
                    },
     "keysAndGestures":  {
                             "powerKey":  {

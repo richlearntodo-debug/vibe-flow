@@ -24,7 +24,7 @@ The RC003 ATVV investigation was informed by the open-source project [`HD838A/re
 
 ## Optional transcription clients
 
-WeChat Input Method, Typeless, Windows Voice Typing, and Voquill are optional external transcription clients and are not bundled with Vibe Flow. Their trademarks, services, privacy policies, licenses, and network behavior belong to their respective owners. The Voquill provider profile follows the current open-source Windows default hotkey documented in [`voquill/voquill`](https://github.com/voquill/voquill); no Voquill source code is included in Vibe Flow.
+WeChat Input Method, NetEase Bage (八哥说), iFlytek Voice Input (讯飞语音输入法), and Voquill are optional external transcription clients and are not bundled with Vibe Flow. Typeless and Windows Voice Typing are no longer selectable voice tools in V2.0; their names remain here only because earlier builds referenced them. Their trademarks, services, privacy policies, licenses, and network behavior belong to their respective owners. The Voquill provider profile follows the current open-source Windows default hotkey documented in [`voquill/voquill`](https://github.com/voquill/voquill); no Voquill source code is included in Vibe Flow.
 
 ## Product artwork
 
