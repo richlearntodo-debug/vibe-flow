@@ -18,10 +18,10 @@ internal static class UiDesignTokens
     internal const int SidebarWidth = 232;
     internal const int SidebarHeaderHeight = 104;
     internal const int SidebarFooterHeight = 76;
-    internal const int NavigationButtonHeight = 48;
-    internal const int NavigationGap = 8;
-    internal const int ContentPaddingHorizontal = 34;
-    internal const int ContentPaddingVertical = 26;
+    internal const int NavigationButtonHeight = 52;
+    internal const int NavigationGap = 6;
+    internal const int ContentPaddingHorizontal = 42;
+    internal const int ContentPaddingVertical = 34;
     internal const int ContentMinimumWidth = 1000;
     internal const int ContentMinimumHeight = 744;
 
