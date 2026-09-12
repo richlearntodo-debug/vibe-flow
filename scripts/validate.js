@@ -617,7 +617,7 @@ for (const file of requiredFiles.filter((item) => item.startsWith("docs/images/"
 
 // Product identity, release metadata, and persistent configuration.
 assert(includesAll(app, [
-  'DisplayProductName = "言灵 · Vibe Flow Remote"',
+  'DisplayProductName = "Vibe Link"',
   'ProductRelease = "2.0.0"',
   'StableCaptureBinaryVersion = "1.2.1"',
   'AssemblyFileVersion("2.0.0.0")',
@@ -1179,8 +1179,8 @@ assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
   'Log("Raw Input health timer interval_ms=" + healthIntervalMs +',
 ]) && includesAll(app, [
   '未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。',
-  '未安装签名通道时，言灵按「遥控器是否在场」判断',
-]) && !app.includes('RC003 按键隔离未就绪') && !app.includes('言灵不拦截来源未知的键'),
+  '未安装签名通道时，Vibe Link按「遥控器是否在场」判断',
+]) && !app.includes('RC003 按键隔离未就绪') && !app.includes('Vibe Link不拦截来源未知的键'),
   "The presence probe fell back outside its window, or the copy went back to saying keys of unknown origin pass through");// The voice page reports the last session's measured capture level.
 //
 // This is the one place where the software can help with the microphone problem: measured over 920 sessions, the
@@ -1267,7 +1267,7 @@ assert(includesAll(app, [
 // reads 选择快捷键 Profile: the page used to say 选择键位 Profile, which is a different word for the same thing the
 // glossary already explains.
 assert(includesAll(app, [
-  '? "另外：微信输入法会把文字放进剪贴板，言灵在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"',
+  '? "另外：微信输入法会把文字放进剪贴板，Vibe Link在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"',
   '"●  语音参数已应用（v" + StableVoiceProfileVersion + "）"',
   'return "首版稳定模式；松开立即结束，单次最长约 60 秒。";',
   'AddPageTitle("工作流", "把文字送进你常用的应用：添加、学习、保存，之后交给录音键");',
@@ -1283,7 +1283,7 @@ assert(includesAll(app, [
 // native effect can still fire, and the channel is optional. The log note and the statistics note lost their padding.
 // "配置 schema" became 参数版本: schema is the word the code uses, not the word a user reads.
 assert(includesAll(app, [
-  '未安装签名通道时，言灵按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。',
+  '未安装签名通道时，Vibe Link按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。',
   '每个日志上限 4 MB。诊断音频每次都要你明确确认。',
   '参数版本 " + ConfigSchemaVersion',
   '只统计当前日志窗口内有结束回执的会话（日志限长，旧记录随滚动丢弃）；不含录音、转写文字、窗口标题或设备地址。',
@@ -1492,7 +1492,7 @@ assert(includesAll(app, [
   "InstalledAppCatalog.IconForExecutable(executable)", "InstalledAppCatalog.ExecutableForProcess(running.ProcessName)",
   "InstalledAppCatalog.DescribeExecutable(executable)",
   "A running application's picker name is resolved wrongly",
-  "The picker can offer one of Vibe Flow's own processes as a target",
+  "The picker can offer one of Vibe Link's own processes as a target",
 ]) && app.indexOf("InstalledAppCatalog.List()") < app.indexOf("GetRunningApplications()"),
   "A running application is listed in the picker without its icon or its real name");
 assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
@@ -1511,7 +1511,7 @@ assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
 assert(includesAll(read("scripts/features/FocusTargetService.cs"), [
   "internal static readonly string[] ExcludedProcesses",
   '"vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture"',
-]), "Vibe Flow can offer one of its own processes as an application to learn");
+]), "Vibe Link can offer one of its own processes as an application to learn");
 // Page geometry is laid out by coordinate, and two rows on two pages collided: the voice page's
 // CABLE status line ended at y=508 while the endpoint line below it began at y=502 (6 px), and the
 // settings page's 安全检查更新 button ran 10 px into the product label beside it. Both were found
@@ -1757,7 +1757,7 @@ assert(includesAll(bridge, [
   'health["routing_authority"] = filterHealthy ? "device_filter" : "raw_input"',
   'health["routing_isolation"] = filterHealthy ? "exact_device" : "native_passthrough"',
   'health["raw_remote_edges"]', 'health["raw_action_edges"]',
-  "Vibe Flow device-aware keyboard hook", "WM_APP_REINSTALL_HOOK",
+  "Vibe Link device-aware keyboard hook", "WM_APP_REINSTALL_HOOK",
 ]), "RC003 source isolation or its deterministic regression tests are incomplete");
 assert(includesAll(app, [
   "Retired compatibility routing was not normalized to strict",
@@ -2138,7 +2138,7 @@ assert(includesAll(app, [
 "The voice tool list still offers the retired Doubao input method");
 assert(includesAll(app, [
   "IsRetiredProviderValue", "retiredProviderMigrated", "PROVIDER MIGRATED retired=doubao",
-  "豆包输入法不再作为言灵的语音工具选项", "if (IsRetiredProviderValue(value.inputMethod))",
+  "豆包输入法不再作为Vibe Link的语音工具选项", "if (IsRetiredProviderValue(value.inputMethod))",
   'value.inputMethodHotkey = DefaultHotkeyForProvider("wechat");',
 ]) && app.indexOf("retiredProviderMigrated = true;") > app.indexOf("private static bool MigrateConfig"),
 "A stored retired provider value is not migrated visibly by the configuration migration");
@@ -2379,7 +2379,7 @@ assert(includesAll(app, [
 // shortcuts and missed the shell AppsFolder, which the catalogue also enumerates.
 //
 // The geometry check's titled-window search returned the wrong window: it did not filter by process, stopped at the
-// first match and enumerated only top-level windows, so asking for 言灵 returned a 416x217 window belonging to
+// first match and enumerated only top-level windows, so asking for Vibe Link returned a 416x217 window belonging to
 // another process while the application's real window was 1600x1050. It now filters by process and takes the
 // largest match, in both the main-window and the titled-window search.
 assert(includesAll(read("scripts/features/InstalledAppCatalog.cs"), [
@@ -2407,7 +2407,7 @@ assert(includesAll(app, [
   'SectionTitle("界面缩放"',
   'segment.Name = "uiScaleSegment" + value;',
   '"界面缩放已设为 " + value + "%',
-  "在 Windows 显示缩放之上再放大整个界面；改动在重启言灵后生效。",
+  "在 Windows 显示缩放之上再放大整个界面；改动在重启Vibe Link后生效。",
 ]) && includesAll(read("scripts/ui/UiDisplayScale.cs"), [
   "internal static float UserScale = 1f;",
   "return dpi / 96f * UserScale;",
@@ -2535,7 +2535,7 @@ assert(includesAll(app, [
   // subtitle no longer promises all four lines up front.
   // The subtitle lost its first clause in the copy pass; the rows state their own verdict.
   'AddPageTitle("自检", "点「详情」看正确状态、原因与下一步");',
-  'AddPageTitle("设置", "让言灵按你的习惯在后台运行");',
+  'AddPageTitle("设置", "让Vibe Link按你的习惯在后台运行");',
   '(verified || saved) ? "✓" : (i + 1).ToString()',
   'saved ? "\\r\\n进度已保存" : ""',
 ]) && includesAll(read("scripts/ui/PageShell.cs"), [
@@ -2548,7 +2548,7 @@ assert(includesAll(app, [
   !app.includes("7.6f") && !app.includes("7.4f") && !app.includes("7.3f") && !app.includes("7.1f"),
   "A page title disagrees with the navigation, a status colour has two meanings, or 7.x pt UI text came back");// The settings page's key-source card used to assert device-level isolation unconditionally — a checked box
 // reading "只有带 RC003 身份的事件可以执行遥控器动作" — while the badge and the note in the same card said the
-// opposite ("言灵不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
+// opposite ("Vibe Link不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
 // four parts of that card agree. A checked box promising what the same card denies is worse than saying nothing.
 assert(includesAll(app, [
   '"未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复"',
@@ -3216,7 +3216,7 @@ assert(installerStartupReader.indexOf("UserConfigPath") < installerStartupReader
 const uninstallLifecycle = installer.slice(installer.indexOf("procedure CurUninstallStepChanged"));
 assert(includesAll(uninstallLifecycle, [
   "RegValueExists", "not RegDeleteValue", "RaiseException",
-]), "Uninstaller can silently leave a stale Vibe Flow startup registration");
+]), "Uninstaller can silently leave a stale Vibe Link startup registration");
 assert(includesAll(lifecycleTest, [
   "Get-ConfigContractProjection", "inputMethod", "inputMethodHotkey", "inputMethodTrigger",
   "providerStartupDelayMs", "autoRouteVirtualMicrophone", "inputRoutingMode", "mappingPreset",
@@ -3486,4 +3486,4 @@ assert(includesAll(hardwareAcceptance, [
   "不提交版本标签", "增益 | `1.0`", "尾音排空 | `180 ms`", "录音内核 | `v1.0.3`",
 ]), "The V1.2.1 physical hardware release gate is incomplete");
 
-console.log("Vibe Flow V2.0.0 candidate validation passed; Capture remains frozen at 1.2.1.0.");
+console.log("Vibe Link V2.0.0 candidate validation passed; Capture remains frozen at 1.2.1.0.");

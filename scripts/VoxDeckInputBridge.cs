@@ -11,9 +11,9 @@ using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: System.Reflection.AssemblyTitle("Vibe Flow RC003 input bridge")]
+[assembly: System.Reflection.AssemblyTitle("Vibe Link RC003 input bridge")]
 [assembly: System.Reflection.AssemblyProduct("Vibe Flow Remote")]
-[assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
+[assembly: System.Reflection.AssemblyCompany("Vibe Link Contributors")]
 [assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
 [assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
 [assembly: System.Reflection.AssemblyInformationalVersion("2.0.0-candidate")]
@@ -312,7 +312,7 @@ internal static class VoxDeckInputBridge
         keyboardHookReady.Reset();
         keyboardHookThread = new Thread(KeyboardHookThreadMain);
         keyboardHookThread.IsBackground = true;
-        keyboardHookThread.Name = "Vibe Flow device-aware keyboard hook";
+        keyboardHookThread.Name = "Vibe Link device-aware keyboard hook";
         keyboardHookThread.Start();
         if (!keyboardHookReady.WaitOne(2000) || hookHandle == IntPtr.Zero)
             Log("Keyboard hook thread failed to become ready");
@@ -1526,7 +1526,7 @@ internal static class VoxDeckInputBridge
                 voiceHoldRepeatsSuppressed = savedRepeats;
                 isolationRepeatCount = savedIsolationRepeats;
             }
-            Console.WriteLine("Vibe Flow input bridge self-test passed.");
+            Console.WriteLine("Vibe Link input bridge self-test passed.");
             return 0;
         }
         catch (Exception ex)
@@ -5108,12 +5108,12 @@ internal static class VoxDeckInputBridge
             if (ioThread != null) return;
             dispatchThread = new Thread(DispatchLoop);
             dispatchThread.IsBackground = true;
-            dispatchThread.Name = "Vibe Flow RC003 filter dispatch";
+            dispatchThread.Name = "Vibe Link RC003 filter dispatch";
             dispatchThread.Start();
 
             ioThread = new Thread(IoLoop);
             ioThread.IsBackground = true;
-            ioThread.Name = "Vibe Flow RC003 filter heartbeat";
+            ioThread.Name = "Vibe Link RC003 filter heartbeat";
             ioThread.Start();
         }
 

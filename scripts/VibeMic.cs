@@ -18,16 +18,16 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-[assembly: System.Reflection.AssemblyTitle("Vibe Flow Remote")]
-[assembly: System.Reflection.AssemblyProduct("言灵 · Vibe Flow Remote")]
-[assembly: System.Reflection.AssemblyCompany("Vibe Flow Contributors")]
+[assembly: System.Reflection.AssemblyTitle("Vibe Link")]
+[assembly: System.Reflection.AssemblyProduct("Vibe Link")]
+[assembly: System.Reflection.AssemblyCompany("Vibe Link Contributors")]
 [assembly: System.Reflection.AssemblyVersion("2.0.0.0")]
 [assembly: System.Reflection.AssemblyFileVersion("2.0.0.0")]
 [assembly: System.Reflection.AssemblyInformationalVersion("2.0.0-candidate")]
 
 internal sealed partial class VibeMicForm : Form
 {
-    private const string DisplayProductName = "言灵 · Vibe Flow Remote";
+    private const string DisplayProductName = "Vibe Link";
     private const string ProductRelease = "2.0.0";
     private const string StableCaptureBinaryVersion = "1.2.1";
     private const string StableCaptureBinarySha256 =
@@ -413,9 +413,9 @@ internal sealed partial class VibeMicForm : Form
                 try
                 {
                     MessageBox.Show(
-                        "言灵遇到了一个未处理的错误，已把详情写入：" + Environment.NewLine + path +
+                        "Vibe Link遇到了一个未处理的错误，已把详情写入：" + Environment.NewLine + path +
                         Environment.NewLine + Environment.NewLine + "请在「设置 · 导出诊断」里一并提供该文件。",
-                        "言灵 · 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "Vibe Link · 运行错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
                 catch { }
                 Application.Exit();
@@ -583,7 +583,7 @@ internal sealed partial class VibeMicForm : Form
                 "检测到更新版本的配置，已进入只读保护",
                 "当前程序支持 schema " + ConfigSchemaVersion + "，配置为 schema " +
                     unsupportedConfigSchemaVersion + "；未启动按键或语音服务，也未改写配置",
-                "请使用创建该配置的新版 Vibe Flow；如需降级，请先备份并移开较新配置",
+                "请使用创建该配置的新版 Vibe Link；如需降级，请先备份并移开较新配置",
                 "CONFIG-SCHEMA-NEWER");
             ShowActionToast(latestActionResult);
         }
@@ -1699,7 +1699,7 @@ internal sealed partial class VibeMicForm : Form
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Run", false))
             {
-                string command = key == null ? "" : Convert.ToString(key.GetValue("Vibe Flow"));
+                string command = key == null ? "" : Convert.ToString(key.GetValue("Vibe Link"));
                 int executableEnd = command.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
                 if (executableEnd < 0) return "";
                 string executablePath = command.Substring(0, executableEnd + 4).Trim().Trim('"');
@@ -4994,19 +4994,19 @@ deck.Hide();
             RunCrashReportSelfTests();
             RunFeedbackOutletSelfTests();
             RunInstallerPathSelfTests();
-            Console.WriteLine("Vibe Flow host self-test passed.");
+            Console.WriteLine("Vibe Link host self-test passed.");
             return 0;
         }
         catch (Exception ex)
         {
             try { System.IO.File.AppendAllText(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "self-test-report.txt"), DateTime.Now.ToString("s") + " SELF-TEST FAILED: " + ex + Environment.NewLine); } catch { }
-            Console.Error.WriteLine("Vibe Flow host self-test failed: " + ex.Message);
+            Console.Error.WriteLine("Vibe Link host self-test failed: " + ex.Message);
             try
             {
                 string reportDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tmp");
                 Directory.CreateDirectory(reportDirectory);
                 File.WriteAllText(Path.Combine(reportDirectory, "host-self-test.txt"),
-                    "Vibe Flow host self-test failed: " + ex.ToString(), Encoding.UTF8);
+                    "Vibe Link host self-test failed: " + ex.ToString(), Encoding.UTF8);
             }
             catch { }
             return 1;
@@ -5100,8 +5100,8 @@ deck.Hide();
         logo.Location = new Point(24, 24);
         logo.Size = new Size(48, 48);
 
-        var brand = NewLabel("言灵", 19f, FontStyle.Bold, ink);
-        var sub = NewLabel("VIBE FLOW · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
+        var brand = NewLabel("Vibe Link", 19f, FontStyle.Bold, ink);
+        var sub = NewLabel("VIBE LINK · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
         sub.Margin = new Padding(2, 0, 0, 0);
 
         var navigation = new FlowLayoutPanel();
@@ -5464,7 +5464,7 @@ deck.Hide();
             {
                 result = ActionResult.Create("切换 Profile", "项目", ActionState.Error,
                     "Profile 未应用，后续步骤未执行", "配置或 Profile 快照不可用",
-                    "重新打开 Vibe Flow 后再试", "PROJECT-PROFILE-MISSING");
+                    "重新打开 Vibe Link 后再试", "PROJECT-PROFILE-MISSING");
                 return;
             }
             if (!ProjectProfileSnapshotMatchesConfiguration(config, profile))
@@ -5492,7 +5492,7 @@ deck.Hide();
             HostLog("PROJECT SPACE profile_commit_failed=true error=" + SafeLogValue(ex.GetType().Name));
             result = ActionResult.Create("切换 Profile", profile == null ? "项目" : profile.Name,
                 ActionState.Error, "Profile 未应用，后续步骤未执行", "配置 owner 无法完成写入",
-                "重新启动 Vibe Flow 后再试", "PROJECT-PROFILE-COMMIT-FAILED");
+                "重新启动 Vibe Link 后再试", "PROJECT-PROFILE-COMMIT-FAILED");
         }
         expectedRevision = revision;
         return result;
@@ -8758,7 +8758,7 @@ deck.Hide();
         {
             CaptureActiveShortcutProfileMappings(config);
             var dialog = new SaveFileDialog();
-            dialog.Filter = "Vibe Flow 快捷键 Profile|*.json";
+            dialog.Filter = "Vibe Link 快捷键 Profile|*.json";
             string safeName = Regex.Replace(active.name, "[\\\\/:*?\"<>|]", "-");
             dialog.FileName = "vibe-flow-profile-" + safeName + ".json";
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -8782,7 +8782,7 @@ deck.Hide();
     {
         using (var dialog = new OpenFileDialog())
         {
-            dialog.Filter = "Vibe Flow 快捷键 Profile|*.json|所有文件|*.*";
+            dialog.Filter = "Vibe Link 快捷键 Profile|*.json|所有文件|*.*";
             dialog.Title = "导入快捷键 Profile";
             dialog.CheckFileExists = true;
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -8845,7 +8845,7 @@ deck.Hide();
             catch (Exception ex)
             {
                 HostLog("SHORTCUT PROFILE import_failed=true error=" + SafeLogValue(ex.Message));
-                ShowToast("Profile 无法导入，请确认文件来自 Vibe Flow", "error");
+                ShowToast("Profile 无法导入，请确认文件来自 Vibe Link", "error");
             }
         }
     }
@@ -10430,7 +10430,7 @@ deck.Hide();
         var checks = NewCard(new Point(34, checksY), new Size(960, checksHeight));
         checks.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         checks.Controls.Add(SectionTitle("检查结果", "\uE9D9", new Point(24, 18)));
-        var checkHint = NewLabel("修复后返回言灵会自动重新检测，无需重新开始教程。", 8.7f, FontStyle.Regular, muted);
+        var checkHint = NewLabel("修复后返回Vibe Link会自动重新检测，无需重新开始教程。", 8.7f, FontStyle.Regular, muted);
         checkHint.Location = new Point(520, 21);
         checkHint.Size = new Size(410, 24);
         checkHint.TextAlign = ContentAlignment.MiddleRight;
@@ -10603,11 +10603,11 @@ deck.Hide();
     private void BuildSettingsPage()
     {
         content.AutoScrollMinSize = new Size(1000, 1092);
-        AddPageTitle("设置", "让言灵按你的习惯在后台运行");
+        AddPageTitle("设置", "让Vibe Link按你的习惯在后台运行");
         var startupCard = NewCard(new Point(34, 100), new Size(580, 360));
         startupCard.Controls.Add(SectionTitle("启动与窗口", "\uE713", new Point(28, 22)));
         Label startupState = null;
-        var start = StyledCheck("打开言灵后自动连接遥控器", config.startBridgeOnLaunch, new Point(32, 70));
+        var start = StyledCheck("打开Vibe Link后自动连接遥控器", config.startBridgeOnLaunch, new Point(32, 70));
         bool startChanging = false;
         start.CheckedChanged += delegate
         {
@@ -10642,7 +10642,7 @@ deck.Hide();
             UpdateStartupSettingsSummary(startupState);
             ShowActionToast(result);
         };
-        var startup = StyledCheck("登录 Windows 后自动启动言灵", config.launchAtStartup, new Point(32, 166));
+        var startup = StyledCheck("登录 Windows 后自动启动 Vibe Link", config.launchAtStartup, new Point(32, 166));
         bool startupChanging = false;
         startup.CheckedChanged += delegate
         {
@@ -10770,7 +10770,7 @@ deck.Hide();
         // The bold line and the checkbox state follow the actual isolation state, because they used to assert
         // device-level isolation unconditionally while the badge and the note beside them said it was not there:
         // the checkbox was drawn checked and read "只有带 RC003 身份的事件可以执行遥控器动作" even when the note
-        // underneath read "言灵不会拦截来源未知的键". A checked box that promises something the same card denies
+        // underneath read "Vibe Link不会拦截来源未知的键". A checked box that promises something the same card denies
         // is worse than no statement at all.
         var sourceProtection = StyledCheck(exactDeviceIsolation
             ? "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"
@@ -10787,7 +10787,7 @@ deck.Hide();
         var sourceProtectionNote = NewLabel(
             exactDeviceIsolation ?
             "RC003 专属签名通道已就绪：遥控器原按键被设备级拦截，实体键盘保持原行为。" :
-            "未安装签名通道时，言灵按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。",
+            "未安装签名通道时，Vibe Link按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。",
             8.8f, FontStyle.Regular, muted);
         sourceProtectionNote.Location = new Point(34, 112);
         sourceProtectionNote.Size = new Size(890, 34);
@@ -10934,13 +10934,13 @@ deck.Hide();
                 bool saved = SaveConfig();
                 HostLog("UI SCALE set=" + value + " saved=" + saved);
                 ShowPage(currentPageIndex);
-                ShowToast(saved ? "界面缩放已设为 " + value + "%，重启言灵后生效"
+                ShowToast(saved ? "界面缩放已设为 " + value + "%，重启Vibe Link后生效"
                     : "界面缩放保存失败：请检查数据目录", saved ? "info" : "error");
             };
             scaleSegments[i] = segment;
             scaleCard.Controls.Add(segment);
         }
-        var scaleNote = NewLabel("在 Windows 显示缩放之上再放大整个界面；改动在重启言灵后生效。",
+        var scaleNote = NewLabel("在 Windows 显示缩放之上再放大整个界面；改动在重启Vibe Link后生效。",
             8.8f, FontStyle.Regular, muted);
         scaleNote.Location = new Point(400, 72);
         scaleNote.Size = new Size(530, 24);
@@ -11352,7 +11352,7 @@ deck.Hide();
         tray.Visible = true;
         tray.DoubleClick += delegate { ShowMainWindow(); };
         var menu = new ContextMenuStrip();
-        menu.Items.Add("打开言灵", null, delegate { ShowMainWindow(); });
+        menu.Items.Add("打开Vibe Link", null, delegate { ShowMainWindow(); });
         menu.Items.Add("打开遥控器状态", null, delegate { ShowContextDeck(); });
         ToolStripItem captureAskItem = menu.Items.Add("截图提问", null, delegate { ShowCaptureAsk(); });
         captureAskItem.Name = "captureAskTrayMenuItem";
@@ -11536,7 +11536,7 @@ deck.Hide();
         retiredProviderMigrated = false;
         HostLog("PROVIDER MIGRATED retired=doubao action=use_wechat_input_method defaults=applied");
         ShowActionToast(null,
-            "豆包输入法不再作为言灵的语音工具选项（它不接受自动按键）：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页更改",
+            "豆包输入法不再作为Vibe Link的语音工具选项（它不接受自动按键）：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页更改",
             "info", false, 14000);
     }
 
@@ -12225,7 +12225,7 @@ deck.Hide();
         if (Visible && WindowState != FormWindowState.Minimized) ShowToast(message, "warning");
         else
         {
-            tray.BalloonTipTitle = "言灵尚未开始听写";
+            tray.BalloonTipTitle = "Vibe Link尚未开始听写";
             tray.BalloonTipText = message;
             tray.ShowBalloonTip(3500);
         }
@@ -13362,7 +13362,7 @@ deck.Hide();
         ShowActionToast(ActionResult.Create(actionName, target, ActionState.Error,
             "操作未执行：配置来自更新版本",
             "为避免覆盖未知设置，按键和语音服务保持停止",
-            "请使用创建该配置的新版 Vibe Flow", "CONFIG-SCHEMA-NEWER"));
+            "请使用创建该配置的新版 Vibe Link", "CONFIG-SCHEMA-NEWER"));
     }
 
     private static ActionResult RunVoiceHotkeyTestCore(string shortcut, bool hold,
@@ -13711,10 +13711,10 @@ deck.Hide();
                 setupLogo.BackColor = Color.Transparent;
                 setupLogo.Location = new Point(24, 22);
                 setupLogo.Size = new Size(42, 42);
-                var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
+                var railBrand = NewLabel("Vibe Link", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(78, 21);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE LINK · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(79, 52);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -14166,7 +14166,7 @@ deck.Hide();
                             status.Text = "●  已由用户目视确认测试框中的文字";
                             status.ForeColor = green;
                         };
-                        var visualConfirmNote = NewLabel("请先目视确认文字，再点击此按钮；言灵不会读取测试框内容。",
+                        var visualConfirmNote = NewLabel("请先目视确认文字，再点击此按钮；Vibe Link不会读取测试框内容。",
                             8.5f, FontStyle.Regular, muted);
                         visualConfirmNote.Location = new Point(190, 414);
                         visualConfirmNote.Size = new Size(480, 30);
@@ -14288,7 +14288,7 @@ deck.Hide();
                     }
                     else
                     {
-                        var startup = StyledCheck("登录 Windows 后自动启动言灵（推荐）", startupChoice, new Point(8, 108));
+                        var startup = StyledCheck("登录 Windows 后自动启动 Vibe Link（推荐）", startupChoice, new Point(8, 108));
                         startup.Size = new Size(520, 38);
                         var bridge = StyledCheck("启动后自动连接遥控器与语音桥接", bridgeChoice, new Point(8, 156));
                         bridge.Size = new Size(520, 38);
@@ -14635,10 +14635,10 @@ deck.Hide();
                 setupLogo.BackColor = Color.Transparent;
                 setupLogo.Location = new Point(24, 22);
                 setupLogo.Size = new Size(42, 42);
-                var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
+                var railBrand = NewLabel("Vibe Link", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(78, 21);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW REMOTE · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE LINK · V" + ProductRelease, 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(80, 52);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -14770,7 +14770,7 @@ deck.Hide();
                     string headingText = stepNames[currentStep];
                     string subtitleText = currentStep == 0 ? "只需一次设置。以后拿起遥控器，按住说话、松开结束，再按确认键发送。" :
                         currentStep == 1 ? "确认电脑有可用蓝牙，并在 Windows 中保持蓝牙开启。" :
-                        currentStep == 2 ? "在 Windows 中完成 RC003 配对；言灵会自动等待、连接并在休眠后恢复。" :
+                        currentStep == 2 ? "在 Windows 中完成 RC003 配对；Vibe Link会自动等待、连接并在休眠后恢复。" :
                         currentStep == 3 ? "按一次方向键。收到真实实体按键后，本步才会通过。" :
                         currentStep == 4 ? "先确认 RC003 的 ATVV 麦克风服务可用；真实声音会在第 8 步验证。" :
                         currentStep == 5 ? "VB-CABLE 是遥控器音频进入语音工具的本地通道，只需安装一次。" :
@@ -14830,7 +14830,7 @@ deck.Hide();
                             detected ? green : amber);
                         liveStatus.Location = new Point(8, 124);
                         liveStatus.Size = new Size(540, 36);
-                        liveDetail = NewLabel(detected ? "当前已能看到遥控器或蓝牙语音连接。" : "言灵不会修改蓝牙开关；请在系统设置中打开后返回。", 9.2f, FontStyle.Regular, muted);
+                        liveDetail = NewLabel(detected ? "当前已能看到遥控器或蓝牙语音连接。" : "Vibe Link不会修改蓝牙开关；请在系统设置中打开后返回。", 9.2f, FontStyle.Regular, muted);
                         liveDetail.Location = new Point(8, 168);
                         liveDetail.Size = new Size(650, 40);
                         var openBluetooth = PrimaryButton("打开 Windows 蓝牙设置", new Point(8, 230), new Size(210, 42));
@@ -14850,7 +14850,7 @@ deck.Hide();
                         BridgeHealthSnapshot snapshot = ReadKeyboardBridgeHealth();
                         bool detected = bridgeReady || snapshot.RawInputDevicePresent ||
                             ReadCurrentRuntimeSegment().IndexOf("ATVV READY", StringComparison.OrdinalIgnoreCase) >= 0;
-                        liveStatus = NewLabel(detected ? "●  RC003 已被言灵识别" : "●  尚未识别 RC003", 13f, FontStyle.Bold,
+                        liveStatus = NewLabel(detected ? "●  RC003 已被Vibe Link识别" : "●  尚未识别 RC003", 13f, FontStyle.Bold,
                             detected ? green : amber);
                         liveStatus.Location = new Point(8, 124);
                         liveStatus.Size = new Size(560, 36);
@@ -14862,7 +14862,7 @@ deck.Hide();
                         pair.Click += delegate { OpenUri("ms-settings:bluetooth"); };
                         var connect = SecondaryButton(IsCapturing ? "重新检测" : "启动连接", new Point(212, 238), new Size(132, 42));
                         connect.Click += delegate { if (!IsCapturing) StartCapture(); renderStep(2); };
-                        var note = NewLabel("遥控器休眠、电脑睡眠或蓝牙晚启动时无需重新配置，言灵会自动等待并恢复。", 9f, FontStyle.Regular, muted);
+                        var note = NewLabel("遥控器休眠、电脑睡眠或蓝牙晚启动时无需重新配置，Vibe Link会自动等待并恢复。", 9f, FontStyle.Regular, muted);
                         note.Location = new Point(8, 316);
                         note.Size = new Size(660, 44);
                         pageContent.Controls.Add(liveStatus);
@@ -14934,7 +14934,7 @@ deck.Hide();
                         var outputState = NewLabel((outputReady ? "✓" : "!") + "  CABLE Output（录音端）" + (outputReady ? " 已检测" : " 未检测"), 9.4f, FontStyle.Bold, outputReady ? green : coral);
                         outputState.Location = new Point(22, 104);
                         outputState.Size = new Size(330, 28);
-                        var routeNote = NewLabel("驱动安装后若提示重启，言灵会在下次登录时自动回到本步骤。", 8.8f, FontStyle.Regular, muted);
+                        var routeNote = NewLabel("驱动安装后若提示重启，Vibe Link会在下次登录时自动回到本步骤。", 8.8f, FontStyle.Regular, muted);
                         routeNote.Location = new Point(22, 148);
                         routeNote.Size = new Size(620, 28);
                         route.Controls.Add(routeTitle);
@@ -15032,7 +15032,7 @@ deck.Hide();
                         liveStatus.Size = new Size(580, 34);
                         liveDetail = NewLabel(firstDictationSucceeded ?
                             "音频 " + FormatMillisecondsAsSeconds(health.AudioMs) + " · 输出 " + FormatPercent(health.OutputRmsPercent) + " · 工具响应 " + FormatMilliseconds(health.TriggerToReadyMs) :
-                            "按住录音键说“测试麦克风一二三四五六”，松开后等待转译。言灵不会读取输入框中的文字。", 9f, FontStyle.Regular, muted);
+                            "按住录音键说“测试麦克风一二三四五六”，松开后等待转译。Vibe Link不会读取输入框中的文字。", 9f, FontStyle.Regular, muted);
                         liveDetail.Location = new Point(8, 150);
                         liveDetail.Size = new Size(680, 44);
                         testInput = StyledTextBox("", new Point(8, 214), new Size(680, 120));
@@ -15049,7 +15049,7 @@ deck.Hide();
                         recheck.Click += delegate { renderStep(7); };
                         var route = SecondaryButton("检查声音设置", new Point(404, 360), new Size(150, 42));
                         route.Click += delegate { OpenUri("ms-settings:sound"); };
-                        var privacy = NewLabel("文字由所选工具直接写入当前输入框；言灵只依据音频指标判断链路是否成功。", 8.8f, FontStyle.Regular, muted);
+                        var privacy = NewLabel("文字由所选工具直接写入当前输入框；Vibe Link只依据音频指标判断链路是否成功。", 8.8f, FontStyle.Regular, muted);
                         privacy.Location = new Point(8, 430);
                         privacy.Size = new Size(670, 36);
                         pageContent.Controls.Add(liveStatus);
@@ -15122,7 +15122,7 @@ deck.Hide();
                     }
                     else if (currentStep == 9)
                     {
-                        var startup = StyledCheck("登录 Windows 后自动启动言灵（推荐）", startupChoice, new Point(8, 124));
+                        var startup = StyledCheck("登录 Windows 后自动启动 Vibe Link（推荐）", startupChoice, new Point(8, 124));
                         startup.Size = new Size(520, 38);
                         var bridge = StyledCheck("启动后自动连接遥控器与语音桥接", bridgeChoice, new Point(8, 182));
                         bridge.Size = new Size(520, 38);
@@ -15269,7 +15269,7 @@ deck.Hide();
                     if (!uiSmokeMode && config.startBridgeOnLaunch && !IsCapturing) StartCapture();
                     wizard.DialogResult = DialogResult.OK;
                     wizard.Close();
-                    ShowToast("首次设置已完成，言灵已经可以使用", "success");
+                    ShowToast("首次设置已完成，Vibe Link已经可以使用", "success");
                     ShowPage(PageHome);
                 };
 
@@ -15318,10 +15318,10 @@ deck.Hide();
                 setupLogo.BackColor = Color.Transparent;
                 setupLogo.Location = new Point(28, 26);
                 setupLogo.Size = new Size(42, 42);
-                var railBrand = NewLabel("言灵", 17f, FontStyle.Bold, ink);
+                var railBrand = NewLabel("Vibe Link", 17f, FontStyle.Bold, ink);
                 railBrand.Location = new Point(82, 26);
                 railBrand.AutoSize = true;
-                var railEnglish = NewLabel("VIBE FLOW REMOTE · V1", 8.0f, FontStyle.Bold, violet);
+                var railEnglish = NewLabel("VIBE LINK REMOTE · V1", 8.0f, FontStyle.Bold, violet);
                 railEnglish.Location = new Point(84, 56);
                 railEnglish.AutoSize = true;
                 rail.Controls.Add(setupLogo);
@@ -15447,9 +15447,9 @@ deck.Hide();
                         currentStep == 1 ? "安装一次本地音频通道" :
                          currentStep == 2 ? "连接并唤醒遥控器" :
                          currentStep == 3 ? "让快捷键与工具保持一致" : currentStep == 4 ? "配置三个真实遥控器按键" : "完成第一次遥控器听写";
-                    string subtitleText = currentStep == 0 ? "言灵负责传输遥控器声音，所选工具负责识别和整理文字。" :
+                    string subtitleText = currentStep == 0 ? "Vibe Link负责传输遥控器声音，所选工具负责识别和整理文字。" :
                         currentStep == 1 ? "VB-CABLE 是当前语音链路唯一需要额外安装的本地驱动；检测通过后无需重复安装。" :
-                         currentStep == 2 ? "先在 Windows 中完成蓝牙配对，再由言灵建立语音链路。" :
+                         currentStep == 2 ? "先在 Windows 中完成蓝牙配对，再由Vibe Link建立语音链路。" :
                          currentStep == 3 ? "这里的快捷键必须与转写工具内部设置完全相同。" : currentStep == 4 ? "按一下遥控器按键即可识别；识别后选择常用动作。" :
                          "点击输入框，按住录音键说完一句话后松开。";
                     var heading = NewLabel(headingText, 20f, FontStyle.Bold, ink);
@@ -15489,7 +15489,7 @@ deck.Hide();
                         info.Controls.Add(infoSummary);
                         info.Controls.Add(profile);
                         info.Controls.Add(help);
-                        var startupChoice = StyledCheck("登录 Windows 后自动启动言灵", startupChoiceValue, new Point(4, 410));
+                        var startupChoice = StyledCheck("登录 Windows 后自动启动 Vibe Link", startupChoiceValue, new Point(4, 410));
                         startupChoice.CheckedChanged += delegate { startupChoiceValue = startupChoice.Checked; };
                         var startupHelp = NewLabel("默认不启用；可随时在“偏好设置”中修改。", 8.8f, FontStyle.Regular, muted);
                         startupHelp.Location = new Point(30, 445);
@@ -15766,7 +15766,7 @@ deck.Hide();
                             firstDictationSucceeded ? green : violet);
                         firstDictationStatus.Location = new Point(4, 286);
                         firstDictationStatus.Size = new Size(596, 34);
-                        var privacyNote = NewLabel("成功状态只来自本地链路日志；言灵不会读取、保存或上传输入框中的文字。完成后可随时在“连接与自检”一键排查。", 8.9f, FontStyle.Regular, muted);
+                        var privacyNote = NewLabel("成功状态只来自本地链路日志；Vibe Link不会读取、保存或上传输入框中的文字。完成后可随时在“连接与自检”一键排查。", 8.9f, FontStyle.Regular, muted);
                         privacyNote.Location = new Point(4, 330);
                         privacyNote.Size = new Size(590, 42);
                         var retry = SecondaryButton("重新检查链路", new Point(4, 396), new Size(146, 40));
@@ -15953,7 +15953,7 @@ deck.Hide();
                     StartKeyboardBridge();
                     if (!IsCapturing) StartCapture();
                     UpdateCaptureUi();
-                    ShowToast("设置完成，言灵已经可以使用", "success");
+                    ShowToast("设置完成，Vibe Link已经可以使用", "success");
                 }
             }
         }
@@ -16751,7 +16751,7 @@ deck.Hide();
                 "；按键桥接：当前目录 " + bridgeTopology.CurrentRootCount + " / 其他目录 " + bridgeTopology.ForeignCount :
                 "文件缺失或版本不一致",
             componentsReady ? "无需操作" : processTopologyReady ? "重新安装完整发布包，然后重新自检" :
-                "退出其他目录中的言灵和旧版桥接，再重新启动当前版本",
+                "退出其他目录中的Vibe Link和旧版桥接，再重新启动当前版本",
             componentsReady ? "" : processTopologyReady ? "重新下载" : "任务管理器",
             componentsReady ? "" : processTopologyReady ? "download-release" : "open-task-manager"));
 
@@ -16821,7 +16821,7 @@ deck.Hide();
             triggerOnly ? (remotePaired ? "免驱动模式：遥控器已连接，按键可用，遥控器音频通道未启用" :
                 "Windows 中未找到已配对的小米语音遥控器") :
                 runtimeConnected ? "RC003 已连接，ATVV 麦克风服务已就绪" : remotePaired ?
-                "Windows 已识别遥控器，但言灵尚未确认实时语音连接" : "Windows 中未找到已配对的小米语音遥控器",
+                "Windows 已识别遥控器，但Vibe Link尚未确认实时语音连接" : "Windows 中未找到已配对的小米语音遥控器",
             triggerOnly ? (remotePaired ? "当前未检测到 VB-CABLE，音频由电脑麦克风采集" : "遥控器尚未配对或配对记录已丢失") :
                 runtimeConnected ? (voiceHoldDetail.Length > 0 ? voiceHoldDetail : "未发现异常") :
                 remotePaired ? "遥控器可能休眠，或蓝牙/GATT 正在恢复" : "遥控器尚未配对或配对记录已丢失",
@@ -16957,7 +16957,7 @@ deck.Hide();
         string providerState = !validHotkey ? "fail" : providerKnown && providerRunning ? "pass" : "warning";
         report.Items.Add(new SelfCheckItem("provider", "默认语音工具与快捷键",
             providerState,
-            "所选工具已安装或运行，言灵快捷键与工具中的全局快捷键完全一致",
+            "所选工具已安装或运行，Vibe Link快捷键与工具中的全局快捷键完全一致",
             !validHotkey ? "快捷键格式无效" : providerRunning ? ProviderDisplayName(provider) + " 已就绪 · " +
                 MappingShortcutDisplay(config.inputMethodHotkey) + " · " + (config.inputMethodTrigger == "hold" ? "按住触发" : "单击切换") +
                 ActiveInputEngineSelfCheckNote() :
@@ -17025,7 +17025,7 @@ deck.Hide();
         if (report.FailedCount > 0)
         {
             report.Headline = "发现 " + report.FailedCount + " 项错误";
-            report.Detail = "从第一项开始修复；返回言灵会自动复检，不读取你的转译文字。";
+            report.Detail = "从第一项开始修复；返回Vibe Link会自动复检，不读取你的转译文字。";
         }
         else if (report.CheckingCount > 0)
         {
@@ -17093,7 +17093,7 @@ deck.Hide();
             startupReady ? "pass" : config.launchAtStartup ? "fail" : "warning",
             startupReady ? "已注册后台启动，登录后会自动等待蓝牙、音频和按键服务" :
                 config.launchAtStartup ? "已选择开机启动，但 Windows 启动项未找到或路径已失效" :
-                "尚未开启开机启动；每次登录后需要手动打开言灵",
+                "尚未开启开机启动；每次登录后需要手动打开Vibe Link",
             startupReady ? "" : "开启自启动", startupReady ? "" : "startup"));
 
         bool keyboardRunning = IsCurrentProcessRunningFromRoot("VoxDeckInputBridge");
@@ -18148,7 +18148,7 @@ deck.Hide();
             catch { }
         }));
         recordingCueThread.IsBackground = true;
-        recordingCueThread.Name = "Vibe Flow recording cue player";
+        recordingCueThread.Name = "Vibe Link recording cue player";
         recordingCueThread.Start();
     }
 
@@ -18393,11 +18393,11 @@ deck.Hide();
 
     // WeChat Input Method (WeType) voice dictation generates the recognized text
     // into the clipboard instead of typing it into the field on this Windows
-    // stack (verified standalone, without Vibe Flow). To honor the "release and
+    // stack (verified standalone, without Vibe Link). To honor the "release and
     // the text lands in the focused box" contract while keeping the WeChat tool
-    // as the default, Vibe Flow may paste the provider's own clipboard result
+    // as the default, Vibe Link may paste the provider's own clipboard result
     // into the verified input target after a real delivery receipt (the submit
-    // receipt, or the complete SESSION END receipt). Vibe Flow never reads,
+    // receipt, or the complete SESSION END receipt). Vibe Link never reads,
     // stores, or uploads the clipboard text; it observes only the clipboard's
     // public sequence counter to wait for the payload, then sends Ctrl+V into
     // a focus target it has just verified as a writable Edit with keyboard
@@ -18955,7 +18955,7 @@ deck.Hide();
         HostLog("INPUT ENGINE conflict=true provider=" + NormalizeProviderKey(config.inputMethod) +
             " engine=" + activeInputEngine.EngineKey + " scope=thread action=guidance_only");
         ShowActionToast(null,
-            "言灵检测到输入法上下文是" + activeInputEngine.DisplayName + "，默认语音工具是" +
+            "Vibe Link检测到输入法上下文是" + activeInputEngine.DisplayName + "，默认语音工具是" +
             ProviderDisplayName(config.inputMethod) + "：如果这次没有出字，可先切回该输入法再试，" +
             "或把默认语音工具改为 Windows 语音输入",
             "warning", false, 12000);
@@ -19342,7 +19342,7 @@ deck.Hide();
         if (value == "installing")
             return ActionResult.Create("安装 VB-CABLE", "本地音频通道", ActionState.Running,
                 "官方 VB-CABLE 安装程序已启动，请按提示完成（VB-CABLE 为 VB-Audio 捐赠软件，官网 vb-audio.com/Cable/，欢迎按需捐赠）", "",
-                "安装完成后返回言灵重新检测；如系统要求，请先重启", "");
+                "安装完成后返回Vibe Link重新检测；如系统要求，请先重启", "");
         if (value == "installed")
             return ActionResult.Create("安装 VB-CABLE", "本地音频通道", ActionState.Success,
                 "VB-CABLE 安装程序已完成，请重新检测音频端点", "",
@@ -19379,7 +19379,7 @@ deck.Hide();
                 outcome == ConfigurationMutationOutcome.RolledBack
                     ? "安装程序已启动，但向导恢复进度未保存"
                     : "安装程序已启动，但恢复进度仍需确认",
-                "本地配置写入未完成", "完成安装后请不要立即重启；先返回言灵重试",
+                "本地配置写入未完成", "完成安装后请不要立即重启；先返回Vibe Link重试",
                 "ONBOARDING-RESTART-SAVE-FAILED");
         return VbCableRestartRecoveryResult(installResult,
             ReconcileLaunchAtStartupRegistration());
@@ -19504,14 +19504,14 @@ deck.Hide();
         if (action == "reboot_required")
         {
             ShowActionToast(null,
-                "驱动安装已完成，但系统还没有提供 CABLE 端点：请重启 Windows 后回到言灵重新检测",
+                "驱动安装已完成，但系统还没有提供 CABLE 端点：请重启 Windows 后回到Vibe Link重新检测",
                 "warning", false, 14000);
             return;
         }
         if (action == "diagnostic_trigger_only")
         {
             ShowActionToast(null,
-                "已检测到本地音频通道，但当前运行在诊断用免驱动模式（VIBE_FLOW_TRIGGER_ONLY）；重新启动言灵即可使用遥控器麦克风",
+                "已检测到本地音频通道，但当前运行在诊断用免驱动模式（VIBE_FLOW_TRIGGER_ONLY）；重新启动Vibe Link即可使用遥控器麦克风",
                 "warning", false, 12000);
             return;
         }
@@ -19539,7 +19539,7 @@ deck.Hide();
             return ActionResult.Create("准备重启恢复", "首次设置", ActionState.Warning,
                 installResult.Message + "；但未确认重启后自动恢复",
                 "Windows 未确认临时启动项已写入",
-                "完成安装；重启前返回言灵重试，或从设置重新打开首次设置",
+                "完成安装；重启前返回Vibe Link重试，或从设置重新打开首次设置",
                 "ONBOARDING-RESTART-REGISTRATION-MISSING");
         if (installResult.State == ActionState.Success)
             return ActionResult.Create("安装 VB-CABLE", "本地音频通道", ActionState.Success,
@@ -19607,8 +19607,8 @@ deck.Hide();
         HostLog("UPDATE CHECK current=" + ProductRelease + " latest=" + update.Version + " result=available");
         DialogResult choice = MessageBox.Show(this,
             "发现新版本 V" + update.Version + "。\r\n\r\n" +
-            "言灵将从官方 GitHub Release 下载安装包与 SHA256SUMS.txt，校验一致后才允许安装。是否继续？",
-            "言灵安全更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
+            "Vibe Link将从官方 GitHub Release 下载安装包与 SHA256SUMS.txt，校验一致后才允许安装。是否继续？",
+            "Vibe Link安全更新", MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
         if (choice != DialogResult.Yes)
         {
             Interlocked.Exchange(ref updateOperationActive, 0);
@@ -19646,7 +19646,7 @@ deck.Hide();
         }
         DialogResult choice = MessageBox.Show(this,
             "V" + update.Version + " 已下载，SHA-256 校验通过。\r\n\r\n" +
-            "现在安装？言灵会安全退出，安装完成后自动重新打开；现有配置会保留。",
+            "现在安装？Vibe Link会安全退出，安装完成后自动重新打开；现有配置会保留。",
             "更新已验证", MessageBoxButtons.YesNo, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
         if (choice != DialogResult.Yes)
         {
@@ -19829,10 +19829,10 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "typeless": return "适合跨应用长文本听写，可继续使用 Typeless 自己的润色、格式整理和词典能力。";
-            case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；言灵只派发触发动作，不读取它的转写内容。";
+            case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "windows": return "Windows 自带，无需安装额外客户端，适合快速开始和基础听写。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
-            default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，言灵不会代替微信开启润色。";
+            default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，Vibe Link不会代替微信开启润色。";
         }
     }
 
@@ -19978,19 +19978,19 @@ deck.Hide();
     // Truthful compatibility guidance shown on the voice page. WeChat Input
     // Method's voice dictation generates the recognized text into the clipboard
     // instead of typing it directly (measured on this machine, standalone).
-    // Vibe Flow pastes that provider result into a verified input target after
+    // Vibe Link pastes that provider result into a verified input target after
     // each confirmed session; it never reads, stores, or uploads the text.
     internal static string VoiceProviderCompatibilityNote(string provider)
     {
         return NormalizeProviderKey(provider) == "wechat"
-            ? "另外：微信输入法会把文字放进剪贴板，言灵在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"
+            ? "另外：微信输入法会把文字放进剪贴板，Vibe Link在录音结束后自动粘贴到已聚焦的输入框（不读取文字），请目视确认后再发送。识别建议：选普通话、保持 10–20 厘米距离、减少背景噪声。"
             : "";
     }
 
     private static string VoiceProviderNote(string provider, bool automaticRoute)
     {
         return ProviderRouteInstruction(provider, automaticRoute) +
-            "。言灵只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。" +
+            "。Vibe Link只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。" +
             VoiceProviderCompatibilityNote(provider);
     }
 
@@ -20002,7 +20002,7 @@ deck.Hide();
         if (!IsTriggerOnlyVoiceMode()) return VoiceProviderNote(provider, automaticRoute);
         return "当前是免驱动模式（未检测到 VB-CABLE）：遥控器按键直接唤起语音工具，声音由电脑麦克风采集；" +
             "不切换默认录音设备、不经过虚拟声卡，安装 VB-CABLE 后可切换回完整模式并使用遥控器麦克风。" +
-            "言灵不保存录音、不读取听写文字，也不会自行上传音频。" +
+            "Vibe Link不保存录音、不读取听写文字，也不会自行上传音频。" +
             VoiceProviderCompatibilityNote(provider);
     }
 
@@ -20936,8 +20936,8 @@ deck.Hide();
                 key.DeleteValue("Vibe Mic", false);
                 key.DeleteValue("声启 MIC", false);
                 if (enabled) key.SetValue("Vibe Flow", "\"" + Application.ExecutablePath + "\" --background");
-                else key.DeleteValue("Vibe Flow", false);
-                string actual = key.GetValue("Vibe Flow") as string;
+                else key.DeleteValue("Vibe Link", false);
+                string actual = key.GetValue("Vibe Link") as string;
                 if (enabled && string.IsNullOrWhiteSpace(actual)) Log("Startup setting verification failed");
             }
         }
@@ -20977,7 +20977,7 @@ deck.Hide();
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", false))
             {
-                string value = key == null ? "" : key.GetValue("Vibe Flow") as string;
+                string value = key == null ? "" : key.GetValue("Vibe Link") as string;
                 return StartupCommandMatches(value, Application.ExecutablePath);
             }
         }
@@ -21084,7 +21084,7 @@ deck.Hide();
             routingMode, activeProfileId, activeProfileName, smartProfilesEnabled, smartProfileLocked,
             fallbackProfileId, profileDocuments.ToArray(), snippetDocuments.ToArray(), mappings.ToArray()
         });
-        document["notes"] = "Generated by Vibe Flow. Non-voice actions are device-scoped Raw Input; Smart Profiles only swap validated action tables and never touch voice settings.";
+        document["notes"] = "Generated by Vibe Link. Non-voice actions are device-scoped Raw Input; Smart Profiles only swap validated action tables and never touch voice settings.";
         document["mappings"] = mappings.ToArray();
         return document;
     }
@@ -23721,8 +23721,8 @@ deck.Hide();
     {
         using (var dialog = new OpenFileDialog())
         {
-            dialog.Filter = "Vibe Flow 配置|*.json|所有文件|*.*";
-            dialog.Title = "导入 Vibe Flow 配置";
+            dialog.Filter = "Vibe Link 配置|*.json|所有文件|*.*";
+            dialog.Title = "导入 Vibe Link 配置";
             dialog.CheckFileExists = true;
             if (dialog.ShowDialog(this) != DialogResult.OK) return;
             try
@@ -23733,7 +23733,7 @@ deck.Hide();
                     ActionResult futureResult = ActionResult.Create("导入配置", "本地配置", ActionState.Error,
                         "配置未导入：文件来自更新版本",
                         "当前程序支持 schema " + ConfigSchemaVersion + "，文件为 schema " + futureSchema,
-                        "请使用创建该配置的新版 Vibe Flow", "CONFIG-SCHEMA-NEWER");
+                        "请使用创建该配置的新版 Vibe Link", "CONFIG-SCHEMA-NEWER");
                     HostLog("CONFIG IMPORT rejected=true reason=future_schema schema=" + futureSchema);
                     ShowActionToast(futureResult);
                     return;
@@ -23748,7 +23748,7 @@ deck.Hide();
             catch (Exception ex)
             {
                 HostLog("CONFIG IMPORT failed=true error=" + SafeLogValue(ex.Message));
-                ShowToast("配置无法导入，请确认文件来自 Vibe Flow", "error");
+                ShowToast("配置无法导入，请确认文件来自 Vibe Link", "error");
             }
         }
     }
@@ -23788,7 +23788,7 @@ deck.Hide();
                 imported == null ? "配置未应用：内容为空" : "配置未应用：文件来自更新版本",
                 imported == null ? "没有可应用的配置内容" :
                     "当前程序支持 schema " + ConfigSchemaVersion + "，文件为 schema " + futureSchema,
-                imported == null ? "重新选择有效配置" : "请使用创建该配置的新版 Vibe Flow",
+                imported == null ? "重新选择有效配置" : "请使用创建该配置的新版 Vibe Link",
                 imported == null ? "CONFIG-IMPORT-EMPTY" : "CONFIG-SCHEMA-NEWER");
             HostLog("CONFIG IMPORT rejected=true source=" + SafeLogValue(source) +
                 " schema=" + futureSchema);
@@ -23854,7 +23854,7 @@ deck.Hide();
 
         string diagnosticGesture = "下一次按住录音键时";
         DialogResult consent = MessageBox.Show(this,
-            "仅" + diagnosticGesture + "，言灵会在本机保存三份音频：遥控器解码原声、处理后声音和 CABLE Output。最长 30 秒，完成后自动关闭，可随时删除。\r\n\r\n请说：测试麦克风，一二三四五六，期待效果。",
+            "仅" + diagnosticGesture + "，Vibe Link会在本机保存三份音频：遥控器解码原声、处理后声音和 CABLE Output。最长 30 秒，完成后自动关闭，可随时删除。\r\n\r\n请说：测试麦克风，一二三四五六，期待效果。",
             "采集下一段诊断音频", MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
         if (consent != DialogResult.OK) return;
 
@@ -24478,7 +24478,7 @@ deck.Hide();
             var space = new ProjectSpace
             {
                 Id = "space-one",
-                Name = "Vibe Flow",
+                Name = "Vibe Link",
                 Icon = "VF",
                 EditorKind = "vscode",
                 EditorExecutablePath = editorPath,
@@ -24519,14 +24519,14 @@ deck.Hide();
                 loaded.Document.UnknownFields["futureRootFlag"].ToString() != "kept")
                 throw new InvalidOperationException("Project Space store lost data or unknown fields");
 
-            loaded.Document.Spaces[0].Name = "Vibe Flow Updated";
+            loaded.Document.Spaces[0].Name = "Vibe Link Updated";
             if (!store.TrySave(loaded.Document, out errorCode) ||
                 !File.Exists(Path.Combine(testRoot, "project-spaces.json.bak")))
                 throw new InvalidOperationException("Project Space atomic replacement did not create a backup");
             File.WriteAllText(Path.Combine(testRoot, "project-spaces.json"), "{broken", Encoding.UTF8);
             ProjectSpaceLoadResult recovered = store.Load();
             if (!recovered.IsSuccess || !recovered.RecoveredFromBackup ||
-                recovered.Document.Spaces[0].Name != "Vibe Flow")
+                recovered.Document.Spaces[0].Name != "Vibe Link")
                 throw new InvalidOperationException("Project Space did not recover the last valid backup");
             if (!store.TrySave(recovered.Document, out errorCode))
                 throw new InvalidOperationException("Project Space could not persist a recovered document");
@@ -25698,7 +25698,7 @@ deck.Hide();
         foreach (string own in new string[] { "vibemic", "vibeflow", "voxdeckinputbridge", "vibemicatvvcapture" })
             if (Array.IndexOf(WindowsUiaFocusAutomationBackend.ExcludedProcesses, own) < 0)
                 throw new InvalidOperationException(
-                    "The picker can offer one of Vibe Flow's own processes as a target: " + own);
+                    "The picker can offer one of Vibe Link's own processes as a target: " + own);
         var chatGpt = new FocusTargetDescriptor
         {
             Id = "focus-chatgpt", Name = "ChatGPT 输入框", ProcessName = "ChatGPT", LastVerifiedUtc = DateTime.UtcNow

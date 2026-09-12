@@ -300,7 +300,7 @@ function Get-SiblingOverlaps([IntPtr]$Root) {
     return $overlaps
 }
 
-$windowPrefix = ConvertFrom-CodePoints @(0x8A00, 0x7075)   # product name
+$windowPrefix = "Vibe"   # product name: matches "Vibe Link" (and older "Vibe Flow") within this process only
 $pages = @(
     @{ Name = "01-home";       Label = (ConvertFrom-CodePoints @(0x9996, 0x9875)) },
     @{ Name = "02-workflow";   Label = (ConvertFrom-CodePoints @(0x5DE5, 0x4F5C, 0x6D41)) },
