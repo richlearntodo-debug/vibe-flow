@@ -29,6 +29,7 @@
 | `autoLevel` | **`true`**（= 声音处理为 `speech`） | `StableVoiceProcessing = "speech"` |
 | `drainMs` | **`180`** | 尾音排空 |
 | 默认音频端点 | **`CABLE Input`** | `StableVoiceEndpoint`；录音端为 `CABLE Output` |
+| 可选语音工具 | 微信输入法（默认）/ Typeless / **八哥说（网易，默认快捷键右 Alt）** / Windows 语音输入 / 其他自定义工具；八哥说是否直写输入框**尚未实测**，因此**不启用**自动粘贴 | `ProviderIndex` 与 4 处下拉必须同序 |
 | 禁止项 | 无 MIC_EXTEND、无自动续接、无点击切换、无自动 Enter、无云端识别、无网页正文读取 | 由 `validate.js` 断言 |
 
 ## 3. 按键与手势

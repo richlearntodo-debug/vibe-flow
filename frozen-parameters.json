@@ -1,15 +1,15 @@
-{
+﻿{
     "schema":  1,
     "product":  "言灵 · Vibe Flow Remote",
     "version":  "V2.0.0",
     "releaseName":  "V2.0.0 候选版 2",
     "tag":  "v2.0.0-candidate.2",
-    "commit":  "667d9fad07754a7a195e85b33d95abf646f66d96",
-    "frozenAt":  "2026-09-12 16:00:59",
+    "commit":  "ad179a0da32b2a4511c8dc35bce47c5691e62f0f",
+    "frozenAt":  "2026-09-13 00:05:06",
     "releaseAssets":  {
-                          "Vibe-Flow-Windows-x64.zip":  "B8AEBCDA1D0239658E4C35B03FA9EB58B58CCB267A9B49465CAE11FA720565FF",
-                          "VibeFlow-Setup.exe":  "B08E50B0F3BA39F14E3C8B6523B2ACEB852D86BFE682FB29CECFC46A0CEF032B",
-                          "SHA256SUMS.txt":  "70629776C021E3FC331BBC5A5280C6F8732D0D4FBA18D9A5BE53522BEB45707C"
+                          "Vibe-Flow-Windows-x64.zip":  "ABAC859AD53A9609D899B32478A300330A74292F5DC11C83D3F0A31775E561B7",
+                          "VibeFlow-Setup.exe":  "93F2D635E3749A193ADB77BA7879D1DA2C50F0297B1057634A306956557E8C64",
+                          "SHA256SUMS.txt":  "C9AE380AF1F7AEE92516A93799BE4753B8B9A18266CEEF15A8DF678DF427A2C2"
                       },
     "versioning":  {
                        "captureFileVersion":  "1.2.1.0",
