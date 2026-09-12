@@ -243,7 +243,10 @@ internal sealed class ContextDeckForm : Form
         projectValue.Text = snapshot.ProjectSpaceName;
         targetValue.Text = snapshot.FocusTargetName;
         deviceValue.Text = snapshot.DeviceStatus;
-        voiceValue.Text = snapshot.VoiceStatus;
+        // Name the selected voice tool in front of the session state, so the Deck answers both "which tool" and "what is
+        // it doing" on one line. The workflow target it will aim at is the row above.
+        voiceValue.Text = (string.IsNullOrWhiteSpace(snapshot.VoiceToolName) ? "" : snapshot.VoiceToolName + " · ") +
+            snapshot.VoiceStatus;
         actionValue.Text = snapshot.LatestAction.Stage + " · " + snapshot.LatestAction.OverlayDetailText();
         remote.HighlightedControl = snapshot.HighlightedControl;
         remote.IsRecording = snapshot.RealAudioActive;

@@ -142,3 +142,43 @@
 | **电源** | **空** ✔ | **空** ✔ | **空** ✔ |
 
 **内置推荐表**（仅在**还没有手势表的机器**上写入一次 ✔，用户改过后不再覆盖 ✔）：`up/down/left` 长按 = `pageup/pagedown/browserback` ✔、`ok` 长按 = `volumemute` ✔、`ok` 双击 = `mediaplaypause` ✔、`tv` 长按 = `launch-client:chatgpt` ✔（其余见 `scripts/features/GestureBindingStore.cs` 的 `UpsertLayer` 调用 ✔ 与 `docs/V2_0_USER_GUIDE_ZH.md` ✔）。
+
+## 11. 界面与状态同步（2026-09-13 用户确认 ✔）
+
+### 11.1 导航顺序 ✔
+
+**首页 · 语音 · 快捷键 · 工作流 · 自检 · 设置** ✔ —— 定义在 `scripts/ui/PageShell.cs` 的**三个数组**（文案 ✔ / 图标 ✔ / 页面 id ✔）✔，三者必须**下标对齐** ✗。枚举 `VibePageId` 的数值**故意不变** ✔（按钮携带 id 而非序号 ✔，其余代码不依赖顺序 ✔）。
+
+### 11.2 Fluent 留白（外壳间距）✔
+
+| 参数 | 旧 | 新 | 说明 |
+| --- | --- | --- | --- |
+| `NavigationButtonHeight` | 48 | **52** ✔ | 导航更透气 ✔ |
+| `NavigationGap` | 8 | **6** ✔ | **必须 ≤6** ✗：6×(52+6)=348 + 头部 104 = **452 < 500** ✔ → 最小窗口 **880×500** 下六项**全部可见** ✔（几何检查只看重叠/裁切 ✗，**看不到"被挤出窗口"** ✗，必须目视 ✔） |
+| `ContentPaddingHorizontal` | 34 | **42** ✔ | 内容四周更从容 ✔ |
+| `ContentPaddingVertical` | 26 | **34** ✔ | 同上 ✔ |
+
+**页面内部仍是写死的绝对坐标** ✗（571 处 `new Point` ✔，仅 1 处用 `SpacingUnit` ✔）→ 因此**不要**试图靠 token 调整页内间距 ✗；页内改动必须逐页做并过 12 例矩阵 + 目视 ✔。
+
+### 11.3 品牌：App 站内文案为 **Vibe Link** ✔
+
+- **改** ✔：窗口标题 ✔、侧边栏品牌与副标题（`Vibe Link` / `VIBE LINK · V2.0.0` ✔）、自测输出 ✔、提示与对话框文案 ✔、`AssemblyTitle/Product/Company` ✔。
+- **绝对不改** ✗（改动会让现有安装的数据迁移/卸载/开机启动失效 ✗）：
+  - `%LOCALAPPDATA%\Vibe Flow Remote\UserData` ✔（用户数据根 ✔）
+  - `%LOCALAPPDATA%\Programs\Vibe Flow Remote` ✔（安装目录 ✔）
+  - `C:\Program Files\Vibe Flow` ✔（旧版候选安装路径，兼容检测用 ✔）
+  - 开机启动的**注册表项名** `Vibe Flow` ✔
+  - 可执行文件名 `VibeFlow.exe` / `VoxDeckInputBridge.exe` / `VibeMicAtvvCapture.exe` ✔
+- **脚本注意** ✔：`scripts/check-ui-geometry.ps1` 按 **`Vibe`** 前缀 + **限定本进程** 找窗口 ✔（原先按「言灵」✗，改名后会报 `Window not found` ✗）。
+- 仓库名 / 安装包名 / 下载链接**保持** ✗（对外标识不变 ✔）。
+
+### 11.4 Live HUD 与 Context Deck 的状态同步 ✔
+
+| 表面 | 显示 |
+| --- | --- |
+| **Live HUD** ✔ | 标题/详情 = **会话状态** ✔（录音中 → 「正在接收真实音频」✔；结束 → 「录音已结束，等待语音工具处理」✔）；上下文行 = 「**工具 · X ｜ 目标 · Y**」✔（未设置时显示「未选择」/「未设置」✔） |
+| **Context Deck** ✔ | **语音工具 + 会话状态** 同一行 ✔（`语音工具 · 状态` ✔）✔；**当前目标** 独立一行 ✔（`targetValue` ✔）；应用 / Profile / 设备 / 最近动作各有其行 ✔ |
+
+- 数据来自 `VibeUiStatusSnapshot` ✔（`VoiceToolName` 为本次新增字段 ✔，由 `ProviderDisplayName(config.inputMethod)` 填充 ✔）。
+- **切换输入法或切换"当前"工作流目标后，下一次快照发布即同步** ✔（录音状态变化、动作回执、定时轮询都会发布 ✔）。
+- **验证方式（无需硬件 ✔）**：`VibeMic.exe --self-test` 会构造快照并断言 HUD 里出现「工具 · 八哥说」与「目标 · Cursor Chat」✔（`ControlTreeContainsPartialText` ✔，因为该行是多个值的拼接 ✔ 而 `ControlTreeContainsText` 是**完全相等**比较 ✗）。

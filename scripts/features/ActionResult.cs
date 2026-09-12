@@ -247,21 +247,26 @@ internal sealed class VibeUiStatusSnapshot
     public double AudioRmsPercent { get; private set; }
     public ActionResult LatestAction { get; private set; }
     public Dictionary<string, string> Mappings { get; private set; }
+    // The selected voice tool. The HUD and the Deck name it so a user can tell at a glance which tool is about to
+    // receive the audio, next to the workflow target the text will land in and the current session state.
+    public string VoiceToolName { get; private set; }
     public DateTime TimestampUtc { get; private set; }
 
     private VibeUiStatusSnapshot() { }
 
     public static VibeUiStatusSnapshot Create(string deviceStatus, string voiceStatus, string profileName,
         string processNameOrPath, string focusTargetName, string projectSpaceName, string highlightedControl,
-        bool realAudioActive, ActionResult latestAction, IDictionary<string, string> mappings)
+        bool realAudioActive, ActionResult latestAction, IDictionary<string, string> mappings,
+        string voiceToolName = null)
     {
         return Create(deviceStatus, voiceStatus, profileName, processNameOrPath, focusTargetName,
-            projectSpaceName, highlightedControl, realAudioActive, 0.0, latestAction, mappings);
+            projectSpaceName, highlightedControl, realAudioActive, 0.0, latestAction, mappings, voiceToolName);
     }
 
     public static VibeUiStatusSnapshot Create(string deviceStatus, string voiceStatus, string profileName,
         string processNameOrPath, string focusTargetName, string projectSpaceName, string highlightedControl,
-        bool realAudioActive, double audioRmsPercent, ActionResult latestAction, IDictionary<string, string> mappings)
+        bool realAudioActive, double audioRmsPercent, ActionResult latestAction, IDictionary<string, string> mappings,
+        string voiceToolName = null)
     {
         var safeMappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         if (mappings != null)
@@ -283,6 +288,7 @@ internal sealed class VibeUiStatusSnapshot
             LatestAction = (latestAction ?? ActionResult.Create("状态", "Vibe Flow", ActionState.Idle,
                 "等待操作", "", "", "")).ForOverlay(),
             Mappings = safeMappings,
+            VoiceToolName = OverlayText.SanitizeOverlayText(voiceToolName),
             TimestampUtc = DateTime.UtcNow
         };
     }

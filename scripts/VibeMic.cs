@@ -3184,10 +3184,14 @@ internal sealed partial class VibeMicForm : Form
                     throw new InvalidOperationException("Live HUD did not apply the dark palette");
                 VibeUiStatusSnapshot processingSnapshot = VibeUiStatusSnapshot.Create(
                     "设备已连接", "录音已结束，等待语音工具处理", "Vibe Coding", "Cursor",
-                    "Cursor Chat", "未进入项目", "", false, waitingResult, unsafeMappings);
+                    "Cursor Chat", "未进入项目", "", false, waitingResult, unsafeMappings, "八哥说");
                 hud.ApplySnapshot(processingSnapshot);
                 if (!ControlTreeContainsText(hud, "录音已结束，等待语音工具处理"))
                     throw new InvalidOperationException("Live HUD hid the verified recording-ended state behind a stale action");
+                // The HUD has to name the tool and the target, not just the state: those are the two things a user
+                // cannot see from the window when the HUD is the only surface left on screen.
+                if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))
+                    throw new InvalidOperationException("Live HUD did not name the voice tool and the workflow target");
             }
             using (var deck = new ContextDeckForm())
             {

@@ -326,7 +326,10 @@ internal sealed class LiveHudForm : Form
             processing ? "音频已交给语音工具 · 最终文字请目视确认" :
             action.State == ActionState.Idle ? snapshot.DeviceStatus + " · 等待操作" :
             string.IsNullOrWhiteSpace(action.OverlayDetailText()) ? snapshot.VoiceStatus : action.OverlayDetailText();
-        contextLabel.Text = "目标 · " + snapshot.FocusTargetName + "  ｜  Profile · " + snapshot.ProfileName;
+        // Name the voice tool beside the workflow target. The title and detail above already carry the session state, so
+        // this line answers "which tool, aiming at what" while they answer "what is happening right now".
+        contextLabel.Text = "工具 · " + (string.IsNullOrWhiteSpace(snapshot.VoiceToolName) ? "未选择" : snapshot.VoiceToolName) +
+            "  ｜  目标 · " + (string.IsNullOrWhiteSpace(snapshot.FocusTargetName) ? "未设置" : snapshot.FocusTargetName);
         RefreshMeter(snapshot.RealAudioActive);
         ApplyGlyphRegion();
         Invalidate(true);
@@ -777,7 +780,8 @@ internal sealed partial class VibeMicForm
         return VibeUiStatusSnapshot.Create(deviceStatus, voiceStatus, profileName,
             bridge == null ? "" : bridge.SmartForegroundProcess, FocusTargetSummary(),
             string.IsNullOrWhiteSpace(currentProjectSpaceName) ? "未配置项目" : currentProjectSpaceName, highlighted,
-            currentVisualState == "recording", latestAudioOutputRmsPercent, latestActionResult, mappings);
+            currentVisualState == "recording", latestAudioOutputRmsPercent, latestActionResult, mappings,
+            ProviderDisplayName(config.inputMethod));
     }
 
     private void UpdateLatestBridgeAction(BridgeHealthSnapshot bridge)

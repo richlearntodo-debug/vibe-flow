@@ -67,4 +67,16 @@ internal sealed partial class VibeMicForm
             if (ControlTreeContainsText(child, expected)) return true;
         return false;
     }
+
+    // The equality above is the right check for a page title, but a rendered line that mixes several values (the HUD's
+    // "工具 · X ｜ 目标 · Y") can only be checked by substring. Kept separate so nobody has to weaken the exact match.
+    private static bool ControlTreeContainsPartialText(Control rootControl, string fragment)
+    {
+        if (rootControl == null || string.IsNullOrEmpty(fragment)) return false;
+        if (!string.IsNullOrEmpty(rootControl.Text) &&
+            rootControl.Text.IndexOf(fragment, StringComparison.Ordinal) >= 0) return true;
+        foreach (Control child in rootControl.Controls)
+            if (ControlTreeContainsPartialText(child, fragment)) return true;
+        return false;
+    }
 }

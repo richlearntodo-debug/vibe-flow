@@ -1241,7 +1241,25 @@ assert(includesAll(bridge, [
   "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(",
   "private const int Rc003PresenceWindowMs = 5000;",
   "int healthIntervalMs = Rc003PresenceWindowMs;",
-]), "The frozen power-key or record-key rules no longer hold in the bridge");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The frozen power-key or record-key rules no longer hold in the bridge");// The Live HUD and the Context Deck name the voice tool, the workflow target and the session state.
+//
+// A user watching the HUD cannot see the window, so the surface has to answer all three: the title and detail carry the
+// state, and the context line names the tool beside the target. The Deck repeats the tool in front of its voice status
+// and keeps the target on its own row. The self-test asserts the rendered text, which is what makes this checkable
+// without hardware.
+assert(includesAll(read("scripts/features/ActionResult.cs"), [
+  "VoiceToolName { get; private set; }",
+  "VoiceToolName = OverlayText.SanitizeOverlayText(voiceToolName),",
+]) && includesAll(read("scripts/ui/LiveHudForm.cs"), [
+  "ProviderDisplayName(config.inputMethod));",
+  '"工具 · " + (string.IsNullOrWhiteSpace(snapshot.VoiceToolName) ? "未选择" : snapshot.VoiceToolName)',
+  '"  ｜  目标 · "',
+]) && includesAll(read("scripts/ui/ContextDeckForm.cs"), [
+  'snapshot.VoiceToolName + " · ")',
+]) && includesAll(app, [
+  'if (!ControlTreeContainsPartialText(hud, "工具 · 八哥说") || !ControlTreeContainsPartialText(hud, "目标 · Cursor Chat"))',
+  "ControlTreeContainsPartialText",
+]), "The HUD or the Deck stopped naming the voice tool, the target and the state");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its
