@@ -1,12 +1,12 @@
-# 言灵 · Vibe Flow Remote 使用教程
+# Vibe Link 使用教程
 
-当前公开版本是 **V2.0.0 candidate.2**；已完成稳定验收的版本仍为 **V1.5.0**。V2.0 是预发布候选版，安装前请阅读[已知限制](V2_0_KNOWN_LIMITATIONS_ZH.md)。
+当前公开版本是 **V2.0.0 candidate.3**；已完成稳定验收的版本仍为 **V1.5.0**。V2.0 是预发布候选版，安装前请阅读[已知限制](V2_0_KNOWN_LIMITATIONS_ZH.md)。
 
 ## 先下载哪个版本
 
 | 版本 | 适合谁 | 下载 |
 | --- | --- | --- |
-| **V2.0.0 candidate.2** | 想使用最新 Smart Focus、HUD/Deck、五项首次设置和新版自检 | [安装版 EXE](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe) · [便携 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip) · [SHA256SUMS](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt) |
+| **V2.0.0 candidate.3** | 想使用最新 Smart Focus、HUD/Deck、五项首次设置和新版自检 | [安装版 EXE](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe) · [便携 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip) · [SHA256SUMS](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt) |
 | **V1.5.0** | 需要已经完成稳定验收的旧版工作环境 | [安装版 EXE](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe) · [便携 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/Vibe-Flow-Windows-x64.zip) |
 
 普通用户优先选择 V2.0 的安装版 `VibeFlow-Setup.exe`，下载后用同一 Release 的 `SHA256SUMS.txt` 校验。GitHub 自动生成的源码 ZIP 不是可运行程序。
@@ -23,7 +23,7 @@ Vibe Flow 负责遥控器、音频通道和快捷键；它不会读取、保存�
 
 ## 快速入口
 
-- [下载 V2.0.0 candidate.2 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
+- [下载 V2.0.0 candidate.3 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
 - [查看 V2.0 与 V1.5 对比](V2_0_UPDATE_SUMMARY_ZH.md)
 - [查看 V2.0 候选版更新说明](V2_0_RELEASE_NOTES_ZH.md)
 - [查看 V2.0 FAQ 与故障排查](V2_0_FAQ_ZH.md)

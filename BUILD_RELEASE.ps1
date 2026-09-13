@@ -149,16 +149,30 @@ Copy-Item (Join-Path $root "scripts\Set-UsbSelectiveSuspend.ps1") (Join-Path $pa
 # permitted per https://vb-audio.com/Services/licensing.htm "VB-CABLE
 # Distribution with other product"). The installer verifies the pinned
 # SHA-256 before use and falls back to the official download URL.
+#
+# The package is deliberately NOT tracked by git (tools/ is ignored): it is a third-party
+# binary, and a clean clone or a CI runner starts without it. A missing package must not stop
+# a release, because scripts/Install-VBCable.ps1 downloads and hash-verifies the official
+# package on the user's machine when the bundle is absent. So the bundle is copied when it is
+# present and correct, and reported as absent when it is not: RESTORE_BUILD_DEPS.ps1 makes a
+# best-effort attempt to fetch it first.
+$vbCablePinnedSha256 = "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb"
 $vbCablePackage = Join-Path $root "tools\VBCABLE_Driver_Pack45.zip"
-if (-not (Test-Path -LiteralPath $vbCablePackage)) {
-    throw "Bundled VB-CABLE package is missing: tools\VBCABLE_Driver_Pack45.zip"
+$vbCableBundled = $false
+if (Test-Path -LiteralPath $vbCablePackage) {
+    $vbCableActual = (Get-FileHash -LiteralPath $vbCablePackage -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($vbCableActual -ne $vbCablePinnedSha256) {
+        throw "Bundled VB-CABLE package SHA-256 mismatch"
+    }
+    New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "tools") | Out-Null
+    Copy-Item -LiteralPath $vbCablePackage -Destination (Join-Path $packageDir "tools")
+    $vbCableBundled = $true
 }
-$vbCableActual = (Get-FileHash -LiteralPath $vbCablePackage -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($vbCableActual -ne "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb") {
-    throw "Bundled VB-CABLE package SHA-256 mismatch"
+if ($vbCableBundled) {
+    Write-Host "VB-CABLE bundle: included (SHA-256 verified)"
+} else {
+    Write-Host "VB-CABLE bundle: absent; the installer will download and verify the official package on the user's machine"
 }
-New-Item -ItemType Directory -Force -Path (Join-Path $packageDir "tools") | Out-Null
-Copy-Item -LiteralPath $vbCablePackage -Destination (Join-Path $packageDir "tools")
 
 $packageDocs = Join-Path $packageDir "docs"
 $packageImages = Join-Path $packageDocs "images"

@@ -1,6 +1,6 @@
-# 言灵 · Vibe Flow Remote V2.0 图文使用教程
+# Vibe Link V2.0 图文使用教程
 
-> 适用版本：`v2.0.0-candidate.2`。本教程描述当前公开候选版的实际页面和边界。
+> 适用版本：`v2.0.0-candidate.3`。本教程描述当前公开候选版的实际页面和边界。
 >
 > V2.0 不是代码编辑器，也不是 AI 客户端。它负责让 RC003、语音工具和你当前的输入框协同工作。录音文字由第三方语音工具产生，Vibe Flow 不读取、保存或上传普通转写文字，也不会替你按发送。
 
@@ -41,9 +41,9 @@
 
 V2.0 候选版的三个固定入口如下：
 
-- [VibeFlow-Setup.exe 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
-- [Vibe-Flow-Windows-x64.zip 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
+- [VibeFlow-Setup.exe 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
 
 不要下载 GitHub 自动生成的 `Source code (zip/tar.gz)`，那是源码快照，不是可运行程序。
 
@@ -57,12 +57,15 @@ Get-FileHash .\Vibe-Flow-Windows-x64.zip -Algorithm SHA256
 Get-Content .\SHA256SUMS.txt
 ```
 
-当前候选版的固定哈希：
+候选版每次构建都会重新生成产物，所以哈希以**随包发布的 `SHA256SUMS.txt`（以及 GitHub Release 页面同名附件）为准**——不要使用任何文档里抄下来的固定哈希，它们会随构建过期。校验方法：
 
-```text
-B08E50B0F3BA39F14E3C8B6523B2ACEB852D86BFE682FB29CECFC46A0CEF032B  VibeFlow-Setup.exe
-B8AEBCDA1D0239658E4C35B03FA9EB58B58CCB267A9B49465CAE11FA720565FF  Vibe-Flow-Windows-x64.zip
+```powershell
+Get-FileHash .\VibeFlow-Setup.exe -Algorithm SHA256
+Get-FileHash .\Vibe-Flow-Windows-x64.zip -Algorithm SHA256
+Get-Content .\SHA256SUMS.txt
 ```
+
+（安装目录里也带一份 `SHA256SUMS.txt`；`scripts\Install-VBCable.ps1` 使用的 VB-CABLE 官方包另有一个固定哈希，见脚本内的 `$expectedSha256`。）
 
 ### 3. 安装版和便携版的区别
 
@@ -290,7 +293,7 @@ Smart Focus 的作用是“锁定并验证输入框”，不是读取网页内�
 
 ### 三层手势
 
-每个可配置键最多有：短按、长按、双击。长按约 650 ms；双击窗口跟随 Windows 设置，下限 500 ms。未设置的层会显示“跟随”关系，不会假装存在独立动作。
+每个可配置键最多有：短按、长按、双击。长按约 600 ms；双击窗口跟随 Windows 设置，下限 500 ms。未设置的层会显示“跟随”关系，不会假装存在独立动作。
 
 如果一个键配置了双击，它的短按可能要等到松手后才能判定。要恢复 V1.5 的按下即执行行为，清空该键的双击动作。
 

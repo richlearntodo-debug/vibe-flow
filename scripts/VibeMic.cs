@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -4894,6 +4894,7 @@ deck.Hide();
                     if (string.Equals(toolShortcuts[first], toolShortcuts[second], StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException("Two voice tools share the default shortcut " + toolShortcuts[first]);
             RunInputEngineCatalogSelfTests();
+            RunUpdaterSelfTests();
             RunVbCableInstallCompletionSelfTests();
             RunLinkQualityPolicySelfTests();
             RunWorkflowCardsSelfTests();
@@ -25547,6 +25548,88 @@ deck.Hide();
                 "The foreground input layout reported an available layout without a language");
     }
 
+    // The updater downloads an installer and runs it, so the parts of it that can be decided without
+    // a network are pinned here instead of being left to a real release: the URL allow-list, the
+    // version parser, the checksum-manifest reader and the asset lookup. The network paths
+    // (GetLatest, DownloadAndVerify) still need a published release and are not covered.
+    private static void RunUpdaterSelfTests()
+    {
+        SecureUpdateClient.ValidateAssetUrl("https://github.com/owner/repo/releases/download/v1/VibeFlow-Setup.exe");
+        string[] rejectedUrls = {
+            "http://github.com/owner/repo/releases/download/v1/VibeFlow-Setup.exe",
+            "https://evil.example/VibeFlow-Setup.exe",
+            "https://github.com.evil.example/VibeFlow-Setup.exe",
+            "https://raw.githubusercontent.com/owner/repo/main/VibeFlow-Setup.exe",
+            "ftp://github.com/VibeFlow-Setup.exe",
+            "releases/download/v1/VibeFlow-Setup.exe",
+            ""
+        };
+        for (int index = 0; index < rejectedUrls.Length; index++)
+        {
+            try
+            {
+                SecureUpdateClient.ValidateAssetUrl(rejectedUrls[index]);
+                throw new InvalidOperationException("The updater accepted an untrusted asset URL: " + rejectedUrls[index]);
+            }
+            catch (InvalidDataException) { }
+        }
+
+        if (SecureUpdateClient.ParseVersion("v2.0.0") != new Version(2, 0, 0, 0) ||
+            SecureUpdateClient.ParseVersion("2.0.0") != new Version(2, 0, 0, 0) ||
+            SecureUpdateClient.ParseVersion("v2.0.0-candidate.3") != new Version(2, 0, 0, 0) ||
+            SecureUpdateClient.ParseVersion("2.1") != new Version(2, 1, 0, 0) ||
+            SecureUpdateClient.ParseVersion("2.0.0.1") != new Version(2, 0, 0, 1))
+            throw new InvalidOperationException("The updater mis-parsed a release version");
+        string[] rejectedVersions = { "", "   ", "v", "abc", "1.2.3.4.5", "-1.0.0", "1.x.0" };
+        for (int index = 0; index < rejectedVersions.Length; index++)
+        {
+            try
+            {
+                SecureUpdateClient.ParseVersion(rejectedVersions[index]);
+                throw new InvalidOperationException("The updater accepted an invalid version: " + rejectedVersions[index]);
+            }
+            catch (InvalidDataException) { }
+        }
+
+        const string manifest =
+            "DEADBEEF00000000000000000000000000000000000000000000000000000000  Vibe-Flow-Windows-x64.zip\r\n" +
+            "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb *VibeFlow-Setup.exe\r\n";
+        if (!string.Equals(
+                SecureUpdateClient.ReadExpectedSha256(manifest, "VibeFlow-Setup.exe"),
+                "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb",
+                StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(
+                SecureUpdateClient.ReadExpectedSha256("AB" + new string('0', 62) + "  vibeflow-setup.exe", "VibeFlow-Setup.EXE"),
+                "AB" + new string('0', 62),
+                StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The updater cannot read the installer checksum from a manifest");
+        string[] rejectedManifests = {
+            "DEADBEEF00000000000000000000000000000000000000000000000000000000  Vibe-Flow-Windows-x64.zip",
+            "nothex  VibeFlow-Setup.exe",
+            "AB  VibeFlow-Setup.exe",
+            ""
+        };
+        for (int index = 0; index < rejectedManifests.Length; index++)
+        {
+            try
+            {
+                SecureUpdateClient.ReadExpectedSha256(rejectedManifests[index], "VibeFlow-Setup.exe");
+                throw new InvalidOperationException("The updater accepted a malformed checksum manifest");
+            }
+            catch (InvalidDataException) { }
+        }
+
+        var assets = new[]
+        {
+            new SecureUpdateClient.GitHubAsset { name = "Vibe-Flow-Windows-x64.zip", browser_download_url = "https://github.com/a" },
+            new SecureUpdateClient.GitHubAsset { name = "SHA256SUMS.txt", browser_download_url = "https://github.com/b" }
+        };
+        if (SecureUpdateClient.FindAsset(assets, "sha256sums.TXT") == null ||
+            SecureUpdateClient.FindAsset(assets, "VibeFlow-Setup.exe") != null ||
+            SecureUpdateClient.FindAsset(null, "SHA256SUMS.txt") != null)
+            throw new InvalidOperationException("The updater asset lookup is wrong");
+    }
+
     // A finished driver install must never claim a switch the machine cannot deliver.
     private static void RunVbCableInstallCompletionSelfTests()
     {
@@ -26603,7 +26686,7 @@ internal static class SecureUpdateClient
         return new Version(numbers[0], numbers[1], numbers[2], numbers[3]);
     }
 
-    private static string NormalizeVersion(string value)
+    internal static string NormalizeVersion(string value)
     {
         string normalized = (value ?? "").Trim();
         if (normalized.StartsWith("v", StringComparison.OrdinalIgnoreCase)) normalized = normalized.Substring(1);
@@ -26613,7 +26696,7 @@ internal static class SecureUpdateClient
         return normalized;
     }
 
-    private static GitHubAsset FindAsset(GitHubAsset[] assets, string name)
+    internal static GitHubAsset FindAsset(GitHubAsset[] assets, string name)
     {
         if (assets == null) return null;
         foreach (GitHubAsset asset in assets)
@@ -26621,7 +26704,7 @@ internal static class SecureUpdateClient
         return null;
     }
 
-    private static void ValidateAssetUrl(string value)
+    internal static void ValidateAssetUrl(string value)
     {
         Uri uri;
         if (!Uri.TryCreate(value, UriKind.Absolute, out uri) || uri.Scheme != Uri.UriSchemeHttps ||
@@ -26670,7 +26753,7 @@ internal static class SecureUpdateClient
         public GitHubAsset[] assets { get; set; }
     }
 
-    private sealed class GitHubAsset
+    internal sealed class GitHubAsset
     {
         public string name { get; set; }
         public string browser_download_url { get; set; }

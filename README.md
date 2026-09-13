@@ -1,7 +1,7 @@
-# 言灵 · Vibe Flow Remote
+# Vibe Link
 
 <p align="center">
-  <img src="docs/images/vibe-flow-community.png" alt="言灵 Vibe Flow 用户社群二维码" width="100%">
+  <img src="docs/images/vibe-flow-community.png" alt="Vibe Link 用户社群二维码" width="100%">
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
 
 ## V2.0.0 离键闭环候选版
 
-> 当前为候选版 2（`v2.0.0-candidate.2`）。
+> 当前为候选版 3（`v2.0.0-candidate.3`）。
 
 V2.0 候选版已经公开发布。它保留 V1.5 的录音、快捷键、Profiles 和配置保护，并增加了目标输入框学习、统一反馈、Live HUD、Context Deck、五项首次设置和更完整的自检。
 
@@ -24,16 +24,14 @@ V2.0 候选版已经公开发布。它保留 V1.5 的录音、快捷键、Profil
 
 | 文件 | 适合谁 | 固定下载入口 |
 | --- | --- | --- |
-| **VibeFlow-Setup.exe** | 普通用户，推荐 | [下载 V2.0 安装包](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe) |
-| **Vibe-Flow-Windows-x64.zip** | 免安装、便携使用 | [下载 V2.0 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip) |
-| **SHA256SUMS.txt** | 下载后校验完整性 | [下载 V2.0 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt) |
-| Release 页面 | 查看正文、截图和全部附件 | [打开 V2.0.0 candidate.2](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.2) |
+| **VibeFlow-Setup.exe** | 普通用户，推荐 | [下载 V2.0 安装包](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe) |
+| **Vibe-Flow-Windows-x64.zip** | 免安装、便携使用 | [下载 V2.0 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip) |
+| **SHA256SUMS.txt** | 下载后校验完整性 | [下载 V2.0 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt) |
+| Release 页面 | 查看正文、截图和全部附件 | [打开 V2.0.0 candidate.3](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.3) |
 
-> 安装版和便携版均未配置商业 Authenticode 签名，Windows 可能显示 SmartScreen 提示。请只从上面的 GitHub Release 下载，并用同一批 `SHA256SUMS.txt` 核对文件。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是可运行程序。
+> 安装版和便携版均未配置商业 Authenticode 签名，Windows 可能显示 SmartScreen「未知发布者」提示：点「更多信息」→「仍要运行」即可继续。请只从上面的 GitHub Release 下载，并用同一批 `SHA256SUMS.txt` 核对文件。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是可运行程序。
 
 ### 最新已发布稳定版 · V1.5.0
-
-下面是 V1.5 稳定版固定下载入口：
 
 如果你需要已经完成 V1.5 稳定验收的版本，请使用下面的固定入口：
 
@@ -57,7 +55,7 @@ V2.0 还提供快捷键 Profiles、三层手势、Live HUD、Context Deck、统�
 
 ## 五分钟跑通第一次输入
 
-1. 下载并安装 [V2.0 安装包](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)。
+1. 下载并安装 [V2.0 安装包](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)。
 2. 在首次设置中完成：了解流程、连接遥控器、准备音频、选择语音工具、完成个性化。
 3. 配对 `MI RC` / `RC003`，按一次方向键确认 Windows 收到了遥控器事件。
 4. 如果使用 RC003 麦克风，确认存在 `CABLE Input` 和 `CABLE Output`：播放端是 `CABLE Input`，语音工具的麦克风端是 `CABLE Output`。

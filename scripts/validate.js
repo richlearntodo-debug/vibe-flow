@@ -3199,6 +3199,53 @@ assert(includesAll(release, [
   '& $stableCapturePath --self-test',
   'Test-ReleaseIdentity.ps1', 'Test-ReleaseArtifacts.ps1',
 ]), "Release packaging, checksums, or signing are incomplete");
+// The VB-CABLE package is a third-party binary and is deliberately untracked, so a clean clone and a
+// CI runner start without it. The release build must therefore treat it as an optional bundle: copy
+// and hash-check it when it is there, and carry on when it is not (scripts/Install-VBCable.ps1
+// downloads and verifies the official package on the user's machine).
+assert(includesAll(release, [
+  "VB-CABLE bundle: included (SHA-256 verified)",
+  "VB-CABLE bundle: absent",
+  '$vbCablePinnedSha256 = "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb"',
+  'if (Test-Path -LiteralPath $vbCablePackage) {',
+  "$vbCableBundled = $true",
+]) && !release.includes('throw "Bundled VB-CABLE package is missing'),
+  "The release build treats the untracked VB-CABLE package as mandatory again, which fails on a clean clone");
+assert(includesAll(read("RESTORE_BUILD_DEPS.ps1"), [
+  "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip",
+  '$vbCableSha256 = "b950e39f01af1d04ea623c8f6d8eb9b6ea5c477c637295fabf20631c85116bfb"',
+  "Write-Warning",
+]) && read("RESTORE_BUILD_DEPS.ps1").includes("Move-Item -LiteralPath $vbCableTemp"),
+  "The build-dependency restore does not make a verified, non-fatal attempt at the VB-CABLE package");
+// The updater downloads an installer and runs it, so the parts that can be decided without a network
+// are pinned by the host self-test: the GitHub-only HTTPS allow-list, the version parser, the checksum
+// manifest reader and the asset lookup. The network paths still need a published release.
+assert(includesAll(app, [
+  "private static void RunUpdaterSelfTests()",
+  "RunUpdaterSelfTests();",
+  "SecureUpdateClient.ValidateAssetUrl(\"https://github.com/owner/repo/releases/download/v1/VibeFlow-Setup.exe\")",
+  '"https://github.com.evil.example/VibeFlow-Setup.exe"',
+  "The updater accepted an untrusted asset URL",
+  "SecureUpdateClient.ReadExpectedSha256(manifest, \"VibeFlow-Setup.exe\")",
+  "SecureUpdateClient.ParseVersion(\"v2.0.0-candidate.3\")",
+  "SecureUpdateClient.FindAsset(assets, \"sha256sums.TXT\")",
+]), "The updater's URL allow-list, version parser, checksum reader or asset lookup are no longer asserted");
+// The release record is the machine-readable freeze snapshot, and nothing used to read it, so its
+// product, tag and asset hashes could drift from the release they describe without any gate noticing.
+const frozenRecord = JSON.parse(read("frozen-parameters.json"));
+assert(frozenRecord.product === "Vibe Link" &&
+  typeof frozenRecord.tag === "string" && frozenRecord.tag.startsWith("v2.0.0") &&
+  typeof frozenRecord.commit === "string" && /^[0-9a-f]{40}$/.test(frozenRecord.commit) &&
+  frozenRecord.releaseAssets &&
+  /^[0-9A-Fa-f]{64}$/.test(frozenRecord.releaseAssets["VibeFlow-Setup.exe"]) &&
+  /^[0-9A-Fa-f]{64}$/.test(frozenRecord.releaseAssets["Vibe-Flow-Windows-x64.zip"]) &&
+  /^[0-9A-Fa-f]{64}$/.test(frozenRecord.releaseAssets["SHA256SUMS.txt"]),
+  "The frozen release record no longer names the product, the tag, a commit and three asset hashes");
+// Asset hashes change on every build, so the guide must not carry a copied hash that goes stale: it
+// points at the SHA256SUMS.txt that ships with the release instead.
+assert(!/[0-9A-F]{64}/.test(read("docs/V2_0_USER_GUIDE_ZH.md")) &&
+  read("docs/V2_0_USER_GUIDE_ZH.md").includes("SHA256SUMS.txt"),
+  "The user guide carries a copied release hash again instead of pointing at SHA256SUMS.txt");
 // The self-check's one-click "disable USB selective suspend" runs this script from the
 // install directory, where it is the measured fix for the remote's Bluetooth audio gaps.
 // It is a runtime script, not a build helper, so both payload builders have to carry it and

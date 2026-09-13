@@ -1,17 +1,19 @@
-# 言灵 · Vibe Flow Remote V2.0.0 候选版 2 更新说明
+# Vibe Link V2.0.0 候选版 3 更新说明
 
-发布日期：2026-09-12  ·  标签：`v2.0.0-candidate.2`  ·  状态：公开候选版  ·  Release status: candidate
+发布日期：2026-09-13  ·  标签：`v2.0.0-candidate.3`  ·  状态：公开候选版  ·  Release status: candidate
 
-> V2.0.0 candidate.2 已提供安装包和便携 ZIP，但还不是正式稳定版。完整硬件、VB-CABLE、DPI 和安装生命周期验收仍需在目标环境完成。
+> V2.0.0 candidate.3 已提供安装包和便携 ZIP，但还不是正式稳定版。完整硬件、VB-CABLE、DPI 和安装生命周期验收仍需在目标环境完成。
 
 ## 下载
 
-- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
-- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
-- [GitHub Release 页面](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.2)
+- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
+- [GitHub Release 页面](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.3)
 
 ## 本候选版更新
+
+- 本候选版相对候选版 2 的变化：**语音工具收敛为三个**（微信输入法 / 网易八哥说 / 其他语音工具）、**开机自启修复**、若干文案与一致性修正。
 
 ### 1. 目标输入框和 Smart Focus
 

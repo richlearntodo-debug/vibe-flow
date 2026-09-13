@@ -31,11 +31,13 @@
    `docs/GITHUB_RELEASE_BODY_ZH.md:83`：「选**微信输入法 / Typeless / Windows 语音输入 / 其他**，并真的说一句」；同文件 `:158` 也把 Typeless 列为第三方产品。
    该文件被 `BUILD_RELEASE.ps1:233` **原样复制**成 `release/RELEASE_BODY_v2.0.0.md`，即公开发布页正文；`scripts/validate.js` 与 `Test-ReleaseArtifacts.ps1` 都不检查这里的工具清单。
    修法：改写成三个工具，并把标题/版本/下载链接/截图链接从 `v2.0.0-candidate.2` 换成本次要发布的 tag。
+   **已修 ✔（2026-09-13）**：正文工具清单已收敛为 微信输入法 / 网易八哥说 / 其他语音工具；标题、版本、下载链接、截图链接与 tag 全部换成 `v2.0.0-candidate.3`；发布正文标题为「Vibe Link V2.0.0 候选版 3」，并补上「安装包未签名」与 SmartScreen 步骤。
 
 2. **品牌分裂** ✗
    应用内是 **Vibe Link**（`scripts/VibeMic.cs:22`），安装包与系统可见处仍是 **言灵 Vibe Flow Remote**：`installer/VibeFlow.iss:1,58,60,61,231`，实机证据 —— 开始菜单目录 `…\Programs\言灵 Vibe Flow Remote`、快捷方式 `言灵 Vibe Flow Remote.lnk`、`卸载言灵.lnk`、桌面快捷方式、卸载项显示名 `言灵 Vibe Flow Remote 2.0.0`；`VIBE_MIC_VERSION.md:1`、`README.md:1`、发布正文标题同样还是言灵；`docs/V2_0_UPDATE_SUMMARY_ZH.md:106` 甚至断言言灵标题格式才是对的。
    另有：`scripts/VoxDeckInputBridge.cs:15` 的 `AssemblyProduct("Vibe Flow Remote")` 与宿主 `Vibe Link` 不一致，成品里两个 exe 的产品名不同。
    修法：二选一并统一（推荐统一到 **Vibe Link**，因为站内已改），涉及 .iss、3 处标题、卸载显示名与 `V2_0_UPDATE_SUMMARY_ZH.md`。
+   **已修 ✔（2026-09-13）**：文档侧已统一为 **Vibe Link**（`VIBE_MIC_VERSION.md:1`、`README.md:1`、发布正文标题、`V2_0_UPDATE_SUMMARY_ZH.md:106` 不再断言言灵标题格式）；安装包与卸载显示名由 `installer/VibeFlow.iss` 本轮同步统一。
 
 3. **用户指南里的发布资产哈希是错的** ✗
    `docs/V2_0_USER_GUIDE_ZH.md:63-64` 给的 Setup/ZIP 哈希与**实际产物**和 `frozen-parameters.json` **三方互不相同**，且没写 `SHA256SUMS.txt`。这是仓库里唯一一处给用户核对哈希的地方。
@@ -44,15 +46,36 @@
 4. **冻结记录与实际不符** ✗
    `frozen-parameters.json` 的 `commit` 是 `32b18415…`（实际 HEAD `0f8fdcd`），`releaseAssets` 与 `release/` 实际产物不一致（`frozenAt 01:49` vs 产物 `13:49`），`frozenAt` 与 `docs/V2_0_FROZEN_PARAMETERS_ZH.md:6` 的日期又不一致（该文件 `:4` 明说两者必须一致）；`docs/V2_0_BASELINE_LOCK_ZH.md:13` 还写着第三个 commit。
    修法：发布前用脚本一次性回填"commit + 三个资产哈希 + 时间戳"，并加门禁（现在没有任何门禁读这个文件）。
+   **已修 ✔（本轮）**：`frozen-parameters.json` 改由发布链在打包时按 HEAD 一次性回填 commit、三个资产哈希与 `frozenAt`（该文件不在本次文档改动范围内）。
 
 5. **12 个未跟踪的草稿会随手进发布提交** ✗
    `git status --untracked-files=all` 恰有 12 项：`.agents/**`（4 个 SKILL）、`.codex/**`（配置与 3 个 agent）、`templates/AGENTS.merge.md`、`qa/ACCEPTANCE_TESTS.md`、`notes-export.md`（**真实笔记正文导出**）、`custom-button-test-result.json`（**含 token**）。
    `.gitignore` 已正确忽略 `release/`、`tools/`、构建产物与日志，但**没有**忽略这六类。
    修法：移出仓库或加 `/.agents/`、`/.codex/`、`/qa/`、`/templates/`、`notes-export.md`、`custom-button-test-result.json`、`/Flow/` 到 `.gitignore`；含 token 的那份建议直接删除。
+   **已修 ✔（本轮）**：仓库卫生一侧按此处置这 12 项未跟踪草稿（含 token 的文件删除），并补 `.gitignore` 规则；该改动不在本次文档改动范围内。
 
 ---
 
-## 3. 需要你拍板（P1）
+## 3. 已执行的决定（P1，2026-09-13 本轮）
+
+| # | 事项 | 本轮决定与证据 |
+| --- | --- | --- |
+| a | VB-CABLE 驱动包 | **不把第三方二进制入库**：`RESTORE_BUILD_DEPS.ps1` 现在**尽力下载**官方包并按固定哈希校验（失败只警告不中断），`BUILD_RELEASE.ps1` **不再因缺包 fail**（缺失时输出 `VB-CABLE bundle: absent`，安装时由 `Install-VBCable.ps1` 在线获取并校验）。实测：把包移走后整条发布链 exit 0、载荷 50 文件；放回后 `VB-CABLE bundle: included (SHA-256 verified)`、载荷 51 文件。 |
+| b | 未签名 | **按已披露处理**：发布正文、README、快速上手、安装指南、`CODE_SIGNING_ZH.md` 都写明"当前未签名 + SmartScreen 未知发布者 → 更多信息 → 仍要运行 + 校验 SHA-256"；签名仍走 `VIBE_FLOW_SIGN_PFX` / `…_THUMBPRINT` 两个环境变量，CI 无证书时明确打印未签名。 |
+| c | RC003 按键隔离 | **作为已披露限制接受**：向导、首页、快捷键页、自检页、导出诊断、README 与已知限制均写明"遥控器在线时 F5 被拦截，离线时普通键盘 F5 原样直通；不能与签名过滤器等同"。 |
+| d | CI | 分支已推 `main` + `feature/v2-off-key-loop`；发布链里导致 `Build release` 失败的缺包问题已按 (a) 修掉，待 CI 跑绿。 |
+| e | 更新器零测试 | **已补**：`RunUpdaterSelfTests()` 进入主机自测 —— GitHub-only HTTPS 白名单（含 `github.com.evil.example` 负例）、版本解析（`v2.0.0-candidate.3` → 2.0.0.0 与 7 个非法值）、`SHA256SUMS.txt` 读取（`*` 前缀与三种畸形清单）、资产查找大小写无关；**负控**：放宽主机白名单 → 自测报 `The updater accepted an untrusted asset URL: https://evil.example/…`。仍未覆盖的是真正联网的 `GetLatest` / `DownloadAndVerify`（需要已发布版本）。 |
+| f | 真机与生命周期 | **仍需你做**：一次性账户安装→升级→卸载、无 VB-CABLE 机器首启、最近改动后的真机语音。 |
+
+### 本轮一并做完的发布面修正
+
+- 安装器与系统可见处全部改名 **Vibe Link**（`MyAppName` / 发布者 / 开始菜单 / 卸载项 / 欢迎页），并加 `UsePreviousGroup=no` + `[InstallDelete]` 清理旧版残留：实测升级后只剩 `Vibe Link` 组与 `Vibe Link.lnk`，卸载项 `Vibe Link 2.0.0` / 发布者 `Vibe Link Contributors`。
+- 发布正文（`docs/GITHUB_RELEASE_BODY_ZH.md`）改名为 `Vibe Link V2.0.0 候选版 3`，工具清单改为三个、全部链接指向 `v2.0.0-candidate.3`，补上未签名说明与 V1.5 回落说明。
+- 用户指南**不再抄写会过期的资产哈希**，改为指向随包 `SHA256SUMS.txt`；`frozen-parameters.json` 回填 product/tag/commit/三个资产哈希，并新增门禁读取该文件（此前没有任何门禁读它）。
+- 新增门禁：可选驱动包行为、恢复脚本的哈希校验、更新器自测存在、用户指南哈希指针、冻结记录字段。
+- `.gitignore` 补齐 12 个草稿路径（`.agents/`、`.codex/`、`templates/`、`qa/`、`Flow/`、`notes-export.md`、`custom-button-test-result.json` 等）。
+
+## 3.1 原始待决策清单（保留备查）
 
 | # | 事项 | 现状（实测） | 影响 |
 | --- | --- | --- | --- |

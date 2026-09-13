@@ -30,6 +30,24 @@ obj/
 *.suo
 driver/rc003-filter/src/x64/
 
+# Local authoring and QA scratch, never part of a release: agent-tool configuration, the
+# acceptance-test notes, the project-brief merge fragment, a user note export, and the
+# response file a custom-button capture test writes (it carries a bearer-style token).
+/.agents/
+/.codex/
+/templates/
+/qa/
+/Flow/
+notes-export.md
+custom-button-test-result.json
+custom-button-capture-request.json
+custom-button-capture-result.json
+custom-button-test.json
+self-test-report.txt
+input-bridge-log.txt
+input-bridge-log.txt.*
+input-bridge-health.json
+
 # Legacy prototypes and local review captures
 app.js
 index.html

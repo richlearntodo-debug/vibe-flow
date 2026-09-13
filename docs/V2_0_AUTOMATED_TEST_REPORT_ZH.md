@@ -14,7 +14,7 @@
 | V2 功能 | `Test-V2FeatureSuite.ps1`：Smart Focus、录音优先保护、快捷键、配置兼容与 UI 表面 |
 | 安装器外围 | `Test-InstallerRequirements.ps1`、`Test-InstallerConfigMigration.ps1`、`Test-ReleaseDependencyPreflight.ps1` |
 | 版本与候选包 | `Test-ReleaseIdentity.ps1`、`Test-ReleaseArtifacts.ps1` |
-| UI 资源 | `VibeMic.exe --ui-resource-test`，300 次五页切换 |
+| UI 资源 | `VibeMic.exe --ui-resource-test`，300 次六页切换 |
 
 最终等待式资源报告：USER `128 -> 151`（+23），GDI `42 -> 54`（+12），88,516 ms，进程 exit 0。
 
@@ -27,7 +27,7 @@
 - 安装器和 ZIP 的最终大小与 SHA-256 以同批生成的 `release/SHA256SUMS.txt` 为准；本报告会被打包进两项制品，因此不在报告内记录会造成自引用失效的制品哈希。
 - 根目录、候选目录与 ZIP 内 Host/Bridge 的最终 SHA-256 由 `Test-ReleaseArtifacts.ps1` 逐文件核对；具体值只记录在不进入候选载荷的阶段进度中，避免重新编译后报告失效。
 
-Computer Use 已实际启动打包目录 Host，检查五页导航、快捷键页、语音页、自检页和五任务首次设置。该证据只证明本机 UI 行为，不替代实体遥控器、第三方应用、DPI 或安装生命周期。
+Computer Use 已实际启动打包目录 Host，检查六页导航、快捷键页、语音页、自检页和五任务首次设置。该证据只证明本机 UI 行为，不替代实体遥控器、第三方应用、DPI 或安装生命周期。
 
 自动测试覆盖状态模型、目标验证、录音优先取消、快捷键 ACK、单运行实例、配置快照、五任务向导进度以及配置迁移。
 

@@ -1,6 +1,6 @@
-#define MyAppName "言灵 Vibe Flow Remote"
+#define MyAppName "Vibe Link"
 #define MyAppVersion "2.0.0"
-#define MyAppPublisher "Vibe Flow Contributors"
+#define MyAppPublisher "Vibe Link Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"
 #define MyAppExeName "VibeFlow.exe"
 
@@ -39,6 +39,9 @@ CloseApplications=yes
 RestartApplications=no
 UsePreviousAppDir=yes
 UsePreviousTasks=yes
+; The product was renamed, so an upgrade must NOT reuse the previous Start Menu group name:
+; the stale group is removed by [InstallDelete] and the new one is created under the new name.
+UsePreviousGroup=no
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "languages\ChineseSimplified.isl"
@@ -46,19 +49,27 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "其他选项："; Flags: unchecked
-Name: "installvbcable"; Description: "安装 VB-CABLE 虚拟音频线（语音输入必需 · 使用内置官方包 · VB-Audio 捐赠软件）"; GroupDescription: "语音输入组件："; Flags: checkedonce
+Name: "installvbcable"; Description: "安装 VB-CABLE 虚拟音频线（语音输入必需 · VB-Audio 捐赠软件 · 随包版本或官方下载）"; GroupDescription: "语音输入组件："; Flags: checkedonce
 
 [InstallDelete]
 Type: files; Name: "{app}\docs\RELEASE_NOTES_V*.md"
+; Earlier builds registered the product under its old name, so an in-place upgrade left a second
+; Start Menu group, a stale uninstall shortcut and a stale desktop shortcut behind. The install is
+; per-user here (PrivilegesRequired=lowest) and the machine-wide locations are listed as well, so
+; an elevated install is cleaned up too.
+Type: filesandordirs; Name: "{userprograms}\言灵 Vibe Flow Remote"
+Type: filesandordirs; Name: "{commonprograms}\言灵 Vibe Flow Remote"
+Type: files; Name: "{userdesktop}\言灵 Vibe Flow Remote.lnk"
+Type: files; Name: "{commondesktop}\言灵 Vibe Flow Remote.lnk"
 
 [Files]
 Source: "..\release\Vibe-Flow-Windows-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\Vibe Link"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\使用教程"; Filename: "{app}\docs\V2_0_USER_GUIDE_ZH.md"
-Name: "{group}\卸载言灵"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\言灵 Vibe Flow Remote"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{group}\卸载 Vibe Link"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\Vibe Link"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "启动并开始设置"; Flags: nowait postinstall skipifsilent
@@ -228,7 +239,7 @@ end;
 procedure InitializeWizard;
 begin
   PreviousInstallDirectory := ReadPreviousInstallDirectory;
-  WizardForm.WelcomeLabel1.Caption := '欢迎安装言灵 Vibe Flow Remote';
+  WizardForm.WelcomeLabel1.Caption := '欢迎安装 Vibe Link';
   WizardForm.WelcomeLabel2.Caption :=
     '适用于 Windows 10 / 11 x64。请准备 RC003 / MI RC、蓝牙和语音工具。' + #13#10#13#10 +
     '安装后将通过 5 项应用内任务检测遥控器、VB-CABLE 与真实听写。' + #13#10 +

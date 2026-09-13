@@ -1,16 +1,16 @@
 # Vibe Flow V2.0 FAQ 与故障排查
 
-> 本页回答候选版 `v2.0.0-candidate.2` 的高频问题。遇到问题时，先看[图文使用教程](V2_0_USER_GUIDE_ZH.md)，再按本页顺序排查。
+> 本页回答候选版 `v2.0.0-candidate.3` 的高频问题。遇到问题时，先看[图文使用教程](V2_0_USER_GUIDE_ZH.md)，再按本页顺序排查。
 
 ## 下载和版本
 
 ### V2.0 到底在哪里下载？
 
-V2.0 候选版 2 的固定入口是：
+V2.0 候选版 3 的固定入口是：
 
-- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/VibeFlow-Setup.exe)
-- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.2/SHA256SUMS.txt)
+- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
 
 ### V2.0 是正式稳定版吗？
 

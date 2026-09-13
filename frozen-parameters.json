@@ -1,15 +1,15 @@
 ﻿{
     "schema":  1,
-    "product":  "言灵 · Vibe Flow Remote",
+    "product":  "Vibe Link",
     "version":  "V2.0.0",
-    "releaseName":  "V2.0.0 候选版 2",
-    "tag":  "v2.0.0-candidate.2",
-    "commit":  "32b18415a1526bba85c4a1da42c8b971a95f85a1",
-    "frozenAt":  "2026-09-13 01:49:17",
+    "releaseName":  "Vibe Link V2.0.0 候选版 3",
+    "tag":  "v2.0.0-candidate.3",
+    "commit":  "2f28525b10f73b3d7468afc9c0a2c284dd8eb6af",
+    "frozenAt":  "2026-09-13 16:49:34",
     "releaseAssets":  {
-                          "Vibe-Flow-Windows-x64.zip":  "ABAC859AD53A9609D899B32478A300330A74292F5DC11C83D3F0A31775E561B7",
-                          "VibeFlow-Setup.exe":  "93F2D635E3749A193ADB77BA7879D1DA2C50F0297B1057634A306956557E8C64",
-                          "SHA256SUMS.txt":  "C9AE380AF1F7AEE92516A93799BE4753B8B9A18266CEEF15A8DF678DF427A2C2"
+                          "Vibe-Flow-Windows-x64.zip":  "38B56E7F2250730B82B13C9EFA56AE1EF11C77471EF018CFC18AC3B11516E827",
+                          "VibeFlow-Setup.exe":  "1F032292BD10767764E2880DF797A9F0F5B964A978DD4B3D9B91C9D1B2C3AC58",
+                          "SHA256SUMS.txt":  "879DFE1B0196BFD4E8E917B06363F2B3BDD50A83164D288D0868777E65AE2182"
                       },
     "versioning":  {
                        "captureFileVersion":  "1.2.1.0",

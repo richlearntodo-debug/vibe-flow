@@ -1,6 +1,6 @@
-# 言灵 · Vibe Flow Remote 2.0.0 candidate
+# Vibe Link 2.0.0 candidate 3
 
-Candidate build date: 2026-09-05
+Candidate build date: 2026-09-13
 
 ## Release identity
 
@@ -46,7 +46,7 @@ Candidate build date: 2026-09-05
 - Home: Win+D by default; short and long press are independently configurable.
 - TV: Task View by default and configurable.
 - Browser AI maps physical Left to Windows Browser Back.
-- Power, Back, and independent Volume are unavailable because this RC003/Windows combination has not produced stable events.
+- Power is a normal mapped key: its short, long and double layers each carry one configured action (on this machine short opens the DeepSeek usage page, long opens Bilibili, double runs the task switcher), and it never starts a recording. Back and independent Volume are unavailable because this RC003/Windows combination has not produced stable events.
 - Real action receipts report the effective Profile and executor result.
 
 ## Shortcut recorder contract

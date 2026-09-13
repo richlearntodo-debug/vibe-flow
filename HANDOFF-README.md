@@ -1,4 +1,4 @@
-﻿# 交接说明 · 发布 V2.0.0 候选版 2
+# 交接说明 · 发布 V2.0.0 候选版 3
 
 本包是**可发布状态**的完整快照，供**有 GitHub 权限的 Agent** 直接发布。核心参数已固化，**不要为了通过检查而改动它们**
 （清单见 `docs/V2_0_FROZEN_PARAMETERS_ZH.md` 与 `frozen-parameters.json`）。
@@ -7,8 +7,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 标签 | `v2.0.0-candidate.2`（已存在于仓库；提交见 `frozen-parameters.json` 的 `commit`） |
-| 发布标题 | `言灵 · Vibe Flow Remote V2.0.0 候选版 2` |
+| 标签 | `v2.0.0-candidate.3`（已存在于仓库；提交见 `frozen-parameters.json` 的 `commit`） |
+| 发布标题 | `Vibe Link V2.0.0 候选版 3` |
 | 正文文件 | `docs/GITHUB_RELEASE_BODY_ZH.md`（已把图片与文档链接指向本标签的绝对地址，粘贴即显示） |
 | 附件 | `artifacts/VibeFlow-Setup.exe`、`artifacts/Vibe-Flow-Windows-x64.zip`、`artifacts/SHA256SUMS.txt` |
 | 发布类型 | **预发布（pre-release）** —— 正文写明候选状态与未验证项；普通用户仍被引导到稳定版 V1.5.0 |
@@ -18,9 +18,9 @@
 ```powershell
 $env:GH_TOKEN = '<有 contents:write 的 token>'
 $env:HTTPS_PROXY = 'http://127.0.0.1:7897'   # 本机 gh 不读 Windows 系统代理，必须显式设置
-gh release create v2.0.0-candidate.2 
+gh release create v2.0.0-candidate.3 
   artifacts/VibeFlow-Setup.exe artifacts/Vibe-Flow-Windows-x64.zip artifacts/SHA256SUMS.txt 
-  --title "言灵 · Vibe Flow Remote V2.0.0 候选版 2" 
+  --title "Vibe Link V2.0.0 候选版 3" 
   --notes-file docs/GITHUB_RELEASE_BODY_ZH.md --prerelease
 ```
 
@@ -30,8 +30,8 @@ gh release create v2.0.0-candidate.2
 ## 三、发布后必须核对的四件事
 
 1. **三个附件大小与 `artifacts/` 一致**（本次基线：EXE 8.27 MB、ZIP 5.39 MB）。
-2. **三条下载直链返回 200**：`…/releases/download/v2.0.0-candidate.2/<文件名>`。
-3. **正文里的截图能显示**（8 处图片引用都应指向 `/raw/v2.0.0-candidate.2/docs/images/…`）。
+2. **三条下载直链返回 200**：`…/releases/download/v2.0.0-candidate.3/<文件名>`。
+3. **正文里的截图能显示**（8 处图片引用都应指向 `/raw/v2.0.0-candidate.3/docs/images/…`）。
 4. **`SHA256SUMS.txt` 与 `frozen-parameters.json` 的 `releaseAssets` 三个哈希一致**。
 
 ## 四、仓库与分支现状

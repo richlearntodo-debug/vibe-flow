@@ -1,4 +1,4 @@
-# 交接简报 · 言灵 Vibe Flow Remote（给另一个 AI / Agent 直接使用）
+# 交接简报 · Vibe Link（给另一个 AI / Agent 直接使用）
 
 > 这份文件是**自包含**的：读完它就能接手本项目并完成发布，不需要读原始会话记录。
 > 原始会话记录很大且是压缩格式（`~/.dsh/sessions/.../session.v3.jsonl.zstd`，19.6 MB 压缩），不建议交给模型；
@@ -6,20 +6,21 @@
 
 ## 一、这是什么
 
-Windows 桌面工具「言灵 · Vibe Flow Remote」：把小米蓝牙语音遥控器（RC003 / MI RC）变成语音输入与快捷键控制器。
+Windows 桌面工具「Vibe Link」：把小米蓝牙语音遥控器（RC003 / MI RC）变成语音输入与快捷键控制器。
 - 技术栈：**C# 5 + WinForms，无 csproj**，用 `csc.exe`（`C:\Windows\Microsoft.NET\Framework64\v4.0.30319`）直接编译；
 - 仓库：`https://github.com/richlearntodo-debug/vibe-flow`
 - 分支：`main`（已含全部最新源码与文档）与 `feature/v2-off-key-loop`（同一提交）
-- 版本：**V2.0.0 候选版 2** · 标签 **`v2.0.0-candidate.2`**
+- 版本：**V2.0.0 候选版 3** · 标签 **`v2.0.0-candidate.3`**
 
 ## 二、当前状态（接手前先确认，不要重复发布）
 
 | 项 | 状态 |
 | --- | --- |
-| Release `v2.0.0-candidate.2` | **已发布**（预发布）→ `https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.2`，三个附件已核对与本地逐字节一致 |
+| Release `v2.0.0-candidate.2` | 上一版，**已发布**（预发布）→ `https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.2`，不要再动它 |
+| Release `v2.0.0-candidate.3` | **待发布**：正文、截图、标签与哈希都已在仓库里就位（标题 `Vibe Link V2.0.0 候选版 3`），按第四节命令创建即可 |
 | 「Latest」标记 | 仍是 **v1.5.0**（候选版是预发布；如要改为正式 Latest 需显式操作） |
 | 仓库 `main` | 已更新到最新提交（提交号见 `frozen-parameters.json` 的 `commit`） |
-| CI | 第 1–6 步通过（含"从 Secret 还原冻结采集件并校验哈希"）；**第 11 步 `Build release` 失败**，原因见第六节 |
+| CI | 第 1–6 步通过（含"从 Secret 还原冻结采集件并校验哈希"）；`Build release` 曾因 VB-CABLE 驱动包缺失失败，现在 `RESTORE_BUILD_DEPS.ps1` 会尽力获取、缺失时发布链不再中断（见第六节） |
 | 安装生命周期 | 干净账户安装 / V1.5 升级 / 二次升级 / 卸载 **仍未真机验收** |
 
 ## 三、发布一条命令（如需再次发布或用新标签）
@@ -27,9 +28,9 @@ Windows 桌面工具「言灵 · Vibe Flow Remote」：把小米蓝牙语音遥�
 ```powershell
 $env:GH_TOKEN = '<有 contents:write 的 fine-grained token>'
 $env:HTTPS_PROXY = 'http://127.0.0.1:7897'    # 本机 gh/git 不读 Windows 系统代理，必须显式设置
-gh release create v2.0.0-candidate.2 `
+gh release create v2.0.0-candidate.3 `
   release/VibeFlow-Setup.exe release/Vibe-Flow-Windows-x64.zip release/SHA256SUMS.txt `
-  --title "言灵 · Vibe Flow Remote V2.0.0 候选版 2" `
+  --title "Vibe Link V2.0.0 候选版 3" `
   --notes-file docs/GITHUB_RELEASE_BODY_ZH.md --prerelease
 ```
 
@@ -93,7 +94,7 @@ node scripts/validate.js          # 单独跑源码/文案/契约断言（提交
 - **可直接粘贴给 Agent 的起手提示词**：
 
 ```
-你是本项目（言灵 Vibe Flow Remote，仓库 C:\Users\Admin\Documents\ChatGPT\vibe -flow）的发布执行者。
+你是本项目（Vibe Link，仓库 C:\Users\Admin\Documents\ChatGPT\vibe -flow）的发布执行者。
 第一步：读 CHATGPT-HANDOFF.md 与 HANDOFF-README.md，不要改动 docs/V2_0_FROZEN_PARAMETERS_ZH.md 里的任何固化参数。
 第二步：node scripts/validate.js 必须 exit 0；再跑 .\VibeMic.exe --self-test 与 .\VoxDeckInputBridge.exe --self-test。
 第三步：确认 GH_TOKEN（contents:write）与 HTTPS_PROXY=http://127.0.0.1:7897 已就绪后，按第三节的命令发布；

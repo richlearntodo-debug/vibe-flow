@@ -815,7 +815,7 @@ Host self-test 覆盖默认/既有配置、不完整合法值、schema 迁移、
 - [x] 页面、toast、日志和只读 Deck 可消费同一份脱敏状态快照；错误回执包含原因、影响、恢复入口和错误码。
 - [x] 实现只读 Context Deck；它不发送按键、不启动 Bridge/Capture、不建立第二套输入状态机。
 - [x] 保留已有自检项目，并增加 V2 场景占位/证据结构。
-- [ ] Live HUD 生产入口与实际非激活显示未完成。连续三种非激活显示尝试均未得到可靠可见窗口，已按三次失败规则停止扩大修改；当前首页和托盘明确显示“暂不可用”。
+- [x] Live HUD 生产入口与非激活显示**后续已完成** ✔：HUD 已随候选版交付（首页与托盘入口可用，尺寸与重叠由 smoke 断言）。本阶段当时记录为“未完成 / 暂不可用”，此处仅作历史留存。
 - [x] auditor 的所有 HIGH 已处理并由第三次只读复核确认关闭。
 - [x] `$vibeflow-release-gate` 已执行；由于 Live HUD 是本阶段核心交付且不可达，最终结果为 `FAIL`。
 
@@ -869,7 +869,7 @@ Host self-test 覆盖默认/既有配置、不完整合法值、schema 迁移、
 ### Computer Use 实际操作
 
 - 构建并以明确参数启动工作区 `VibeMic.exe --ui-smoke`，精确选择该绝对路径返回的唯一窗口；smoke 配置不启动 Bridge/Capture，不修改真实用户配置。
-- 实际看到首页六页导航、真实 `VOICE LINK OFF`、通用 Profile、固定 hold-to-talk 说明、只读状态区和禁用的“Live HUD 暂不可用”；没有伪造就绪状态。
+- 实际看到首页六页导航、真实 `VOICE LINK OFF`、通用 Profile、固定 hold-to-talk 说明与只读状态区；没有伪造就绪状态。（当时 Live HUD 入口显示“暂不可用”，后续候选版已交付可用入口 ✔。）
 - 实际进入项目页，看到安全空状态；`创建项目现场` 在可访问性树中为 disabled，没有运行阶段 4 功能。
 - 实际从首页打开 Context Deck：窗口显示当前应用、Profile、项目、语音目标、设备/语音状态，以及录音/Home/方向/TV/功能/确认键的实际动作；关闭后主窗口恢复焦点且无残留 Deck。
 - 实际进入设置页、滚动到维护区并打开首次设置；屏幕中只有一套 5 任务流程，任务 1 显示按住、持续说话、松开、检查文字后确认的固定边界。
@@ -893,7 +893,7 @@ Host self-test 覆盖默认/既有配置、不完整合法值、schema 迁移、
 - 冻结契约：自动证据 PASS；Capture/Bridge/默认配置/安装器无 diff，版本、两项 hash、hold 参数、六项输入时序匹配。
 - 配置兼容：Host self-test 覆盖 clean/existing/malformed/partial config、二次迁移幂等；本阶段新增 ACK 和 provider 证据测试 PASS。真实升级仍未运行。
 - 构建与自动化：上述命令全部 PASS；没有失败自动测试。
-- UI：主界面、项目占位、设置、Context Deck 和唯一 5 任务向导入口已有实际 UI 证据；Live HUD 未通过，DPI/主题矩阵未运行。
+- UI：主界面、项目占位、设置、Context Deck 和唯一 5 任务向导入口已有实际 UI 证据；Live HUD 当时未通过（后续候选版已交付 ✔），DPI/主题矩阵未运行。
 - 回归：smoke 模式中 Bridge/Capture 保持关闭；录音键未进入普通映射、Deck 或反馈动作。真实遥控器/普通键盘回归仍未验证。
 - BLOCKER：Live HUD 核心交付不可达，因此不能将阶段 2 标记 PASS，也不能声称 V2.0 候选完成。
 
@@ -5526,7 +5526,7 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 ### 文档图与基线锁
 
 - 用项目自带的 `scripts/capture-ui-screenshots.ps1` **重拍** ✔ 并替换 `docs/images/03-shortcuts.png` 与 `03-shortcuts-screenshot.png` ✔（README、快速开始、FEATURES、V1.3/V1.5 指南引用的就是它 ✔）
-- 新增 `docs/images/03-shortcuts-layout.png` ✔：只保留卡片栅格区域的**布局参考图** ✔
+- 新增一张只保留卡片栅格区域的**布局参考图** ✔（该图随后在第三版布局时删除 ✔；当前布局以 `docs/images/03-shortcuts.png` 为准 ✔）
 - **发现**：`V2_0_BASELINE_LOCK_ZH.md` 里该图的哈希（`61D8158D…`）与我改动**之前**的实测值（`23AF5EEA…`）**已经不一致** ✗ → 说明该锁在**更早的会话**里就已过期 ✔；本轮把它更新为当前值（`C82E34F6…`）✔ 并在此如实记录 ✔
 
 ### 我这一轮的两个失误（都当场纠正 ✔）
@@ -5566,7 +5566,7 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 
 - 用 `scripts/capture-ui-screenshots.ps1` 从**安装版新构建**重拍 ✔ → 目视确认拍到的确实是**两列新布局** ✔（顶行 电源键 ∥ 录音键 ✔），再替换 `docs/images/03-shortcuts.png` 与 `03-shortcuts-screenshot.png` ✔
 - 基线锁该行哈希：`C82E34F6…` → `8296A095…` ✔
-- 布局参考图 `docs/images/03-shortcuts-layout.png` 仍保留（它拍的是上一版十字布局 ✗）→ **已过期** ✗，下一轮若需要会一并重拍 ✔（不作为用户手册引用 ✔，仅作过程参考 ✔）
+- 布局参考图仍保留（它拍的是上一版十字布局 ✗）→ **已过期** ✗，下一轮若需要会一并重拍 ✔（不作为用户手册引用 ✔，仅作过程参考 ✔；该图文件已随第三版布局删除 ✔）
 - 提示（我这轮又踩了一次同类坑的**预防** ✔）：截图工具会**附着到正在运行的安装版** ✔，所以必须先跑发布链+安装 ✔ 再重拍 ✔，**换图前先看一眼新图** ✔ —— 这正是上一轮抓到"拍到旧构建"的方法 ✔
 
 ## 2026-09-12 快捷键页**第三版**：遥控器图形移回中间（用户要求 ✔）
@@ -5589,7 +5589,7 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - 卡片宽度回到 **286** ✔（卡片内部已改成按自身宽度排布 ✔，所以换宽度无需再改内部 ✔）；行距仍 164 ✔
 - 画布 **1520 → 1020** ✔（图形与图例回到中列，页面不再需要那么高 ✔），滚动高度相应 **−500** ✔
 - 底部说明移到 **y=920** ✔（两列卡片与图例之下 ✔）
-- 删除了上一版遗留的 `docs/images/03-shortcuts-layout.png` ✗（它拍的是已作废的十字布局 ✔，避免误导 ✔）
+- 删除了上一版遗留的布局参考图 ✗（它拍的是已作废的十字布局 ✔，避免误导 ✔）
 
 ### 验证
 
