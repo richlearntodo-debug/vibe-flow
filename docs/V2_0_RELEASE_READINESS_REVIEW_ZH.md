@@ -63,7 +63,7 @@
 | a | VB-CABLE 驱动包 | **不把第三方二进制入库**：`RESTORE_BUILD_DEPS.ps1` 现在**尽力下载**官方包并按固定哈希校验（失败只警告不中断），`BUILD_RELEASE.ps1` **不再因缺包 fail**（缺失时输出 `VB-CABLE bundle: absent`，安装时由 `Install-VBCable.ps1` 在线获取并校验）。实测：把包移走后整条发布链 exit 0、载荷 50 文件；放回后 `VB-CABLE bundle: included (SHA-256 verified)`、载荷 51 文件。 |
 | b | 未签名 | **按已披露处理**：发布正文、README、快速上手、安装指南、`CODE_SIGNING_ZH.md` 都写明"当前未签名 + SmartScreen 未知发布者 → 更多信息 → 仍要运行 + 校验 SHA-256"；签名仍走 `VIBE_FLOW_SIGN_PFX` / `…_THUMBPRINT` 两个环境变量，CI 无证书时明确打印未签名。 |
 | c | RC003 按键隔离 | **作为已披露限制接受**：向导、首页、快捷键页、自检页、导出诊断、README 与已知限制均写明"遥控器在线时 F5 被拦截，离线时普通键盘 F5 原样直通；不能与签名过滤器等同"。 |
-| d | CI | 分支已推 `main` + `feature/v2-off-key-loop`；发布链里导致 `Build release` 失败的缺包问题已按 (a) 修掉，待 CI 跑绿。 |
+| d | CI | 分支已推 `main` + `feature/v2-off-key-loop`。CI 实测：#92/#94 在 **第 11 步 `Build release`** 失败（就是缺驱动包，见 (a)）；修好后的 #95 里**第 11 步已通过** ✔，但暴露了下一个问题 —— **第 12 步 `Test clean install…` 秒退**：`Test-ReleaseLifecycle.ps1` 的"可弃用账户"守卫把前序步骤自己产生的 `%LOCALAPPDATA%\Vibe Flow Remote\UserData` 当成脏机器。已新增 `scripts/tests/Reset-LifecycleSandbox.ps1`（用假根实测可清理四类残留且幂等）并在三个生命周期步骤前各调用一次；待下一次 CI 验证第 12–14 步（真机干净账户安装/升级/卸载）能否跑通。 |
 | e | 更新器零测试 | **已补**：`RunUpdaterSelfTests()` 进入主机自测 —— GitHub-only HTTPS 白名单（含 `github.com.evil.example` 负例）、版本解析（`v2.0.0-candidate.3` → 2.0.0.0 与 7 个非法值）、`SHA256SUMS.txt` 读取（`*` 前缀与三种畸形清单）、资产查找大小写无关；**负控**：放宽主机白名单 → 自测报 `The updater accepted an untrusted asset URL: https://evil.example/…`。仍未覆盖的是真正联网的 `GetLatest` / `DownloadAndVerify`（需要已发布版本）。 |
 | f | 真机与生命周期 | **仍需你做**：一次性账户安装→升级→卸载、无 VB-CABLE 机器首启、最近改动后的真机语音。 |
 

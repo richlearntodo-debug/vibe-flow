@@ -164,6 +164,7 @@ const requiredFiles = [
   "docs/V2_0_RELEASE_NOTES_ZH.md",
   "docs/V2_0_INSTALLER_GUIDE_ZH.md",
   "scripts/Test-ReleaseLifecycle.ps1",
+  "scripts/tests/Reset-LifecycleSandbox.ps1",
 ];
 
 function read(file) {
@@ -3199,6 +3200,20 @@ assert(includesAll(release, [
   '& $stableCapturePath --self-test',
   'Test-ReleaseIdentity.ps1', 'Test-ReleaseArtifacts.ps1',
 ]), "Release packaging, checksums, or signing are incomplete");
+// The lifecycle tests only run on a disposable account, and on CI the earlier steps of the same job
+// create exactly the state they refuse to touch (the self-tests run the Host, which creates the
+// central user-data directory). The workflow therefore has to reset that state before each of the
+// three lifecycle runs — it previously failed instantly at the first one.
+assert((workflow.match(/Reset-LifecycleSandbox\.ps1/g) || []).length >= 3 &&
+  includesAll(read("scripts/tests/Reset-LifecycleSandbox.ps1"), [
+    'Join-Path $LocalAppData "Vibe Flow Remote"',
+    'Join-Path $LocalAppData "Programs\\Vibe Flow Remote"',
+    "the per-user uninstall record",
+    "the startup entry",
+    "Lifecycle sandbox already clean.",
+  ]) &&
+  lifecycleTest.includes("Release lifecycle testing requires a disposable Windows account"),
+  "The workflow no longer prepares a disposable-account state before the lifecycle tests");
 // The VB-CABLE package is a third-party binary and is deliberately untracked, so a clean clone and a
 // CI runner start without it. The release build must therefore treat it as an optional bundle: copy
 // and hash-check it when it is there, and carry on when it is not (scripts/Install-VBCable.ps1

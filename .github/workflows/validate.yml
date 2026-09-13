@@ -72,12 +72,21 @@ jobs:
         env:
           VIBE_FLOW_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
         run: .\BUILD_RELEASE.ps1
+      - name: Reset the lifecycle sandbox
+        shell: powershell
+        run: .\scripts\tests\Reset-LifecycleSandbox.ps1
       - name: Test clean install, startup restoration, and uninstall
         shell: powershell
         run: .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe
+      - name: Reset the lifecycle sandbox
+        shell: powershell
+        run: .\scripts\tests\Reset-LifecycleSandbox.ps1
       - name: Test unconfigured clean install and uninstall
         shell: powershell
         run: .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe -NoConfigFixture
+      - name: Reset the lifecycle sandbox
+        shell: powershell
+        run: .\scripts\tests\Reset-LifecycleSandbox.ps1
       - name: Test V1.5 upgrade, second upgrade, and uninstall
         shell: powershell
         run: |
