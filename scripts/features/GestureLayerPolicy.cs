@@ -24,7 +24,7 @@ internal sealed class GestureBinding
 internal static class GestureLayerPolicy
 {
     // A press at or above this duration is a long press.
-    internal const int LongPressMs = 600;
+    internal const int LongPressMs = 650;
     // The window is measured release-to-release, and the platform default it is compared
     // against is the user's own double-click speed rather than a number invented here.
     //

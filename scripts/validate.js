@@ -645,6 +645,7 @@ const v2HardwareMatrix = read("docs/V2_0_HARDWARE_TEST_MATRIX_ZH.md");
 const v2KnownLimitations = read("docs/V2_0_KNOWN_LIMITATIONS_ZH.md");
 const v2Rollback = read("docs/V2_0_ROLLBACK_ZH.md");
 const v2ReleaseNotes = read("docs/V2_0_RELEASE_NOTES_ZH.md");
+const gesturePolicy = read("scripts/features/GestureLayerPolicy.cs");
 const v2InstallerGuide = read("docs/V2_0_INSTALLER_GUIDE_ZH.md");
 const rc003FilterPublic = read("driver/rc003-filter/src/public.h");
 const rc003FilterHeader = read("driver/rc003-filter/src/rc003_filter.h");
@@ -3710,7 +3711,14 @@ assert(includesAll(v2Rollback, [
 assert(includesAll(v2ReleaseNotes, [
   "Release status: stable", "未签名", "首页", "快捷键", "Smart Focus",
   "1.2.1.0", "未验证",
-]), "The V2 release notes omit release status, the unsigned disclosure, features, or frozen identity");
+]) && v2ReleaseNotes.includes("本正式版") && !v2ReleaseNotes.includes("本候选版"),
+"The V2 release notes still describe the formal release as a candidate");
+assert(guide.includes("v2.0.0/VibeFlow-Setup.exe") &&
+  guide.includes("V2.0.0 正式版") && !guide.includes("v2.0.0-candidate.3"),
+  "The user guide still directs users to the archived candidate release");
+assert(gesturePolicy.includes("internal const int LongPressMs = 650") &&
+  v2Guide.includes("长按约 650 ms") && !v2Guide.includes("长按约 600 ms"),
+  "The gesture long-press threshold is inconsistent with the frozen 650 ms contract");
 // Retired voice providers must be absent from the current runtime surface. Legacy
 // configuration values are handled by the normal unknown-provider fallback; they
 // must not keep a provider branch, process probe, hotkey default, or UI option alive.
