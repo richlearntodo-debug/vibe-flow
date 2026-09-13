@@ -50,7 +50,11 @@ function Assert-DisposableAccount {
 
 function Get-ConfigContractProjection([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return $null }
-    $value = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    # Read as UTF-8 explicitly: the fixture is written without a byte-order mark and this projection
+    # compares its Chinese keys against a file the application rewrote as UTF-8. Reading it with the
+    # machine's ANSI code page turned "上键" into mojibake and made every Chinese field look changed,
+    # so a preserved configuration was reported as an upgrade failure.
+    $value = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
     return [ordered]@{
         stableVoiceProfileVersion = $value.stableVoiceProfileVersion
         inputMethod = $value.inputMethod
@@ -188,6 +192,10 @@ try {
         } | ConvertTo-Json -Depth 20
         $legacyConfigPath = Join-Path $previousInstallDir "vibe-mic-config.json"
         [IO.File]::WriteAllText($legacyConfigPath, $legacyFixture, [Text.UTF8Encoding]::new($false))
+        # The installer preserves the user's configuration verbatim, including a provider this
+        # candidate retires: the migration to the stable WeChat baseline happens the first time the
+        # application loads that configuration, and the upgrade path asserts it after the launch
+        # further down.
         $expectedConfigProjection = Get-ConfigContractProjection $legacyConfigPath
         $createdUserConfigFixture = $true
     }
@@ -264,6 +272,10 @@ try {
     }
     $actualConfigProjection = Get-ConfigContractProjection $userConfigPath
     if ($actualConfigProjection -ne $expectedConfigProjection) {
+        # Print both projections: a bare "did not preserve" tells a reader nothing about which field
+        # moved, and this check is the whole point of the upgrade lifecycle test.
+        Write-Host ("expected projection: " + $expectedConfigProjection)
+        Write-Host ("actual projection  : " + $actualConfigProjection)
         throw "Install or upgrade did not preserve provider, mappings, Profiles, Smart Profile state, theme, or startup preferences."
     }
     $expectedStartup = -not $NoConfigFixture -and
@@ -291,6 +303,36 @@ try {
         if ((Get-ConfigContractProjection $userConfigPath) -ne $expectedConfigProjection) {
             throw "A second upgrade changed the preserved configuration; migration is not idempotent."
         }
+        # The preserved provider is one this candidate retires. Loading it is what migrates it, so the
+        # upgrade path starts the installed application, waits for the rewrite, and checks the three
+        # fields the migration owns — the rest of the configuration must stay as the user left it.
+        $applicationProcess = Start-Process -FilePath (Join-Path $installDir "VibeFlow.exe") `
+            -ArgumentList "--background" -PassThru
+        try {
+            $migrated = $false
+            for ($attempt = 0; $attempt -lt 40; $attempt++) {
+                Start-Sleep -Seconds 1
+                $loadedProjection = Get-ConfigContractProjection $userConfigPath
+                if ($loadedProjection -match '"inputMethod":"wechat"') { $migrated = $true; break }
+            }
+            if (-not $migrated) {
+                throw "The upgraded configuration kept a retired provider after the application loaded it."
+            }
+            $migratedState = $loadedProjection | ConvertFrom-Json
+            if ($migratedState.inputMethodHotkey -ne "ctrl+win" -or
+                $migratedState.inputMethodTrigger -ne "toggle" -or
+                $migratedState.providerStartupDelayMs -ne 80) {
+                throw ("The retired provider migrated without the stable WeChat baseline " +
+                    "(hotkey=$($migratedState.inputMethodHotkey) trigger=$($migratedState.inputMethodTrigger) " +
+                    "delay=$($migratedState.providerStartupDelayMs)).")
+            }
+        }
+        finally {
+            Stop-InstalledProcesses $installDir
+        }
+        # Everything after this point compares against the migrated configuration, because that is now
+        # what the user has on disk and what an uninstall has to retain.
+        $expectedConfigProjection = $loadedProjection
     }
 
     $hostVersion = (Get-Item -LiteralPath (Join-Path $installDir "VibeFlow.exe")).VersionInfo.ProductVersion
