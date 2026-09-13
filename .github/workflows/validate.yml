@@ -83,8 +83,10 @@ jobs:
           try {
             .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe
           } catch {
-            Write-Host "::error::LIFECYCLE FAILURE (clean install): $($_.Exception.Message)"
-            Write-Host $_.ScriptStackTrace
+            # One line on purpose: GitHub keeps only the first line of an annotation, and a PowerShell
+            # error puts its position line first and the actual message after it.
+            $detail = ($_ | Out-String) -replace "`r?`n", " | "
+            Write-Host ("::error::LIFECYCLE FAILURE (clean install): " + $detail)
             exit 1
           }
       - name: Reset the lifecycle sandbox
@@ -96,8 +98,8 @@ jobs:
           try {
             .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe -NoConfigFixture
           } catch {
-            Write-Host "::error::LIFECYCLE FAILURE (unconfigured install): $($_.Exception.Message)"
-            Write-Host $_.ScriptStackTrace
+            $detail = ($_ | Out-String) -replace "`r?`n", " | "
+            Write-Host ("::error::LIFECYCLE FAILURE (unconfigured install): " + $detail)
             exit 1
           }
       - name: Reset the lifecycle sandbox
@@ -130,8 +132,8 @@ jobs:
               -InstallerPath .\release\VibeFlow-Setup.exe `
               -PreviousInstallerPath $previous
           } catch {
-            Write-Host "::error::LIFECYCLE FAILURE (V1.5 upgrade): $($_.Exception.Message)"
-            Write-Host $_.ScriptStackTrace
+            $detail = ($_ | Out-String) -replace "`r?`n", " | "
+            Write-Host ("::error::LIFECYCLE FAILURE (V1.5 upgrade): " + $detail)
             exit 1
           }
       - name: Remove signing certificate
