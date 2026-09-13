@@ -255,9 +255,11 @@ try {
         }
     }
 
+    $installerLogPath = Join-Path $sandbox "v2-install.log"
+    Remove-Item -LiteralPath $installerLogPath -Force -ErrorAction SilentlyContinue
     Invoke-CheckedProcess $installer @(
         "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
-        "/DIR=$installDir"
+        "/DIR=$installDir", "/LOG=$installerLogPath"
     )
     Assert-RegisteredInstallLocation $installDir "V2 candidate"
 
@@ -273,9 +275,20 @@ try {
     $actualConfigProjection = Get-ConfigContractProjection $userConfigPath
     if ($actualConfigProjection -ne $expectedConfigProjection) {
         # Print both projections: a bare "did not preserve" tells a reader nothing about which field
-        # moved, and this check is the whole point of the upgrade lifecycle test.
+        # moved, and this check is the whole point of the upgrade lifecycle test. The installer's own
+        # log says which legacy root it was handed and what the migration helper answered, because a
+        # mismatch has two causes that look identical from here: no previous installation was named,
+        # or the helper refused the configuration it was given.
         Write-Host ("expected projection: " + $expectedConfigProjection)
         Write-Host ("actual projection  : " + $actualConfigProjection)
+        Write-Host ("installer log      : " + $installerLogPath + "  exists=" + (Test-Path -LiteralPath $installerLogPath))
+        if (Test-Path -LiteralPath $installerLogPath) {
+            Write-Host "--- installer log lines about the previous installation and the migration ---"
+            Get-Content -LiteralPath $installerLogPath -Encoding UTF8 -ErrorAction SilentlyContinue |
+                Where-Object { $_ -match 'previous install|migrating the legacy|migration helper|InstallLocation' } |
+                Select-Object -Last 20 | ForEach-Object { Write-Host ("  " + $_) }
+            Write-Host "--- end of installer log ---"
+        }
         throw "Install or upgrade did not preserve provider, mappings, Profiles, Smart Profile state, theme, or startup preferences."
     }
     $expectedStartup = -not $NoConfigFixture -and

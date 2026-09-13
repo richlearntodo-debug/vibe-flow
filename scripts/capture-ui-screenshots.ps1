@@ -4,7 +4,9 @@ param(
     [ValidateSet("Current", "Light", "Dark", "System")]
     [string]$Theme = "Current",
     [switch]$CaptureFullOnboarding,
-    [switch]$AllowUnhealthyDiagnostics
+    [switch]$AllowUnhealthyDiagnostics,
+    # Re-captures only the configuration dialogs (07/08/09); used when the pages are already current.
+    [switch]$DialogsOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -372,10 +374,10 @@ $screenshotActionLabel = ConvertFrom-CodePoints @(0x7CFB, 0x7EDF, 0x20, 0xB7, 0x
 $setupLabel = ConvertFrom-CodePoints @(0x91CD, 0x65B0, 0x6253, 0x5F00, 0x9996, 0x6B21, 0x8BBE, 0x7F6E)
 $welcomePrefix = ConvertFrom-CodePoints @(0x9996, 0x6B21, 0x8BBE, 0x7F6E)
 $healthySelfCheckText = ConvertFrom-CodePoints @(0x5168, 0x90E8, 0x901A, 0x8FC7, 0xFF0C, 0x53EF, 0x4EE5, 0x7A33, 0x5B9A, 0x4F7F, 0x7528)
-$upActionLabel = ConvertFrom-CodePoints @(0x4FDD, 0x6301, 0x4E0A, 0x65B9, 0x5411, 0xFF08, 0x63A8, 0x8350, 0xFF09)
+$upActionLabel = ConvertFrom-CodePoints @(0x4E0A, 0x65B9, 0x5411)
 $shortcutRecorderLabel = ConvertFrom-CodePoints @(0x5F55, 0x5236, 0x952E, 0x76D8, 0x5FEB, 0x6377, 0x952E)
 $bindApplicationsLabel = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x5E94, 0x7528)
-$configureUpTitle = ConvertFrom-CodePoints @(0x914D, 0x7F6E, 0x20, 0x4E0A, 0x952E)
+$configureDialogPrefix = ConvertFrom-CodePoints @(0x914D, 0x7F6E, 0x20)
 $smartProfileDialogTitle = ConvertFrom-CodePoints @(0x7ED1, 0x5B9A, 0x20, 0x53, 0x6D, 0x61, 0x72, 0x74, 0x20, 0x50, 0x72, 0x6F, 0x66, 0x69, 0x6C, 0x65, 0x20, 0x5E94, 0x7528)
 $pages = @(
     @{ Button = $overviewLabel; File = "01-overview.png" },
@@ -385,50 +387,59 @@ $pages = @(
     @{ Button = $settingsLabel; File = "05-settings.png" }
 )
 
-if ($Theme -ne "Current") {
-    Invoke-Button $main $settingsLabel
-    Invoke-Button $main $(if ($Theme -eq "Dark") { $darkThemeLabel } elseif ($Theme -eq "System") { $systemThemeLabel } else { $lightThemeLabel })
-    Start-Sleep -Milliseconds 450
-}
+if (-not $DialogsOnly) {
+    if ($Theme -ne "Current") {
+        Invoke-Button $main $settingsLabel
+        Invoke-Button $main $(if ($Theme -eq "Dark") { $darkThemeLabel } elseif ($Theme -eq "System") { $systemThemeLabel } else { $lightThemeLabel })
+        Start-Sleep -Milliseconds 450
+    }
 
-foreach ($page in $pages) {
-    Invoke-Button $main $page.Button
-    if ($page.File -eq "03-shortcuts.png") {
-        Start-Sleep -Milliseconds 250
-    }
-    if ($page.File -eq "04-diagnostics.png" -and -not $AllowUnhealthyDiagnostics -and
-        -not (Test-ChildText $main $healthySelfCheckText)) {
-        throw "Release diagnostics screenshot requires a healthy 10/10 self-check. Use -AllowUnhealthyDiagnostics only for troubleshooting captures."
-    }
-    Save-Window $main (Join-Path $OutputDirectory $page.File)
-    if ($page.File -eq "03-shortcuts.png") {
-        Save-Window $main (Join-Path $OutputDirectory "03-shortcuts-screenshot.png")
-    }
-    if ($page.File -eq "02-dictation.png") {
-        [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
-        $providerCombo = Find-TopmostComboBox $main
-        [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]1, [IntPtr]::Zero) | Out-Null
-        Start-Sleep -Milliseconds 350
-        Save-WindowWithComboDropdown $main $providerCombo (Join-Path $OutputDirectory "06-transcription-tools.png")
-        [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    foreach ($page in $pages) {
+        Invoke-Button $main $page.Button
+        if ($page.File -eq "03-shortcuts.png") {
+            Start-Sleep -Milliseconds 250
+        }
+        if ($page.File -eq "04-diagnostics.png" -and -not $AllowUnhealthyDiagnostics -and
+            -not (Test-ChildText $main $healthySelfCheckText)) {
+            throw "Release diagnostics screenshot requires a healthy 10/10 self-check. Use -AllowUnhealthyDiagnostics only for troubleshooting captures."
+        }
+        Save-Window $main (Join-Path $OutputDirectory $page.File)
+        if ($page.File -eq "03-shortcuts.png") {
+            Save-Window $main (Join-Path $OutputDirectory "03-shortcuts-screenshot.png")
+        }
+        if ($page.File -eq "02-dictation.png") {
+            [VibeScreenshotNative]::SetForegroundWindow($main) | Out-Null
+            $providerCombo = Find-TopmostComboBox $main
+            [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]1, [IntPtr]::Zero) | Out-Null
+            Start-Sleep -Milliseconds 350
+            Save-WindowWithComboDropdown $main $providerCombo (Join-Path $OutputDirectory "06-transcription-tools.png")
+            [VibeScreenshotNative]::SendMessage($providerCombo, 0x014F, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        }
     }
 }
 
 # The Quick Entries (Project Spaces) page was removed from the product; the
 # archived 02-projects.png illustration is no longer re-captured.
 
-# Capture the actual V1.5 configuration dialogs used by the illustrated guide.
+# Capture the actual configuration dialogs used by the illustrated guide.
+# The action box of the up key's tap layer carries the seeded action name; when a
+# machine has a different mapping the box is not found, and a silent skip would
+# leave 07/08 stale (that is exactly how they went stale between V1.5 and V2.0),
+# so this refuses to continue instead.
 Invoke-Button $main $controlsLabel
-if (Test-ChildText $main $upActionLabel) {
-    Invoke-Button $main $upActionLabel
-    $actionPicker = Wait-ForProcessWindow $process.Id $configureUpTitle
-    Save-Window $actionPicker (Join-Path $OutputDirectory "07-shortcut-actions.png")
-    Invoke-Button $actionPicker $shortcutRecorderLabel
-    $shortcutRecorder = Wait-ForProcessWindow $process.Id $shortcutRecorderLabel
-    Save-Window $shortcutRecorder (Join-Path $OutputDirectory "08-shortcut-recorder.png")
-    [VibeScreenshotNative]::PostMessage($shortcutRecorder, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-    Start-Sleep -Milliseconds 350
+if (-not (Test-ChildText $main $upActionLabel)) {
+    throw ("The shortcuts page has no action box labelled '" + $upActionLabel + "', so 07-shortcut-actions.png and 08-shortcut-recorder.png cannot be captured. Restore the seeded mapping for the up key's tap layer, or capture the pages on their own with -DialogsOnly omitted after restoring it.")
 }
+Invoke-Button $main $upActionLabel
+$actionPicker = Wait-ForProcessWindow $process.Id $configureDialogPrefix
+Save-Window $actionPicker (Join-Path $OutputDirectory "07-shortcut-actions.png")
+Invoke-Button $actionPicker $shortcutRecorderLabel
+$shortcutRecorder = Wait-ForProcessWindow $process.Id $shortcutRecorderLabel
+Save-Window $shortcutRecorder (Join-Path $OutputDirectory "08-shortcut-recorder.png")
+[VibeScreenshotNative]::PostMessage($shortcutRecorder, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+Start-Sleep -Milliseconds 350
+[VibeScreenshotNative]::PostMessage($actionPicker, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+Start-Sleep -Milliseconds 350
 
 Invoke-Button $main $bindApplicationsLabel
 $smartProfileDialog = Wait-ForProcessWindow $process.Id $smartProfileDialogTitle 10000
@@ -436,37 +447,39 @@ Save-Window $smartProfileDialog (Join-Path $OutputDirectory "09-smart-profile-ap
 [VibeScreenshotNative]::PostMessage($smartProfileDialog, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 Start-Sleep -Milliseconds 350
 
-Invoke-Button $main $settingsLabel
-Invoke-Button $main $setupLabel
-$wizard = Wait-ForProcessWindow $process.Id $welcomePrefix
-# The five-task wizard renders preview captions in --ui-smoke mode
-# (the preview wording for the next/finish buttons); the production captions
-# are the "complete this step, continue" / "open the home page" wording.
-# Detect which mode the running instance
-# uses and drive the persistent next-button handle accordingly so both
-# modes can be walked.
-$prodNext = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
-$smokeNext = ConvertFrom-CodePoints @(0x9884, 0x89C8, 0x4E0B, 0x4E00, 0x4EFB, 0x52A1)
-$previewCaptions = $false
-$nextButton = [IntPtr]::Zero
-try { $nextButton = Find-ChildButton $wizard $prodNext } catch { $previewCaptions = $true }
-if ($previewCaptions) { $nextButton = Find-ChildButton $wizard $smokeNext }
-function Invoke-ButtonHandle([IntPtr]$Button) {
-    [VibeScreenshotNative]::PostMessage($Button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-    Start-Sleep -Milliseconds 650
-}
-Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
-if ($CaptureFullOnboarding) {
-    $stepFiles = @(
-        "00-setup-01-device.png", "00-setup-02-remote.png", "00-setup-03-audio.png",
-        "00-setup-04-dictation.png", "00-setup-05-ready.png"
-    )
-    Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[0])
-    for ($step = 1; $step -lt $stepFiles.Count; $step++) {
-        Invoke-ButtonHandle $nextButton
-        Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[$step])
+if (-not $DialogsOnly) {
+    Invoke-Button $main $settingsLabel
+    Invoke-Button $main $setupLabel
+    $wizard = Wait-ForProcessWindow $process.Id $welcomePrefix
+    # The five-task wizard renders preview captions in --ui-smoke mode
+    # (the preview wording for the next/finish buttons); the production captions
+    # are the "complete this step, continue" / "open the home page" wording.
+    # Detect which mode the running instance
+    # uses and drive the persistent next-button handle accordingly so both
+    # modes can be walked.
+    $prodNext = ConvertFrom-CodePoints @(0x5B8C, 0x6210, 0x672C, 0x6B65, 0xFF0C, 0x7EE7, 0x7EED)
+    $smokeNext = ConvertFrom-CodePoints @(0x9884, 0x89C8, 0x4E0B, 0x4E00, 0x4EFB, 0x52A1)
+    $previewCaptions = $false
+    $nextButton = [IntPtr]::Zero
+    try { $nextButton = Find-ChildButton $wizard $prodNext } catch { $previewCaptions = $true }
+    if ($previewCaptions) { $nextButton = Find-ChildButton $wizard $smokeNext }
+    function Invoke-ButtonHandle([IntPtr]$Button) {
+        [VibeScreenshotNative]::PostMessage($Button, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+        Start-Sleep -Milliseconds 650
     }
+    Save-Window $wizard (Join-Path $OutputDirectory "00-first-run.png")
+    if ($CaptureFullOnboarding) {
+        $stepFiles = @(
+            "00-setup-01-device.png", "00-setup-02-remote.png", "00-setup-03-audio.png",
+            "00-setup-04-dictation.png", "00-setup-05-ready.png"
+        )
+        Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[0])
+        for ($step = 1; $step -lt $stepFiles.Count; $step++) {
+            Invoke-ButtonHandle $nextButton
+            Save-Window $wizard (Join-Path $OutputDirectory $stepFiles[$step])
+        }
+    }
+    [VibeScreenshotNative]::PostMessage($wizard, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 }
-[VibeScreenshotNative]::PostMessage($wizard, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
 
 Write-Host "Captured Vibe Flow screenshots in $OutputDirectory"

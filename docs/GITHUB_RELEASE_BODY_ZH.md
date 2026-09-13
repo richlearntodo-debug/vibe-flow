@@ -69,9 +69,9 @@ V2.0 把 V1.5 的「遥控器可以当语音键」做成了一台**可管理、�
 |---|---|
 | ![设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/05-settings.png) | ![首次设置](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/00-setup-01-device.png) |
 
-| 语音：显示最近一次收音的实测电平 | 开机键与录音键就在快捷键页最上一行 |
+| 语音：显示最近一次收音的实测电平 | 语音工具：三选一（微信输入法 / 网易八哥说 / 其他） |
 |---|---|
-| ![语音页：收音电平](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/06-voice.png) | ![快捷键页顶格的两个键](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/03-shortcuts-screenshot.png) |
+| ![语音页：收音电平](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/06-voice.png) | ![语音工具三选一](https://github.com/richlearntodo-debug/vibe-flow/raw/v2.0.0-candidate.3/docs/images/06-transcription-tools.png) |
 
 > 截图取自本候选构建（1280 × 840，白天模式），全部指向本候选版的标签 `v2.0.0-candidate.3`，所以发布页展示的就是这一版自己的界面。
 

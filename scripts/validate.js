@@ -432,7 +432,66 @@ assert(includesAll(read("docs/GITHUB_RELEASE_BODY_ZH.md"), [
 ]) && includesAll(read("QUICK_START_ZH.md"), [
   "录音键隔离（安装前请先读）",
   "遥控器**不在线**时普通键盘的 F5 **原样直通**",
-]), "The key-isolation caveat is missing from the documents a downloader reads");// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
+]), "The key-isolation caveat is missing from the documents a downloader reads");// The release body is the page a downloader actually reads, and every screenshot on it is a claim about this
+// build. Two defects lived here: one cell showed the same file twice (03-shortcuts.png and its byte-identical
+// 03-shortcuts-screenshot.png twin both drawn on the page), and an image referenced from the body need not
+// exist at all. The body is therefore checked against docs/images: each screenshot exists, and none repeats.
+const releaseBodyText = read("docs/GITHUB_RELEASE_BODY_ZH.md");
+const releaseBodyImages = [...releaseBodyText.matchAll(/docs\/images\/([A-Za-z0-9._-]+\.png)/g)]
+  .map((match) => match[1]);
+assert(releaseBodyImages.length >= 6, "The release body no longer shows the product's screens");
+for (const image of releaseBodyImages) {
+  assert(fs.existsSync(path.join(root, "docs", "images", image)),
+    `The release body shows docs/images/${image}, which does not exist`);
+}
+const releaseBodySections = (() => {
+  const sections = [];
+  let current = { title: "(intro)", lines: [] };
+  for (const line of releaseBodyText.split(/\r?\n/)) {
+    if (/^##\s/.test(line)) {
+      sections.push(current);
+      current = { title: line.trim(), lines: [] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+  sections.push(current);
+  return sections.map((entry) => ({ title: entry.title, text: entry.lines.join("\n") }));
+})();
+for (const entry of releaseBodySections) {
+  const images = [...entry.text.matchAll(/docs\/images\/([A-Za-z0-9._-]+\.png)/g)].map((match) => match[1]);
+  const repeated = [...new Set(images.filter((image, index) => images.indexOf(image) !== index))];
+  assert(repeated.length === 0,
+    `The release body shows the same screenshot more than once in "${entry.title}": ${repeated.join(", ")}`);
+}
+assert(releaseBodyImages.includes("06-transcription-tools.png") &&
+  releaseBodyText.includes("语音工具：三选一（微信输入法 / 网易八哥说 / 其他）"),
+  "The release body no longer illustrates the three selectable voice tools");
+// The screenshot capture walks the running product by matching the copy it renders, and it used to skip a shot
+// silently when that copy changed: 07-shortcut-actions.png and 08-shortcut-recorder.png stayed on the V1.5
+// dialog for ten days because the action box it clicked had been renamed. Every label the capture matches by
+// hand has to still exist in the product source, so a rename fails the gate instead of the screenshot.
+function readProductSources(directory) {
+  return fs.readdirSync(path.join(root, directory), { withFileTypes: true }).flatMap((entry) => {
+    const relative = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) return readProductSources(relative);
+    return entry.name.endsWith(".cs") ? [read(relative)] : [];
+  }).join("\n");
+}
+const captureSource = read("scripts/capture-ui-screenshots.ps1");
+const productSourceText = readProductSources("scripts");
+const captureLabels = [...captureSource.matchAll(/ConvertFrom-CodePoints @\(([^)]*)\)/g)]
+  .map((match) => match[1].split(",")
+    .map((code) => Number(code.trim()))
+    .filter((code) => Number.isFinite(code))
+    .map((code) => String.fromCodePoint(code))
+    .join(""))
+  .filter((label) => label.length > 0);
+assert(captureLabels.length >= 10, "The screenshot capture no longer names the labels it clicks");
+for (const label of captureLabels) {
+  assert(productSourceText.includes(label),
+    `The screenshot capture clicks "${label}", which the product source no longer renders`);
+}// The key-isolation caveat has to be on the first screen a new user sees, not only on the home page: while the
 // device-level filter is not healthy the record key can reach whatever application is in front, and this is the
 // project's top release concern. It is shown only when that is actually the case, and the step was captured after
 // the change to confirm the line renders and the rest of the step is unchanged.

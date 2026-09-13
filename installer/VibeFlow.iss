@@ -239,6 +239,11 @@ end;
 procedure InitializeWizard;
 begin
   PreviousInstallDirectory := ReadPreviousInstallDirectory;
+  { The upgrade lifecycle test compares the configuration the installer was supposed to preserve, and a
+    mismatch has two very different causes: the registry never named the previous installation, or the
+    helper refused a configuration it could not read. Both are recorded here so an unattended run says
+    which one happened instead of only reporting that something was not preserved. }
+  Log('Installer: previous install directory from the registry: "' + PreviousInstallDirectory + '"');
   WizardForm.WelcomeLabel1.Caption := '欢迎安装 Vibe Link';
   WizardForm.WelcomeLabel2.Caption :=
     '适用于 Windows 10 / 11 x64。请准备 RC003 / MI RC、蓝牙和语音工具。' + #13#10#13#10 +
@@ -262,8 +267,15 @@ end;
 function MigrateLegacyUserConfig: Boolean;
 var
   ResultCode: Integer;
+  LegacyFileState: String;
 begin
   Result := False;
+  if FileExists(LegacyConfigRoot + '\vibe-mic-config.json') then
+    LegacyFileState := 'present'
+  else
+    LegacyFileState := 'absent';
+  Log('Installer: migrating the legacy configuration from "' + LegacyConfigRoot +
+    '" into "' + UserDataDirectory + '" (legacy file ' + LegacyFileState + ')');
   if (not DirExists(UserDataDirectory)) and
     (not ForceDirectories(UserDataDirectory)) then
     Exit;
@@ -271,6 +283,7 @@ begin
     '--installer-config-migrate ' + AddQuotes(LegacyConfigRoot) + ' ' +
       AddQuotes(UserDataDirectory), '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
     Exit;
+  Log('Installer: migration helper exit code ' + IntToStr(ResultCode));
   Result := ResultCode = 0;
 end;
 
