@@ -6161,3 +6161,33 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - 三条生命周期路径（干净安装 / 未配置安装 / **V1.5 升级 + 二次升级 + 卸载**）**全部通过** ✔，产物上传成功 ✔ —— 这是本项目自 2026-09-03 以来第一次 CI 全绿。
 - 日志直接印证真因与守卫：`the previous release started itself after a silent install; stopping it: VibeFlow#5016[…\previous-app\VibeFlow.exe]` ✔、`previous release launch observed and stopped: True` ✔、`configuration fixture verified before the install: …\UserData\vibe-mic-config.json sha256 B93049910FED` ✔、`configuration right after the install: 2292 bytes`（正是 fixture 本身）✔。
 - 已同步 `docs/V2_0_FROZEN_PARAMETERS_ZH.md` §8/§14.3、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`、`docs/V2_0_RELEASE_READINESS_REVIEW_ZH.md` 为"本机与 CI 均已通过" ✔。
+
+---
+
+## 2026-09-13 · Vibe Link V2.0.0 正式发布
+
+### 发布结果
+
+- 按素材包 `vibe-link-V2.0.0-candidate.3-publish-pack.zip` 的 `00-发布须知.md` 与发布助手指令执行；素材包 SHA-256：`91FFF8A7A55FAB19A7E4A906F5876BDDD46F70D268CBB0A4535942385AC72BD7`。
+- GitHub 正式 Release 已创建：<https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0>。
+- 标签 `v2.0.0` 指向 candidate.3 的出货提交 `d7d33e1b440ad60a511f85971f4a745baa157b8d`；`v2.0.0-candidate.3` 保持原标签和 `prerelease=true`，未移动、未删除。
+- 正式版标题为 `Vibe Link V2.0.0 正式版`，`prerelease=false`，GitHub Latest 已切换到 `v2.0.0`。
+- 三份正式资产已上传且服务器端 digest 与素材包一致：Setup `A0ECB341...EAEA57`、ZIP `01F8FD38...AD9719`、SHA256SUMS `C1813B62...47ACA`。
+
+### 更名与文档
+
+- 应用对外名称统一为 **Vibe Link**；正式 Release 正文和仓库 README 均明确说明：仓库名 `vibe-flow`、安装目录 `Vibe Flow Remote`、部分历史文件名因升级兼容而保留旧名称，搜索、下载和使用时认准 Vibe Link。
+- README 的 V2.0 下载链接已从 candidate.3 改为正式 `v2.0.0`，并保留 candidate.3 仅供历史复现的归档入口。
+- `docs/VERSION_ARCHIVE_ZH.md` 已将 V2.0.0 置顶为正式版，将 candidate.3 标为候选归档，保留 V1.5.0 回退入口。
+- `scripts/validate.js` 的首页门禁改为兼容正式版与历史候选版标题，同时继续检查 V1.5 对照、冻结 Capture 和教程入口。
+
+### 验证与边界
+
+- `npm test`、`node scripts/validate.js`、Host/Bridge/Capture `--self-test`：均 exit `0`。
+- Capture 源码/二进制仍为冻结值：`736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2` / `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`。
+- 远端回读确认 `main=48d45ad`、正式版非预发布、candidate.3 仍为预发布，三份资产数量和大小正确；正式正文包含更名说明、正式状态且无 candidate.3 下载链接残留。
+- 正式版正文中的代表性 UI 图片、用户指南和社群二维码链接已通过带凭据 HEAD 检查（HTTP 200）；完整硬件、VB-CABLE 首启、设备级过滤器、DPI 和真实第三方语音链路仍按已知限制标记为待真机验证。
+
+### Release gate
+
+**PASS WITH MANUAL HARDWARE CHECKS**。本阶段只发布已核验素材并同步文档；没有修改 Capture、录音状态机、Raw Input、键盘 Hook、设备过滤或稳定手势时序。未签名安装包、设备精确隔离、VB-CABLE 首启和高 DPI 观感不能由 API/自检结果替代，正式版说明已保留这些限制。
