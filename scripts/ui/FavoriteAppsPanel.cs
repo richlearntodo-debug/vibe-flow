@@ -45,7 +45,7 @@ internal static class FavoriteAppsPanel
     internal static Control Build(IList<FavoriteApp> apps, string selectedProcess, string pendingProcess,
         Action<string> onLearn, Action<string> onSave, Action<string> onOpen, Action<string> onRelearn,
         Action<string> onDelete, Action<string> onToggleMode, Action<string> onMakeCurrent,
-        Action<string> onEdit, Func<string, FavoriteAppState> stateOf, Action onAdd)
+        Action<string> onEdit, Func<string, FavoriteAppState> stateOf, Action onAdd, bool darkTheme = false)
     {
         int count = apps == null ? 0 : apps.Count;
         bool hasBanner = !string.IsNullOrWhiteSpace(pendingProcess);
@@ -87,6 +87,7 @@ internal static class FavoriteAppsPanel
                 Font = new Font("Microsoft YaHei UI", 9.5f),
                 ForeColor = Muted
             });
+            ApplyTheme(panel, darkTheme);
             return panel;
         }
 
@@ -123,7 +124,45 @@ internal static class FavoriteAppsPanel
                 onLearn, onSave, onOpen, onRelearn, onDelete, onToggleMode, onMakeCurrent, onEdit));
             top += RowHeight;
         }
+        ApplyTheme(panel, darkTheme);
         return panel;
+    }
+
+    // FavoriteAppsPanel predates the host theme palette and creates its own child controls. Apply the
+    // dark surface after construction so empty states and action buttons cannot leave a white island in
+    // the dark workflow page. Accent buttons intentionally keep their white text.
+    internal static void ApplyTheme(Control root, bool darkTheme)
+    {
+        if (!darkTheme || root == null) return;
+        Color darkCard = Color.FromArgb(35, 37, 44);
+        Color darkInk = Color.FromArgb(239, 241, 248);
+        Color darkMuted = Color.FromArgb(173, 180, 198);
+        Color darkFaint = Color.FromArgb(150, 159, 181);
+        Color darkLine = Color.FromArgb(63, 67, 79);
+        Color darkAccentSoft = Color.FromArgb(53, 50, 78);
+        Color darkReady = Color.FromArgb(31, 61, 50);
+        Color darkReadyInk = Color.FromArgb(112, 214, 163);
+        Color darkNumber = Color.FromArgb(52, 56, 68);
+
+        Action<Control> apply = null;
+        apply = delegate(Control control)
+        {
+            if (control.BackColor == Color.White) control.BackColor = darkCard;
+            else if (control.BackColor == Ready) control.BackColor = darkReady;
+            else if (control.BackColor == AccentSoft) control.BackColor = darkAccentSoft;
+            else if (control.BackColor == Number) control.BackColor = darkNumber;
+            if (control.ForeColor == Ink) control.ForeColor = darkInk;
+            else if (control.ForeColor == Muted) control.ForeColor = darkMuted;
+            else if (control.ForeColor == Faint) control.ForeColor = darkFaint;
+            else if (control.ForeColor == ReadyInk) control.ForeColor = darkReadyInk;
+            if (control is Button && control.BackColor == darkCard)
+            {
+                Button button = (Button)control;
+                button.FlatAppearance.BorderColor = darkLine;
+            }
+            foreach (Control child in control.Controls) apply(child);
+        };
+        apply(root);
     }
 
     // The acknowledgement that learning succeeded, with the save action inside it: the user

@@ -3061,6 +3061,11 @@ internal sealed partial class VibeMicForm : Form
                 favoriteLayoutPanel.Controls.Count < 4)
                 throw new InvalidOperationException(
                     "Favourite-app panel does not fit the Host page width, its measured height, or its expected controls");
+            Control darkFavoriteLayoutPanel = FavoriteAppsPanel.Build(favoriteLayoutApps, "notepad", "notepad",
+                null, null, null, null, null, null, null, null, null, null, true);
+            if (darkFavoriteLayoutPanel == null || darkFavoriteLayoutPanel.BackColor == Color.White)
+                throw new InvalidOperationException(
+                    "Favourite-app panel kept a white surface in the dark theme");
             foreach (Control favoriteChild in favoriteLayoutPanel.Controls)
             {
                 if (favoriteChild.Bottom > favoriteLayoutPanel.Height ||
@@ -10153,7 +10158,7 @@ deck.Hide();
             delegate(string process) { MakeFavoriteCurrent(process); },
             delegate(string process) { ShowFavoriteAppEditor(process); },
             delegate(string process) { return FavoriteStateOf(process); },
-            delegate { BeginFavoriteAppLearning(); });
+            delegate { BeginFavoriteAppLearning(); }, darkTheme);
         panel.Location = new Point(18, 18);
         card.Controls.Add(panel);
         if (sectionHeight > 0) AddWorkflowStatusSection(card, pending, summaryText, 18 + panelHeight + 10);

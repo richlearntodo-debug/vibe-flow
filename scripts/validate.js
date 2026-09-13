@@ -3719,6 +3719,9 @@ assert(guide.includes("v2.0.0/VibeFlow-Setup.exe") &&
 assert(gesturePolicy.includes("internal const int LongPressMs = 650") &&
   v2Guide.includes("长按约 650 ms") && !v2Guide.includes("长按约 600 ms"),
   "The gesture long-press threshold is inconsistent with the frozen 650 ms contract");
+assert(favoriteAppsPanel.includes("darkTheme") && favoriteAppsPanel.includes("ApplyTheme") &&
+  favoriteAppsPanel.includes("Color.FromArgb(35, 37, 44)"),
+  "The workflow favorite-app surface does not apply a dark theme palette");
 // Retired voice providers must be absent from the current runtime surface. Legacy
 // configuration values are handled by the normal unknown-provider fallback; they
 // must not keep a provider branch, process probe, hotkey default, or UI option alive.
