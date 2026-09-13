@@ -6191,3 +6191,27 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 ### Release gate
 
 **PASS WITH MANUAL HARDWARE CHECKS**。本阶段只发布已核验素材并同步文档；没有修改 Capture、录音状态机、Raw Input、键盘 Hook、设备过滤或稳定手势时序。未签名安装包、设备精确隔离、VB-CABLE 首启和高 DPI 观感不能由 API/自检结果替代，正式版说明已保留这些限制。
+
+---
+
+## 2026-09-13 · V2.0.0 正式版发布与文档对齐
+
+### 线上状态（已核对）
+
+- 正式版 `v2.0.0` 已发布：`prerelease=false`、标题 `Vibe Link V2.0.0 正式版`、标签指向 `d7d33e1`，GitHub 显示 **Latest** ✔。
+- 三个附件与 `frozen-parameters.json` 记录的哈希**完全一致**（`VibeFlow-Setup.exe` 8 690 828 B / ZIP 5 668 428 B / `SHA256SUMS.txt` 179 B）——即正式版沿用候选版 3 已核验的同一份出货构建 ✔。
+- 发布页自检：标题、9 张唯一截图、三条 `/releases/download/v2.0.0/...` 链接、Latest 徽标全部正确 ✔。
+- **本机与 CI 的两处遗留问题已闭环**：CI 三条生命周期路径全绿（见上一节）；`release/` 里那份被重新编译过的安装器只存在于开发机，未进入任何发布附件 ✔。
+
+### 仓库对齐（本轮改动）
+
+- `frozen-parameters.json`：`tag` → `v2.0.0`、`releaseName` → `Vibe Link V2.0.0 正式版`、`commit` → `d7d33e1…`。**这条很关键**：发布脚本读的就是它，改之前再跑一次发布会去更新候选版页面而不是正式版。
+- `docs/GITHUB_RELEASE_BODY_ZH.md`：直接写入线上正式版正文（逐字符一致），避免下次发版把截图与文档链接回退到 `v2.0.0-candidate.3` ✔；写回后门禁全绿 ✔。
+- 当前版本口径与下载入口对齐为正式版：`README.md`（发布方已改）、`QUICK_START_ZH.md`、`docs/V2_0_USER_GUIDE_ZH.md`、`docs/V2_0_UPDATE_SUMMARY_ZH.md`、`docs/FEATURES_ZH.md`、`docs/V2_0_RELEASE_NOTES_ZH.md`、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`、`docs/V2_0_INSTALLER_GUIDE_ZH.md`、`docs/V2_0_FAQ_ZH.md`、`VIBE_MIC_VERSION.md`、`README_VIBE_MIC.md`、`docs/V2_0_FROZEN_PARAMETERS_ZH.md`（§14.1 发布标签）。
+- **保留历史不改写**：`CHANGELOG.md` 的候选版 3 段落、本文件的候选版 3 记录、候选版发布页；`CHANGELOG.md` 新增 `## 2.0.0 - 2026-09-13 (正式版)` 段落说明"沿用同一份构建 + 仍未签名 + 未验证项仍在清单里"。
+- 仍未验证（如实保留）：**代码签名**、**没有 VB-CABLE 的机器首启**、**出货产物上的真机语音**、**高 DPI 目视**、**已发布安装包内文档的截图快照**（`07/08` 两张对话框图仍是 V1.5 画面）。
+
+### 社群发版文案
+
+- 产出 `发布文案-V2.0-正式版.md`（短版 / 标准版 / 极简版 + 配图建议 + 发布前清单 + 每条说法的事实依据），供社群渠道使用。
+- 文案里**保留三条必须随文出现的提醒**（安装包未签名、录音键隔离现状、隐私），并明确 `05-截图/04-diagnostics.png` 目前是「等待 2 项真实验证」，不得写成"全部通过"。

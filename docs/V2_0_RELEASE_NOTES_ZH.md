@@ -1,17 +1,17 @@
-# Vibe Link V2.0.0 候选版 3 更新说明
+# Vibe Link V2.0.0 正式版更新说明
 
-发布日期：2026-09-13  ·  标签：`v2.0.0-candidate.3`  ·  状态：公开候选版  ·  Release status: candidate
+发布日期：2026-09-13  ·  标签：`v2.0.0`  ·  状态：正式版  ·  Release status: stable
 
-> V2.0.0 candidate.3 已提供安装包和便携 ZIP，但还不是正式稳定版。安装生命周期三条场景已在本机用最终发布产物通过；完整硬件、VB-CABLE、DPI 以及一次性干净账户验收仍需在目标环境完成。安装包未签名，Windows 会显示“未知发布者”。
+> 本正式版沿用**候选版 3 已核验的同一份出货构建**：`VibeFlow-Setup.exe`、`Vibe-Flow-Windows-x64.zip`、`SHA256SUMS.txt` 三个资产的哈希与候选版 3 完全一致，因此候选版 3 上做过的验证结论同样适用。安装生命周期三条场景（干净安装 / 未配置安装 / V1.5 升级+二次升级+卸载）已在**本机与 CI** 上通过。安装包**未签名**，Windows 会显示「未知发布者」；完整硬件、VB-CABLE、DPI 与不同 Windows 环境的验收仍建议在目标设备复验。
 
 ## 下载
 
-- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
-- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
-- [GitHub Release 页面](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.3)
+- [VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/SHA256SUMS.txt)
+- [GitHub Release 页面](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0)
 
-## 本候选版更新
+## 本版更新
 
 ### 候选版 3 相对候选版 2 的变化
 

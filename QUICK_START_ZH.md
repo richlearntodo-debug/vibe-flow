@@ -6,13 +6,13 @@ RC003 单段录音约 `60 秒`，提前松开会立即结束，不会自动创�
 
 ## 直接下载 V2.0
 
-- [安装版 VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
-- [便携版 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
+- [安装版 VibeFlow-Setup.exe](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/VibeFlow-Setup.exe)
+- [便携版 Vibe-Flow-Windows-x64.zip](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/SHA256SUMS.txt)
 
-V2.0.0 candidate.3 是公开候选版，不是正式稳定版。需要稳定版本时使用 [V1.5.0](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)。不要下载 GitHub 自动生成的源码 ZIP 代替应用程序。
+`v2.0.0` 是 **2026-09-13 发布的正式版**，沿用候选版 3 已核验的同一份出货构建（三个资产哈希一致）。需要回退时使用历史稳定版 [V1.5.0](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)；候选版发布页（`v2.0.0-candidate.3`）仅保留用于复现历史测试。不要下载 GitHub 自动生成的源码 ZIP 代替应用程序。
 
-> **安装包未签名**：本候选版的 `VibeFlow-Setup.exe` 没有商业代码签名，首次运行可能出现 SmartScreen「未知发布者」提示：点「更多信息」→「仍要运行」即可继续。请先核对仓库地址和同批 `SHA256SUMS.txt`。
+> **安装包未签名**：本正式版的 `VibeFlow-Setup.exe` 没有商业代码签名，首次运行可能出现 SmartScreen「未知发布者」提示：点「更多信息」→「仍要运行」即可继续。请先核对仓库地址和同批 `SHA256SUMS.txt`。
 
 > **录音键隔离（安装前请先读）**：未安装签名设备过滤器前，录音键使用“遥控器在线范围内”的钩子隔离——遥控器已连接时 F5 被拦截；遥控器**不在线**时普通键盘的 F5 **原样直通**；该机制不能与签名过滤器等同。
 

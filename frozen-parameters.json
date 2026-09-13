@@ -1,11 +1,11 @@
-﻿{
+{
     "schema":  1,
     "product":  "Vibe Link",
     "version":  "V2.0.0",
-    "releaseName":  "Vibe Link V2.0.0 候选版 3",
-    "tag":  "v2.0.0-candidate.3",
-    "commit":  "f522b475ca972355fe8a3278e1a7d0502a830627",
-    "frozenAt":  "2026-09-13 19:19:10",
+    "releaseName":  "Vibe Link V2.0.0 正式版",
+    "tag":  "v2.0.0",
+    "commit":  "d7d33e1b440ad60a511f85971f4a745baa157b8d",
+    "frozenAt":  "2026-09-13 21:05:00",
     "releaseAssets":  {
                           "Vibe-Flow-Windows-x64.zip":  "01F8FD38867C32A626512DF1CC5AA113C7B38CA2BEB13C81FCEBFF5B3EAD9719",
                           "VibeFlow-Setup.exe":  "A0ECB3416391CC5589558CE4F58586C401F2F22E05E8E8F6A22575A526EAEA57",

@@ -20,20 +20,21 @@ The stable voice contract remains: **lock a verified editable target, hold Recor
 - Complete a five-task first-run setup and ten-item self-check.
 - Use Light, Dark, or Follow Windows themes.
 
-V2.0.0 candidate.3 is an unsigned public pre-release and has not completed the full hardware, Windows, DPI, and installer lifecycle matrix. V1.5.0 remains the latest fully verified stable release.
+V2.0.0 (released 2026-09-13) is the current formal release, built from the same verified payload as candidate.3. It is **unsigned**, so the full hardware, Windows, DPI and installer-lifecycle matrix still deserves a re-check on the target machines; the installer lifecycle (clean install, unconfigured install, V1.5 upgrade, second upgrade, uninstall) passes locally and in CI. V1.5.0 remains published as the previous stable release for rollback.
 
 ## Downloads
 
-- [V2.0.0 candidate.3 installer](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
-- [V2.0.0 candidate.3 portable ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
-- [V2.0.0 candidate.3 SHA256SUMS](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
-- [V1.5.0 stable release](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)
+- [V2.0.0 installer](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/VibeFlow-Setup.exe)
+- [V2.0.0 portable ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/Vibe-Flow-Windows-x64.zip)
+- [V2.0.0 SHA256SUMS](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/SHA256SUMS.txt)
+- [V1.5.0 previous stable release](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)
+- [candidate.3 release page](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.3) (kept to reproduce the historical test runs)
 
 The installer is the recommended choice for ordinary users. It is **unsigned**, so Windows may show a SmartScreen "unknown publisher" warning on first run: choose **More info** → **Run anyway** to continue. Verify the downloaded files with the matching `SHA256SUMS.txt`; GitHub's generated source archive is not an application package.
 
 ## Voice and privacy
 
-RC003 audio travels through Bluetooth ATVV to `CABLE Input`; the selected voice tool reads `CABLE Output` and writes to the focused field. Vibe Flow does not read or store transcription text. Some WeChat Input Method versions put their own transcription result on the clipboard; candidate.3 may dispatch one controlled `Ctrl+V` only after the target is verified and a provider completion receipt exists, but this is not guaranteed for every target. Normal operation does not save audio or press Enter automatically.
+RC003 audio travels through Bluetooth ATVV to `CABLE Input`; the selected voice tool reads `CABLE Output` and writes to the focused field. Vibe Flow does not read or store transcription text. Some WeChat Input Method versions put their own transcription result on the clipboard; V2.0.0 may dispatch one controlled `Ctrl+V` only after the target is verified and a provider completion receipt exists, but this is not guaranteed for every target. Normal operation does not save audio or press Enter automatically.
 
 Supported providers, in the order the Voice page lists them, are WeChat Input Method (default: `Ctrl + Win`, toggle, `80 ms`), NetEase Bage (网易八哥说: Right Alt, toggle), and one custom slot (其他语音工具: Right Shift, toggle). The shortcut and trigger saved in Vibe Link must match the selected tool's own settings. Typeless, Windows Voice Typing, iFlytek Voice Input (讯飞语音输入法), Sogou Input Method (搜狗输入法), Doubao Input Method (豆包输入法) and any other unrecognised legacy value are no longer selectable; they are migrated to WeChat Input Method with the stable defaults and a one-time notice. In trigger-only mode (no VB-CABLE, so no capture process runs) the host can wake NetEase Bage and a custom tool by itself; WeChat Input Method needs its own voice panel and therefore still requires VB-CABLE.
 

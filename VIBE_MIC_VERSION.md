@@ -1,12 +1,12 @@
-# Vibe Link 2.0.0 candidate 3
+# Vibe Link 2.0.0
 
-Candidate build date: 2026-09-13
+Release date: 2026-09-13
 
 ## Release identity
 
 - Product name: `Vibe Link`
 - Product version: `2.0.0`
-- Release tag: `v2.0.0-candidate.3`
+- Release tag: `v2.0.0`
 - Windows host/bridge file version: `2.0.0.0`
 - Stable Capture file version: `1.2.1.0`
 - Configuration schema: `32`
@@ -73,4 +73,4 @@ Candidate build date: 2026-09-13
 
 ## Release status
 
-V2.0.0 (`v2.0.0-candidate.3`, 2026-09-13) is an unsigned candidate, not a formal stable release. Automated builds and local UI flows have evidence, while the full RC003, Windows, DPI, VB-CABLE, browser, and installer lifecycle matrix remains explicitly unverified. V1.5.0 remains the recommended public release. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.
+V2.0.0 (`v2.0.0`, released 2026-09-13) is the formal release, built from the same verified payload as candidate.3 (the three asset hashes are identical). It is **unsigned**, and the automatic gates plus the installer lifecycle (clean install, unconfigured install, V1.5 upgrade, second upgrade, uninstall) pass locally and in CI, while the full RC003, Windows, DPI and VB-CABLE matrix still deserves a re-check on the target machines. V1.5.0 remains available as the previous stable release for rollback. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.

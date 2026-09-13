@@ -1,8 +1,8 @@
 # Vibe Link V2.0 功能看板
 
-V2.0 候选版以一条主路径为中心：**锁定目标输入框 → 按住说话 → 松开结束 → 检查文字 → 手动确认发送**。
+V2.0（2026-09-13 正式版）以一条主路径为中心：**锁定目标输入框 → 按住说话 → 松开结束 → 检查文字 → 手动确认发送**。
 
-[V2.0 下载](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0-candidate.3) · [图文教程](V2_0_USER_GUIDE_ZH.md) · [FAQ](V2_0_FAQ_ZH.md) · [V1.5 稳定版](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)
+[V2.0 下载](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v2.0.0) · [图文教程](V2_0_USER_GUIDE_ZH.md) · [FAQ](V2_0_FAQ_ZH.md) · [V1.5 历史稳定版](https://github.com/richlearntodo-debug/vibe-flow/releases/tag/v1.5.0)
 
 ## 能力总览
 

@@ -1,6 +1,6 @@
 # Vibe Link V2.0 图文使用教程
 
-> 适用版本：`v2.0.0-candidate.3`。本教程描述当前公开候选版的实际页面和边界。
+> 适用版本：`v2.0.0`（2026-09-13 正式版，沿用候选版 3 已核验的同一份出货构建）。本教程描述当前版本的实际页面和边界。
 >
 > V2.0 不是代码编辑器，也不是 AI 客户端。它负责让 RC003、语音工具和你当前的输入框协同工作。录音文字由第三方语音工具产生，Vibe Link 不读取、保存或上传普通转写文字，也不会替你按发送。
 
@@ -20,7 +20,7 @@
 
 ![首页：设备、语音和下一步](images/01-overview.png)
 
-## 本候选版相比候选版 2 的变化
+## 本版（正式版）相比候选版 2 的变化
 
 - **语音工具收敛为三个**：「语音」页和首次设置里只保留 微信输入法（默认，`Ctrl + Win`，单击切换）、网易八哥说（右 Alt，单击切换）和其他语音工具（默认右 Shift，单击切换）。Typeless、Windows 语音输入、讯飞输入法、搜狗输入法和豆包输入法已下线，不再出现在任何页面；旧配置里保存的退役值会在加载时迁移为微信输入法的稳定基线，并显示一次提示。
 - **开机自启修复**：候选版 2 里「开机自启」关不掉（注册表值名写读不一致，关掉后重启又会被注册）。现在写入、回读、删除和安装器共用同一个值名，关闭后保持关闭，启动日志也不再重复记录修复动作。
@@ -53,11 +53,11 @@
 
 ### 1. 下载正确的文件
 
-V2.0 候选版的三个固定入口如下：
+V2.0 正式版的三个固定入口如下：
 
-- [VibeFlow-Setup.exe 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe)
-- [Vibe-Flow-Windows-x64.zip 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip)
-- [SHA256SUMS.txt 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt)
+- [VibeFlow-Setup.exe 安装版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/VibeFlow-Setup.exe)
+- [Vibe-Flow-Windows-x64.zip 便携版](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/Vibe-Flow-Windows-x64.zip)
+- [SHA256SUMS.txt 校验清单](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/SHA256SUMS.txt)
 
 不要下载 GitHub 自动生成的 `Source code (zip/tar.gz)`，那是源码快照，不是可运行程序。
 

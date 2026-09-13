@@ -3703,10 +3703,14 @@ assert(includesAll(v2Rollback, [
   "回到 V1.5.0", "focus-targets.json", "project-spaces.json", "一键撤销",
   "不要通过改 Capture 哈希",
 ]), "The V2 rollback guide cannot restore the stable feature-disabled path");
+// The release notes are read before installing, so they have to state which status the build carries and what
+// was not verified. The status moved from candidate to stable when the formal release shipped, and the unsigned
+// disclosure has to travel with it: a formal status is exactly when a reader is most likely to assume the build
+// is signed, so the gate fails if either half disappears.
 assert(includesAll(v2ReleaseNotes, [
-  "Release status: candidate", "首页", "快捷键", "Smart Focus",
+  "Release status: stable", "未签名", "首页", "快捷键", "Smart Focus",
   "1.2.1.0", "未验证",
-]), "The V2 release notes omit candidate status, features, or frozen identity");
+]), "The V2 release notes omit release status, the unsigned disclosure, features, or frozen identity");
 // Retired voice providers must be absent from the current runtime surface. Legacy
 // configuration values are handled by the normal unknown-provider fallback; they
 // must not keep a provider branch, process probe, hotkey default, or UI option alive.
@@ -3748,10 +3752,14 @@ assert(includesAll(versionArchive, [
   "V1.4.0", "不完整预览版，仅归档", "Vibe-Flow-v1.4.0-Incomplete-Preview.zip",
   "SHA256SUMS-v1.4.0.txt", "不提供",
 ]), "Version archive does not distinguish the incomplete V1.4 archive");
+// The version document is the identity a reader and the release tooling both use, so it has to name the frozen
+// identity, the tag and the release status. The status and the tag moved when the formal release shipped; the
+// unsigned disclosure and the rollback path have to stay with them, because a formal release is exactly when a
+// reader is most likely to assume the build is signed and needs no fallback.
 assert(includesAll(versionDoc, [
-  "2.0.0", "Product version: `2.0.0`", "Configuration schema: `32`", "Bridge configuration schema: `7`",
-  "Stable Capture file version: `1.2.1.0`", "Recording kernel: `v1.0.3`",
-  "unsigned candidate", "V1.5.0 remains the recommended public release",
+  "2.0.0", "Product version: `2.0.0`", "Release tag: `v2.0.0`", "Configuration schema: `32`",
+  "Bridge configuration schema: `7`", "Stable Capture file version: `1.2.1.0`", "Recording kernel: `v1.0.3`",
+  "**unsigned**", "V1.5.0 remains available as the previous stable release",
 ]), "Version metadata documentation is stale");
 assert(includesAll(previewGuide, [
   "Raw Input 安全直通", "普通键盘", "打开 HTTPS 网页", "100 次录音按下与松开",
@@ -3802,4 +3810,4 @@ assert(includesAll(hardwareAcceptance, [
   "不提交版本标签", "增益 | `1.0`", "尾音排空 | `180 ms`", "录音内核 | `v1.0.3`",
 ]), "The V1.2.1 physical hardware release gate is incomplete");
 
-console.log("Vibe Link V2.0.0 candidate validation passed; Capture remains frozen at 1.2.1.0.");
+console.log("Vibe Link V2.0.0 release validation passed; Capture remains frozen at 1.2.1.0.");
