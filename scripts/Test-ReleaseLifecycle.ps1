@@ -23,6 +23,10 @@ $uninstallRegistryPath = "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows
 $runRegistryPath = "Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run"
 $createdUserConfigFixture = $false
 $createdUserStateRoot = $false
+# The fixture this test wrote and the exact text it must still contain right before the installer runs;
+# both stay empty when -NoConfigFixture is used.
+$fixturePath = ""
+$fixtureContent = ""
 
 function Assert-DisposableAccount {
     $conflicts = [System.Collections.Generic.List[string]]::new()
@@ -197,6 +201,8 @@ try {
         # application loads that configuration, and the upgrade path asserts it after the launch
         # further down.
         $expectedConfigProjection = Get-ConfigContractProjection $legacyConfigPath
+        $fixturePath = $legacyConfigPath
+        $fixtureContent = $legacyFixture
         $createdUserConfigFixture = $true
     }
     else {
@@ -251,8 +257,81 @@ try {
         New-Item -ItemType Directory -Force -Path $userStateRoot | Out-Null
         [IO.File]::WriteAllText($userConfigPath, $cleanFixture, [Text.UTF8Encoding]::new($false))
         $expectedConfigProjection = Get-ConfigContractProjection $userConfigPath
+        $fixturePath = $userConfigPath
+        $fixtureContent = $cleanFixture
         $createdUserConfigFixture = $true
         }
+    }
+
+    # The fixture has to be the file the installer preserves. The previous release's own installer can
+    # start that release — V1.5's [Run] entry has no skipifsilent — and a running instance writes its own
+    # configuration back, so the fixture can be replaced between the write above and the install below.
+    # The installer only checks that the file exists, which is why this surfaced as "the upgrade did not
+    # preserve the configuration" while the fixture was still present by name. Everything is stopped,
+    # the fixture is written again, and it is proven to be ours before the installer is handed it.
+    # The account is disposable by contract (Assert-DisposableAccount refuses otherwise), so stopping
+    # these processes is safe, and each one is named with the directory it runs from.
+    function Get-VibeLinkProcesses {
+        return @(Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessName -in @("VibeFlow", "VibeMic", "VibeMicAtvvCapture", "VoxDeckInputBridge") })
+    }
+    function Format-VibeLinkProcesses($Processes) {
+        return (($Processes | ForEach-Object {
+            $path = ""
+            try { $path = $_.Path } catch { $path = "(path unavailable)" }
+            $_.ProcessName + "#" + $_.Id + "[" + $path + "]"
+        }) -join ", ")
+    }
+    function Get-TextSha256([string]$Text) {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            return (($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) |
+                ForEach-Object { $_.ToString("X2") }) -join "")
+        }
+        finally { $sha.Dispose() }
+    }
+    function Stop-VibeLinkProcesses([string]$Phase) {
+        $running = Get-VibeLinkProcesses
+        if ($running.Count -gt 0) {
+            Write-Host ("stopping " + $running.Count + " running Vibe Link process(es) " + $Phase + ": " +
+                (Format-VibeLinkProcesses $running))
+            $running | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+        }
+        return $running.Count
+    }
+    Stop-VibeLinkProcesses "before the install" | Out-Null
+    if (-not [string]::IsNullOrWhiteSpace($fixturePath)) {
+        # The published V1.5 installer's [Run] entry has no skipifsilent, so a silent install of the
+        # previous release still starts that release; it registers the configuration in its own directory
+        # and writes it back, which replaced this fixture with V1.5's defaults. The installer only checks
+        # that the file exists, so the copy succeeded and the projection compared the wrong content. This
+        # loop stops whatever the previous release keeps starting and re-proves the fixture each time.
+        $wantedHash = Get-TextSha256 $fixtureContent
+        $stable = $false
+        for ($attempt = 1; $attempt -le 6 -and -not $stable; $attempt++) {
+            $stopped = Stop-VibeLinkProcesses ("while proving the fixture (attempt " + $attempt + ")")
+            $presentHash = if (Test-Path -LiteralPath $fixturePath) {
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $fixturePath).Hash
+            } else { "" }
+            if ($presentHash -eq $wantedHash -and $stopped -eq 0) {
+                $stable = $true
+                break
+            }
+            Write-Host ("configuration fixture was replaced (attempt " + $attempt + "): wanted " +
+                $wantedHash.Substring(0, 12) + ", found " +
+                $(if ($presentHash) { $presentHash.Substring(0, 12) } else { "absent" }) + " at " + $fixturePath)
+            [IO.File]::WriteAllText($fixturePath, $fixtureContent, [Text.UTF8Encoding]::new($false))
+            Start-Sleep -Milliseconds 700
+        }
+        $finalHash = if (Test-Path -LiteralPath $fixturePath) {
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $fixturePath).Hash
+        } else { "" }
+        if (-not $stable -or $finalHash -ne $wantedHash) {
+            throw ("The configuration fixture at " + $fixturePath + " keeps being rewritten by another process (" +
+                $finalHash + " instead of " + $wantedHash + "), so the upgrade assertion would measure the wrong file.")
+        }
+        Write-Host ("configuration fixture verified before the install: " + $fixturePath + " sha256 " + $wantedHash.Substring(0, 12))
     }
 
     $installerLogPath = Join-Path $sandbox "v2-install.log"
@@ -272,6 +351,17 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($PreviousInstallerPath) -and -not (Test-Path -LiteralPath $upgradeMarker)) {
         throw "The directory-changing upgrade removed an existing file from the previous installation directory."
     }
+    if (Test-Path -LiteralPath $userConfigPath) {
+        $configFile = Get-Item -LiteralPath $userConfigPath
+        Write-Host ("configuration right after the install: " + $configFile.Length + " bytes, last written " +
+            $configFile.LastWriteTime.ToString("HH:mm:ss.fff"))
+    }
+    else {
+        Write-Host "configuration right after the install: absent"
+    }
+    $runningAfterInstall = Get-VibeLinkProcesses
+    Write-Host ("running Vibe Link processes after the install: " +
+        $(if ($runningAfterInstall.Count -gt 0) { Format-VibeLinkProcesses $runningAfterInstall } else { "none" }))
     $actualConfigProjection = Get-ConfigContractProjection $userConfigPath
     if ($actualConfigProjection -ne $expectedConfigProjection) {
         # Print both projections: a bare "did not preserve" tells a reader nothing about which field
@@ -281,6 +371,15 @@ try {
         # or the helper refused the configuration it was given.
         Write-Host ("expected projection: " + $expectedConfigProjection)
         Write-Host ("actual projection  : " + $actualConfigProjection)
+        if (-not [string]::IsNullOrWhiteSpace($fixturePath)) {
+            # The installer copies whatever the fixture contains, so when this differs the first thing to
+            # check is whether the fixture itself is still the configuration this test wrote.
+            $nowHash = if (Test-Path -LiteralPath $fixturePath) {
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $fixturePath).Hash
+            } else { "" }
+            Write-Host ("fixture intact     : " + ($nowHash -eq (Get-TextSha256 $fixtureContent)) +
+                "  (" + $fixturePath + ", sha256 " + $(if ($nowHash) { $nowHash.Substring(0, 12) } else { "absent" }) + ")")
+        }
         Write-Host ("installer log      : " + $installerLogPath + "  exists=" + (Test-Path -LiteralPath $installerLogPath))
         if (Test-Path -LiteralPath $installerLogPath) {
             Write-Host "--- installer log lines about the previous installation and the migration ---"
