@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 
 // Remote gesture layering: one physical key can carry three layers — short press, long

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 // What one favourite application's row has to be able to say before it can offer the right action.
 //

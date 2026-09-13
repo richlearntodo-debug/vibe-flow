@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 internal sealed partial class VibeMicForm
 {

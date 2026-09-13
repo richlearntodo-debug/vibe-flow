@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 // Runs the action sequence a gesture resolved to. One gesture can therefore drive a short

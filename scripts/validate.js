@@ -3237,6 +3237,35 @@ const missingBom = scriptFilesNeedingBom.filter((file) => {
 });
 assert(missingBom.length === 0,
   "A script with non-ASCII text has no UTF-8 BOM and will not parse on an English Windows: " + missingBom.join(", "));
+// The application sources carry Chinese text too, and the same ANSI-code-page reading applies to the
+// C# compiler: without a byte-order mark a non-Chinese Windows build produces mojibake UI strings
+// (the self-tests still pass, because both sides of every comparison are equally garbled). Every .cs
+// file with a non-ASCII byte therefore needs a UTF-8 BOM, with one deliberate exception:
+// scripts/VibeMicAtvvCapture.cs is the frozen capture source whose SHA-256 is pinned in four places
+// and in the version document, so adding its BOM is a decision of its own rather than a side effect.
+const csFilesNeedingBom = (() => {
+  const found = [];
+  const walk = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === "bin" || entry.name === "obj" || entry.name.startsWith(".")) continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith(".cs")) continue;
+      const relative = path.relative(root, full).split(path.sep).join("/");
+      if (relative === "scripts/VibeMicAtvvCapture.cs") continue; // exempt: the frozen capture source
+      const bytes = fs.readFileSync(full);
+      const nonAscii = bytes.some((byte) => byte > 0x7F);
+      const hasBom = bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+      if (nonAscii && !hasBom) found.push(relative);
+    }
+  };
+  walk(path.join(root, "scripts"));
+  return found;
+})();
+assert(csFilesNeedingBom.length === 0 &&
+  sha256("scripts/VibeMicAtvvCapture.cs") === "736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2",
+  "A C# source with non-ASCII text has no UTF-8 BOM (the frozen capture source is exempt and must stay byte-identical): " +
+  (csFilesNeedingBom.join(", ") || "frozen capture source hash changed"));
 // The VB-CABLE package is a third-party binary and is deliberately untracked, so a clean clone and a
 // CI runner start without it. The release build must therefore treat it as an optional bundle: copy
 // and hash-check it when it is there, and carry on when it is not (scripts/Install-VBCable.ps1

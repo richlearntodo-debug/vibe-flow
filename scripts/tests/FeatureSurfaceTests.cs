@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Reflection;
 
 internal static class FeatureSurfaceTests

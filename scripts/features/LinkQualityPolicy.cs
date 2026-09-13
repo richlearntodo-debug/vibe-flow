@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 // Link quality is derived only from the metrics the frozen recording kernel already
 // publishes (ATVV packet gaps, queue drops, output level, trigger latency). The

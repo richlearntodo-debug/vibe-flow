@@ -344,9 +344,15 @@ finally {
         Remove-Item -LiteralPath ($userConfigPath + ".tmp") -Force -ErrorAction SilentlyContinue
     }
     if ($createdUserStateRoot -and (Test-Path -LiteralPath $userStateRoot)) {
-        Remove-Item -LiteralPath $userStateRoot -Force -ErrorAction SilentlyContinue
+        # The state root still holds the configuration this test deliberately retains after an
+        # uninstall, plus whatever logs the application wrote while it ran, so it is never empty:
+        # removing a directory without -Recurse makes Windows PowerShell 5.1's file-system provider
+        # throw a NullReferenceException, and cleanup must never turn a passed test into a failure.
+        try { Remove-Item -LiteralPath $userStateRoot -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning ("Could not remove the lifecycle user state at " + $userStateRoot + ": " + $_.Exception.Message) }
     }
     if (Test-Path -LiteralPath $sandbox) {
-        Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+        try { Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction Stop }
+        catch { Write-Warning ("Could not remove the lifecycle sandbox at " + $sandbox + ": " + $_.Exception.Message) }
     }
 }
