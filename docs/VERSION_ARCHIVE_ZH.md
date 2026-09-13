@@ -3,14 +3,15 @@
 本页保存每个公开版本的固定下载入口。链接不会随 `latest` 改变，适合安装、回退和问题复现。
 
 > [!IMPORTANT]
-> **V2.0.0 candidate.3 已有公开固定下载入口，但仍是候选版。** 需要已经完成稳定验收的版本时使用 V1.5.0；测试 V2.0 时请同时阅读候选版的已知限制和真机测试矩阵。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是应用。
+> **V2.0.0 已是公开正式版。** 应用现正式命名为 **Vibe Link**（原「言灵 Vibe Flow Remote」）；仓库名 `vibe-flow`、安装目录 `Vibe Flow Remote` 和部分历史文件名因兼容旧版本而保留。搜索、下载和使用时请认准 Vibe Link。GitHub 自动生成的 `Source code (zip/tar.gz)` 是源码，不是应用。
 
 ## 版本总表
 
 | 版本 | 日期 | 状态与重点 | 安装版 EXE | 免安装 / 归档 | 校验 |
 | --- | --- | --- | --- | --- | --- |
-| **V2.0.0 candidate.3** | 2026-09-13 | **公开候选版，不是正式稳定版**。保留 V1.5 语音、Profiles、快捷键和配置保护，增加 Smart Focus、HUD/Deck、五任务首次设置、统一自检和更清晰的语音/快捷键页面；语音工具收敛为微信输入法 / 网易八哥说 / 其他语音工具；仍需硬件、系统和安装生命周期验收。 | [**下载 EXE**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt) |
-| **V1.5.0** | 2026-09-02 | **最新正式版，推荐**。合并 V1.4 的 Profile、应用目录、Browser Back、执行回执，并新增实体键盘快捷键录制与可选 Smart Profiles；稳定语音链路不变。 | [**下载 EXE**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/SHA256SUMS.txt) |
+| **V2.0.0** | 2026-09-13 | **正式版**。保留 V1.5 语音、Profiles、快捷键和配置保护，增加 Smart Focus、HUD/Deck、五任务首次设置、统一自检和更清晰的语音/快捷键页面；语音工具收敛为微信输入法 / 网易八哥说 / 其他语音工具。设备级过滤、VB-CABLE 首启、DPI 观感等仍以已知限制和真机矩阵为准。 | [**下载 EXE**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0/SHA256SUMS.txt) |
+| V2.0.0 candidate.3 | 2026-09-13 | **候选版归档**。与正式版使用同一组已核验出货资产，用于保留候选测试记录。 | [下载 EXE](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v2.0.0-candidate.3/SHA256SUMS.txt) |
+| **V1.5.0** | 2026-09-02 | **上一代正式版**。合并 V1.4 的 Profile、应用目录、Browser Back、执行回执，并新增实体键盘快捷键录制与可选 Smart Profiles；稳定语音链路不变。 | [**下载 EXE**](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.5.0/SHA256SUMS.txt) |
 | V1.4.0 | 2026-09-02 | **不完整预览版，仅归档**。已完成手动 Profile、应用发现、Browser Back 和执行回执，但缺少 V1.5 的快捷键录制与 Smart Profiles 完整体验；不建议日常使用。 | 不提供 | [下载预览 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.4.0/Vibe-Flow-v1.4.0-Incomplete-Preview.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.4.0/SHA256SUMS-v1.4.0.txt) |
 | V1.3.0 | 2026-09-02 | 本地验证基线，没有作为公共正式 Release 发布；相关改动已并入 V1.4/V1.5。 | 不提供 | 不提供 | - |
 | V1.2.1 | 2026-08-28 | 用户友好稳定版。恢复 `v1.0.3` 录音内核；按住说话、松开结束、单段约 60 秒；方向键截图、双主题、10 项自检和持久任务视图。 | [下载 EXE](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/VibeFlow-Setup.exe) | [下载 ZIP](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/Vibe-Flow-Windows-x64.zip) | [SHA-256](https://github.com/richlearntodo-debug/vibe-flow/releases/download/v1.2.1/SHA256SUMS.txt) |

@@ -691,10 +691,11 @@ assert(packageJson.scripts && packageJson.scripts.start === "cmd /c START_VIBE_F
   startScript.includes("release\\Vibe-Flow-Windows-x64\\VibeFlow.exe") &&
   startScript.includes("VibeMic.exe"),
   "The development and candidate startup entries are not aligned");
-assert(includesAll(readme, [
-  "V2.0.0 离键闭环候选版", "最新已发布稳定版 · V1.5.0",
-  "Capture 文件继续显示 `1.2.1.0`", "docs/V2_0_USER_GUIDE_ZH.md",
-]), "The homepage does not distinguish the V2 candidate, V1.5 release, and frozen Capture");
+assert((readme.includes("V2.0.0 离键闭环正式版") || readme.includes("V2.0.0 离键闭环候选版")) &&
+  (readme.includes("上一代稳定版 · V1.5.0") || readme.includes("最新已发布稳定版 · V1.5.0")) &&
+  readme.includes("Capture 文件继续显示 `1.2.1.0`") &&
+  readme.includes("docs/V2_0_USER_GUIDE_ZH.md"),
+  "The homepage does not distinguish the V2 release, V1.5 release, and frozen Capture");
 assert(includesAll(compatibilityMatrix, [
   "Windows 10 / 11 x64", "RC003", "微信输入法", "Typeless", "开机 / 返回 / 独立音量", "不支持",
 ]), "The public compatibility matrix is incomplete");
