@@ -6155,3 +6155,9 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - 写下这份默认配置的是**上一版应用自己**：V1.5 安装器的 `[Run]` 是 `Flags: nowait postinstall`，**没有 `skipifsilent`**（从标签 `v1.5.0` 的 `installer/VibeFlow.iss` 读到），所以**静默安装也会启动 V1.5 应用**；V1.5 应用按 V1.5 的规矩把配置写在**中央用户目录** `%LOCALAPPDATA%\Vibe Flow Remote\UserData`（V1.5 的安装器就负责把 `{app}` 的配置搬到这里），于是它抢先建了一份默认配置。
 - 本机为什么通过 ✔：本机有在跑的候选版实例持有 `Local\VibeMic` 互斥体，V1.5 应用启动后立刻退出，什么都没写。**不是"环境玄学"，是并发时序。**
 - 修正（测试侧，产品行为本就正确 ✔）：① 上一版安装完成后**等待并停掉它启动的实例**（打印进程与路径）；② fixture 写到**真实用户配置所在的位置**（中央目录），而不是安装目录 —— 安装目录那份旧配置的迁移路径由 `scripts/tests/Test-InstallerConfigMigration.ps1` 专门覆盖 ✔；③ 交给安装器之前用 **SHA-256 自证 fixture 未被改写**，被改写就重写，仍被改写就**报错**而不是测错文件。
+
+#### 已确认（CI run 34755944510，2026-09-13 20:07，整条 workflow `success` ✔）
+
+- 三条生命周期路径（干净安装 / 未配置安装 / **V1.5 升级 + 二次升级 + 卸载**）**全部通过** ✔，产物上传成功 ✔ —— 这是本项目自 2026-09-03 以来第一次 CI 全绿。
+- 日志直接印证真因与守卫：`the previous release started itself after a silent install; stopping it: VibeFlow#5016[…\previous-app\VibeFlow.exe]` ✔、`previous release launch observed and stopped: True` ✔、`configuration fixture verified before the install: …\UserData\vibe-mic-config.json sha256 B93049910FED` ✔、`configuration right after the install: 2292 bytes`（正是 fixture 本身）✔。
+- 已同步 `docs/V2_0_FROZEN_PARAMETERS_ZH.md` §8/§14.3、`docs/V2_0_KNOWN_LIMITATIONS_ZH.md`、`docs/V2_0_RELEASE_READINESS_REVIEW_ZH.md` 为"本机与 CI 均已通过" ✔。
