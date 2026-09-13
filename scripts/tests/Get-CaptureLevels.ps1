@@ -1,4 +1,4 @@
-# Reports the captured audio levels of recent Vibe Flow dictation sessions, so a change to the microphone or to
+﻿# Reports the captured audio levels of recent Vibe Flow dictation sessions, so a change to the microphone or to
 # Windows' input level can be judged from the numbers instead of from how the transcription felt.
 #
 # Read-only: it parses the capture component's own runtime log and prints nothing but measurements.

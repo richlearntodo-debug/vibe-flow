@@ -1,4 +1,4 @@
-# Puts the machine back into the clean-account state scripts/Test-ReleaseLifecycle.ps1 demands.
+﻿# Puts the machine back into the clean-account state scripts/Test-ReleaseLifecycle.ps1 demands.
 #
 # The lifecycle tests refuse to run when they find a per-user uninstall record, the per-user startup
 # entry, the default install directory or the central user-data directory, because deleting a real

@@ -1,4 +1,4 @@
-# Geometry check for the shipped pages: opens the UI in smoke mode, walks every page and reports
+﻿# Geometry check for the shipped pages: opens the UI in smoke mode, walks every page and reports
 # sibling controls whose rectangles intersect.
 #
 # Why siblings: a nested control legitimately sits inside its parent's rectangle, so a blanket

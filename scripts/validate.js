@@ -3215,6 +3215,28 @@ assert((workflow.match(/Reset-LifecycleSandbox\.ps1/g) || []).length >= 3 &&
   ]) &&
   lifecycleTest.includes("Release lifecycle testing requires a disposable Windows account"),
   "The workflow no longer prepares a disposable-account state before the lifecycle tests");
+// PowerShell scripts and the installer script carry Chinese text, and Windows PowerShell 5.1 without
+// a byte-order mark reads them with the machine's ANSI code page. On the English CI runner that turned
+// "上键" into mojibake and broke the parse — the lifecycle test could not even be loaded, which every
+// run reported as a bare exit code 1 at that step. Every script that contains a non-ASCII byte has to
+// start with a UTF-8 BOM, so it parses the same on any Windows.
+const scriptFilesNeedingBom = [
+  "scripts/Measure-HardwareAcceptance.ps1",
+  "scripts/Test-ReleaseLifecycle.ps1",
+  "scripts/check-ui-geometry.ps1",
+  "scripts/check-ui-matrix.ps1",
+  "scripts/tests/Get-CaptureLevels.ps1",
+  "scripts/tests/Reset-LifecycleSandbox.ps1",
+  "installer/VibeFlow.iss",
+];
+const missingBom = scriptFilesNeedingBom.filter((file) => {
+  const bytes = fs.readFileSync(path.join(root, file));
+  const nonAscii = bytes.some((byte) => byte > 0x7F);
+  const hasBom = bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+  return nonAscii && !hasBom;
+});
+assert(missingBom.length === 0,
+  "A script with non-ASCII text has no UTF-8 BOM and will not parse on an English Windows: " + missingBom.join(", "));
 // The VB-CABLE package is a third-party binary and is deliberately untracked, so a clean clone and a
 // CI runner start without it. The release build must therefore treat it as an optional bundle: copy
 // and hash-check it when it is there, and carry on when it is not (scripts/Install-VBCable.ps1

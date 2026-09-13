@@ -1,4 +1,4 @@
-#define MyAppName "Vibe Link"
+﻿#define MyAppName "Vibe Link"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "Vibe Link Contributors"
 #define MyAppURL "https://github.com/richlearntodo-debug/vibe-flow"

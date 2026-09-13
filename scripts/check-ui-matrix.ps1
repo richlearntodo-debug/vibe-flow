@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Repo = $PSScriptRoot + '\..',
     [string]$OutDir = "",
     # Every theme the application offers, and the window sizes worth checking. The dark theme is in this
