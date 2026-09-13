@@ -1338,7 +1338,23 @@ assert(includesAll(app, [
   // keeps the user's own hold / toggle choice.
   'ShouldHoldProviderHotkeyForSession("custom", "hold")',
   'DefaultTriggerForProvider("custom") != "toggle"',
-]), "The frozen stable voice tool can be driven with the wrong trigger again");// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
+]), "The frozen stable voice tool can be driven with the wrong trigger again");// The Windows Run value has to be written, read, deleted and read back under ONE name, and that name is
+// the one the installer writes. A read that used a different name made "start with Windows" impossible
+// to switch off and made every startup reconciliation report a failure, and nothing in the repository
+// caught it: the host self-test only exercised ShouldRegisterStartup and the command match.
+const startupRunReads = (app.match(/GetValue\(StartupRegistryValueName\)/g) || []).length;
+assert(includesAll(app, [
+  'private const string StartupRegistryValueName = "Vibe Flow";',
+  'private static readonly string[] LegacyStartupValueNames',
+  'key.SetValue(StartupRegistryValueName,',
+  'key.DeleteValue(StartupRegistryValueName, false)',
+  'The startup registration value name does not round-trip',
+]) && startupRunReads >= 2 &&
+  !/GetValue\("Vibe (Link|Flow|Mic)"/.test(app) &&
+  !/DeleteValue\("Vibe (Link|Flow|Mic)"/.test(app) &&
+  read("installer/VibeFlow.iss").includes("'Vibe Flow'"),
+  "The startup registration name is not shared between the app's writes, its reads and the installer");
+// The copy pass, sixth instalment: the wizard, which is the last surface and the one a first-time user reads.
 //
 // Its prose was already one action per line, so this is a small pass: two pieces of jargon went ("未取得…回执" became
 // 还没有收到…响应, and "尚未收到真实麦克风就绪证据" became 还没收到遥控器麦克风), the Smart Profiles opt-in lost its

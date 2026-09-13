@@ -28,6 +28,11 @@ using Microsoft.Win32;
 internal sealed partial class VibeMicForm : Form
 {
     private const string DisplayProductName = "Vibe Link";
+    // The Run value the app and the installer both write (installer/VibeFlow.iss uses the same
+    // literal). Reading a different name than the one that is written is what once made "start with
+    // Windows" impossible to turn off and made every startup reconciliation report a failure.
+    private const string StartupRegistryValueName = "Vibe Flow";
+    private static readonly string[] LegacyStartupValueNames = { "Vibe Mic", "声启 MIC", "Vibe Link", "言灵" };
     private const string ProductRelease = "2.0.0";
     private const string StableCaptureBinaryVersion = "1.2.1";
     private const string StableCaptureBinarySha256 =
@@ -1700,7 +1705,7 @@ internal sealed partial class VibeMicForm : Form
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(
                 "Software\\Microsoft\\Windows\\CurrentVersion\\Run", false))
             {
-                string command = key == null ? "" : Convert.ToString(key.GetValue("Vibe Link"));
+                string command = key == null ? "" : Convert.ToString(key.GetValue(StartupRegistryValueName));
                 int executableEnd = command.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
                 if (executableEnd < 0) return "";
                 string executablePath = command.Substring(0, executableEnd + 4).Trim().Trim('"');
@@ -4746,6 +4751,34 @@ deck.Hide();
                 StartupCommandMatches("\"" + startupFixturePath + "\"", startupFixturePath) ||
                 StartupCommandMatches("\"C:\\Other\\VibeFlow.exe\" --background", startupFixturePath))
                 throw new InvalidOperationException("Configured startup registration was not preserved");
+            // The Run value has to be written, read, deleted and read back under ONE name, and that
+            // name is the one the installer writes. A read that used a different name made "start with
+            // Windows" impossible to switch off and made every reconciliation report a failure, so the
+            // name is pinned here together with the legacy names that must be cleared.
+            if (StartupRegistryValueName != "Vibe Flow" ||
+                !StartupCommandMatches("\"" + startupFixturePath + "\" --background", startupFixturePath) ||
+                Array.IndexOf(LegacyStartupValueNames, "Vibe Mic") < 0 ||
+                Array.IndexOf(LegacyStartupValueNames, "声启 MIC") < 0 ||
+                Array.IndexOf(LegacyStartupValueNames, StartupRegistryValueName) >= 0)
+                throw new InvalidOperationException("The startup registration value name is not the single shared one");
+            // A throwaway key proves the app reads back what it writes under that one name, without
+            // touching the real Run entry during a self-test.
+            using (RegistryKey startupProbe = Registry.CurrentUser.CreateSubKey("Software\\VibeLinkStartupSelfTest"))
+            {
+                try
+                {
+                    startupProbe.SetValue(StartupRegistryValueName, "\"probe\" --background");
+                    string probeReadBack = startupProbe.GetValue(StartupRegistryValueName) as string;
+                    bool probeMatched = StartupCommandMatches(probeReadBack, "probe");
+                    startupProbe.DeleteValue(StartupRegistryValueName, false);
+                    if (!probeMatched || startupProbe.GetValue(StartupRegistryValueName) != null)
+                        throw new InvalidOperationException("The startup registration value name does not round-trip");
+                }
+                finally
+                {
+                    try { Registry.CurrentUser.DeleteSubKeyTree("Software\\VibeLinkStartupSelfTest", false); } catch { }
+                }
+            }
 
             RunProjectSpaceStoreSelfTests();
             RunProjectSpaceRunnerSelfTests();
@@ -21172,11 +21205,12 @@ deck.Hide();
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run"))
             {
                 if (key == null) return;
-                key.DeleteValue("Vibe Mic", false);
-                key.DeleteValue("声启 MIC", false);
-                if (enabled) key.SetValue("Vibe Flow", "\"" + Application.ExecutablePath + "\" --background");
-                else key.DeleteValue("Vibe Link", false);
-                string actual = key.GetValue("Vibe Link") as string;
+                // Older builds registered themselves under these names; the current one uses a single
+                // name shared with the installer, so every stale entry is cleared on both paths.
+                foreach (string legacyName in LegacyStartupValueNames) key.DeleteValue(legacyName, false);
+                if (enabled) key.SetValue(StartupRegistryValueName, "\"" + Application.ExecutablePath + "\" --background");
+                else key.DeleteValue(StartupRegistryValueName, false);
+                string actual = key.GetValue(StartupRegistryValueName) as string;
                 if (enabled && string.IsNullOrWhiteSpace(actual)) Log("Startup setting verification failed");
             }
         }
@@ -21216,7 +21250,7 @@ deck.Hide();
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey("Software\\Microsoft\\Windows\\CurrentVersion\\Run", false))
             {
-                string value = key == null ? "" : key.GetValue("Vibe Link") as string;
+                string value = key == null ? "" : key.GetValue(StartupRegistryValueName) as string;
                 return StartupCommandMatches(value, Application.ExecutablePath);
             }
         }
