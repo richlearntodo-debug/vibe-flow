@@ -4,7 +4,9 @@ Candidate build date: 2026-09-13
 
 ## Release identity
 
+- Product name: `Vibe Link`
 - Product version: `2.0.0`
+- Release tag: `v2.0.0-candidate.3`
 - Windows host/bridge file version: `2.0.0.0`
 - Stable Capture file version: `1.2.1.0`
 - Configuration schema: `32`
@@ -14,6 +16,8 @@ Candidate build date: 2026-09-13
 - Recording kernel: `v1.0.3`
 - Voice mode: `hold`
 - Onboarding tasks: `5`
+- Navigation pages: `6` (`首页`, `语音`, `快捷键`, `工作流`, `自检`, `设置`)
+- Selectable voice tools: `3` (`微信输入法` default, `网易八哥说`, `其他语音工具`; Typeless, Windows 语音输入, 讯飞输入法, 搜狗输入法 and 豆包输入法 are withdrawn and migrate to 微信输入法 with one notice)
 - Active self-check items: `10`
 
 ## Locked voice baseline
@@ -25,6 +29,8 @@ Candidate build date: 2026-09-13
 - Provider microphone endpoint: `CABLE Output`
 - Automatic reversible routing: enabled
 - WeChat profile: `Ctrl + Win`, toggle, `80 ms`
+- Bage profile: `Right Alt`, toggle
+- Custom profile: `Right Shift`, toggle
 - Stable RC003 segment limit: approximately `60 seconds`
 
 ## Recording contract
@@ -67,4 +73,4 @@ Candidate build date: 2026-09-13
 
 ## Release status
 
-V2.0.0 is an unsigned candidate, not a formal stable release. Automated builds and local UI flows have evidence, while the full RC003, Windows, DPI, VB-CABLE, browser, and installer lifecycle matrix remains explicitly unverified. V1.5.0 remains the recommended public release. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.
+V2.0.0 (`v2.0.0-candidate.3`, 2026-09-13) is an unsigned candidate, not a formal stable release. Automated builds and local UI flows have evidence, while the full RC003, Windows, DPI, VB-CABLE, browser, and installer lifecycle matrix remains explicitly unverified. V1.5.0 remains the recommended public release. The frozen Capture source SHA-256 is `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`; the pinned Capture binary SHA-256 is `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`.

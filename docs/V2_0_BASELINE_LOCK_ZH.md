@@ -1,16 +1,39 @@
-# Vibe Flow V2.0 基线锁定
+# Vibe Link V2.0 基线锁定
 
 > **范围提示（2026-09-08 起）：** 本基线档案用于当前 Host 的稳定语音、快捷键、输入目标和自检。此前 Notes Deck/便签基线仅作历史审计，不是当前产品或发布依据。
 
-更新日期：2026-09-03  
-阶段：0（基线与保护）  
+更新日期：2026-09-13（候选版 `v2.0.0-candidate.3` 锁定）  
+阶段：候选版锁定；第 1 节起为阶段 0（基线与保护）历史记录  
 开发分支：`feature/v2-off-key-loop`
+
+## 0. 候选版锁定（`v2.0.0-candidate.3`）
+
+| 项目 | 锁定值 | 真实证据 |
+| --- | --- | --- |
+| 产品名（用户可见） | Vibe Link | 应用窗口、安装器与文档标题 |
+| 发布标签 | `v2.0.0-candidate.3` | `frozen-parameters.json` 的 `tag` |
+| 发布日期 | 2026-09-13 | `frozen-parameters.json` 的 `frozenAt`、本文件更新日期 |
+| 产品版本 | `2.0.0`；Host / Bridge 文件版本 `2.0.0.0`（信息版本 `2.0.0-candidate`） | `package.json`、Host / Bridge VersionInfo |
+| 冻结 Capture | 文件版本 `1.2.1.0`、录音内核 `v1.0.3` | `scripts/VibeMicAtvvCapture.cs` 与冻结二进制 VersionInfo |
+| 冻结 Capture 二进制 SHA-256 | `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683` | `frozen-parameters.json` 的 `frozenCapture.sha256`；`Test-ReleaseIdentity.ps1` 与 `Test-ReleaseArtifacts.ps1` 逐文件核对 |
+| 冻结 Capture 源码 SHA-256 | `736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2` | 同上；含非 ASCII 的 `.cs` 现需 UTF-8 BOM，该冻结源码按设计豁免并保持逐字节不变 |
+| 基线 commit | 见 `frozen-parameters.json` 的 `commit` | 文档不抄写提交哈希，避免与发布链回填值不一致 |
+| Host / Bridge schema | `32` / `7` | Host、默认配置与 Bridge |
+| Onboarding 版本 / 任务数 | `9` / `5` | 配置与活跃向导 |
+| Stable voice profile | `v11` | Host / Capture 运行标识 |
+| 六页顺序 | 首页 · 语音 · 快捷键 · 工作流 · 自检 · 设置 | `scripts/ui/PageShell.cs` 的 `NavigationText`，门禁固定该顺序 |
+| 可选语音工具（正好三个） | 微信输入法（默认，`Ctrl + Win`，单击切换）/ 网易八哥说（右 Alt，单击切换）/ 其他语音工具（默认右 Shift，单击切换） | `frozen-parameters.json` 的 `providerDefaults` 与 `ProviderIndex` |
+| 已下线语音工具（不可选） | Typeless、Windows 语音输入、讯飞输入法、搜狗输入法、豆包输入法 | 旧配置中的任意退役值在加载时迁移为微信输入法，并显示一次迁移提示 |
+| 活跃自检项 | `10`：`components`、`bluetooth`、`remote`、`keys`、`microphone`、`cable`、`profile`、`provider`、`startup`、`session` | Host 自检 |
+| 发布链（必须全部通过） | `node scripts/validate.js`；`VibeMic.exe --self-test`；`VoxDeckInputBridge.exe --self-test`；界面矩阵 `12/12`（`scripts/check-ui-matrix.ps1`）；`scripts/tests/Test-ReleaseArtifacts.ps1`；`scripts/tests/Test-ReleaseIdentity.ps1`；`scripts/Test-ReleaseLifecycle.ps1` 的三条生命周期测试（干净安装 / 未配置安装 / V1.5 升级） | 三条生命周期测试已用最终发布产物在本机通过 ✔ |
+
+其余发布状态：安装包未签名 ✗（Windows 显示“未知发布者”，SmartScreen 需「更多信息 → 仍要运行」）；在最终发布产物上的真机听写和一台没有 VB-CABLE 的机器首启仍未验证 ✗。第 1 节起是阶段 0 的历史基线记录，保留作为回滚与审计依据。
 
 ## 1. Checkout 身份
 
 - 本轮启动时，工作目录只有未跟踪的 `AGENTS.md`、`.agents/`、`.codex/`，`master` 没有提交、远端或可用 `HEAD`。
 - 按任务中明确给出的仓库地址恢复 `origin/main`，没有覆盖上述三项用户/项目规则文件。
-- 当前基线 commit：`b47f7cdce8b753fade0c64c97332bebe80f17d2d`。
+- 当前基线 commit：见 `frozen-parameters.json` 的 `commit`（本文不抄写提交哈希；阶段 0 的历史提交见提交史）。
 - 最近提交：
   - `b47f7cd docs: feature community banner at top of homepage`
   - `2643a55 fix(ci): bound legacy upgrade lifecycle test`
@@ -130,8 +153,9 @@ RC003 录音输入
 | TV | `task-switcher` |
 | 功能键短按 | `ctrl+c` |
 | 功能键长按 | `ctrl+v` |
+| 电源键（本机当前配置） | 短按 DeepSeek 用量页 / 长按 Bilibili / 双击 任务切换 |
 
-内置 Profile 为 `general`、`vibe-coding`、`browser-ai`、`terminal-agent`。Smart Profiles 默认关闭，锁定默认关闭，fallback 为 `general`。Power、Back、独立音量键没有稳定 Windows 事件，不能宣传支持。
+内置 Profile 为 `general`、`vibe-coding`、`browser-ai`、`terminal-agent`。Smart Profiles 默认关闭，锁定默认关闭，fallback 为 `general`。电源键是普通可映射键（`VK 0xFF` / 扫描码 `E0 5E`），短按 / 长按 / 双击各挂一个动作，未指派时保持 `passthrough`，也不作为录音键候选；Back 和独立音量键没有稳定 Windows 事件，不能宣传支持。
 
 ## 9. 配置与 ACK 基线
 
@@ -161,12 +185,12 @@ RC003 录音输入
 
 - 技术栈：.NET Framework 4.x `csc.exe` + WinForms + System.Drawing + Win32 P/Invoke。
 - `scripts/VibeMic.cs` 约 14k 行，UI、配置、服务控制和自绘控件仍在单文件。
-- 当前导航：`首页 / 快捷键 / 语音 / 自检 / 设置`。
+- 当前导航（六页，顺序即门禁）：`首页 / 语音 / 快捷键 / 工作流 / 自检 / 设置`（`NavigationText`）。
 - 外层使用 Dock；页面内部仍大量使用绝对 `Location`/`Size`，内容区固定 `AutoScrollMinSize = 1000 x 744`。
 - 已有 Per-Monitor-V2 尝试、`AutoScaleMode.Dpi` 和 `--ui-resource-test`（300 次页面切换资源压力）。
 - `BUILD_VIBE_MIC.cmd` 当前只编译 `scripts/VibeMic.cs`；模块化时必须显式加入新 `.cs` 并更新静态验证。
 - 基线锁定时 `npm start` 曾指向不存在的 `scripts/open-ui.ps1`；最终候选已将其改为转发 `START_VIBE_FLOW.cmd`。构建目录入口为 `VibeMic.exe`，安装包入口为 `VibeFlow.exe`。
-- 当前安装器只有标准 Inno Setup modern wizard，没有 V2.0 要求的自定义欢迎、检查和分阶段文案。
+- 候选版安装器已在标准 Inno Setup modern wizard 之外加入自定义欢迎页、Windows 版本检查和安装说明页（`InitializeWizard`、`GetWindowsVersionEx`、`CreateOutputMsgMemoPage`）。
 
 当前截图锚点：
 
@@ -176,6 +200,8 @@ RC003 录音输入
 | `docs/images/03-shortcuts.png` | 1280 x 840 | `3125477C4995EEF5D7617C1BAC25E7FB5D489442DCFA14C52CD593D26B509429` |
 | `docs/images/04-diagnostics.png` | 1280 x 840 | `FB8ADB33F7A3AEEB95AC336ED50DD2DB094A515E0DE68A54BE3520A939483397` |
 | `docs/images/05-settings.png` | 1280 x 840 | `9DB64C4367D49B1CC321C3AD3C7391C90FDE011C1CD315E5EB55290327F33D3E` |
+
+说明：候选版截图已由 `scripts/capture-ui-screenshots.ps1` 重新生成，`docs/images/*` 的当前内容以工作区文件为准；上表是阶段 0 的历史锚点，其 SHA-256 不作为当前发布门禁。
 
 Computer Use 首次检查 `VibeMic.exe --ui-smoke` 首页时，后续导航检测到用户并发输入且窗口被最小化，因此安全停止，没有抢回焦点。改动后重新构建并启动独立 smoke 实例，已实际巡视 1280 x 840 的首页、快捷键、语音、自检和设置五页；没有点击配置、修复或硬件测试动作。首页“松开结束录音”和快捷键页录音键“固定稳定链路”已实际可见。自检如实显示本机另一个安装目录实例及本目录 Bridge 未运行导致的 2 项错误，没有伪造成功。动态录音结束状态、首次设置和 100–200% DPI 仍未检查。
 
@@ -202,7 +228,7 @@ Computer Use 首次检查 `VibeMic.exe --ui-smoke` 首页时，后续导航检�
 
 ## 14. 必须标记未验证的真机项目
 
-- Windows 10 / 11 干净机安装、升级、卸载。
+- Windows 10 / 11 干净机安装、升级、卸载。（本机三条生命周期已通过 ✔；一次性干净账户与其他 Windows 版本仍未验证 ✗）
 - RC003 100 次按住/松开，无重复 generation。
 - 10 秒、30 秒、接近 60 秒真实音频。
 - 蓝牙晚启动、休眠、唤醒、断连、重连。

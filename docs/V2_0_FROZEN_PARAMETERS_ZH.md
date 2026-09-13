@@ -340,3 +340,32 @@
 2. **短按开机键** → 执行你设的短按动作 ✔（日志 `success=True` ✔），**不开始录音** ✔
 3. **长按 / 双击开机键** → 各自动作 ✔
 4. 改完任何按键后 **必须**：`node scripts/validate.js` → `VibeMic.exe --self-test` / `VoxDeckInputBridge.exe --self-test` → `scripts/check-ui-matrix.ps1`（12 例）✔
+
+## 14. 候选版 3 发版固化（2026-09-13 ✔，用户真机确认"核心功能没有问题" ✔）
+
+### 14.1 品牌与命名 ✔
+
+| 项 | 冻结值 ✔ |
+| --- | --- |
+| 面向用户的产品名 | **Vibe Link** ✔（应用内、安装器 AppName/发布者、开始菜单、卸载项、文档标题） |
+| 发布标签 | **`v2.0.0-candidate.3`** ✔ |
+| 安装器清理 | `UsePreviousGroup=no` + `[InstallDelete]` 删除旧 `言灵 Vibe Flow Remote` 程序组与桌面快捷方式 ✔（实测升级后只剩一个 `Vibe Link` 组 ✔） |
+| 内部标识 | 宿主/桥 `2.0.0.0`（`2.0.0-candidate`）、采集件 `1.2.1.0` ✔ |
+
+### 14.2 本轮修掉的三个真问题 ✔
+
+1. **开机自启关不掉** ✗→✔：写入用 `"Vibe Flow"`、删除与回读却用 `"Vibe Link"` ✗ → 统一常量 `StartupRegistryValueName` ✔（真机日志：修复前 `applied=False` + 每次 `STARTUP REPAIRED`，修复后 `applied=True` ✔），并加自测与门禁 ✔。
+2. **干净克隆/CI 无法构建** ✗→✔：`tools/VBCABLE_Driver_Pack45.zip` 被 gitignore ✗ → 恢复脚本尽力下载并校验哈希 ✔、发布链把它当**可选**（缺失时安装器在线获取 ✔）。
+3. **英文 Windows 下脚本无法解析** ✗→✔：无 BOM 的 UTF-8 被按 ANSI 读取 ✗（`"上键"` → 乱码 → `Missing '=' operator`）→ 含中文的 **6 个 .ps1 + 安装器 .iss + 48 个 .cs** 全部加 UTF-8 BOM ✔；冻结采集件源码**有意例外**并保持哈希 `736017A0…37E2` ✔；门禁同时钉住两半 ✔。
+
+### 14.3 生命周期验收 ✔（本机，最终发布产物）
+
+| # | 路径 | 结果 |
+| --- | --- | --- |
+| 1 | 干净安装 → 组件校验 → 卸载 | ✔ passed |
+| 2 | 未配置干净安装 → 卸载 | ✔ passed |
+| 3 | **V1.5 → 候选版升级** → 组件校验 → 二次升级 → 卸载 | ✔ passed（含"安装器逐字保留配置 ✔、应用首次加载把已下线 provider 迁移为微信输入法基线 ✔"的断言） |
+
+- 验收脚本自身也修了两处 ✗→✔：用 ANSI 读 UTF-8 配置导致中文比较**假失败** ✗；清理非空目录 `Remove-Item` 不带 `-Recurse` 触发 PS 5.1 `NullReferenceException` ✗。
+- 仍未验证 ✗（如实记录 ✔）：**没有 VB-CABLE 的机器首启**、**代码签名**、发布产物上的**真机语音**（用户已在候选版上确认核心功能 ✔，但该结论来自测试版构建 ✔）。
+
