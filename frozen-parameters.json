@@ -4,12 +4,12 @@
     "version":  "V2.0.0",
     "releaseName":  "Vibe Link V2.0.0 候选版 3",
     "tag":  "v2.0.0-candidate.3",
-    "commit":  "2f28525b10f73b3d7468afc9c0a2c284dd8eb6af",
-    "frozenAt":  "2026-09-13 16:49:34",
+    "commit":  "49c932bff1d32e63f547b34a839149d4293e5414",
+    "frozenAt":  "2026-09-13 17:05:23",
     "releaseAssets":  {
-                          "Vibe-Flow-Windows-x64.zip":  "38B56E7F2250730B82B13C9EFA56AE1EF11C77471EF018CFC18AC3B11516E827",
-                          "VibeFlow-Setup.exe":  "1F032292BD10767764E2880DF797A9F0F5B964A978DD4B3D9B91C9D1B2C3AC58",
-                          "SHA256SUMS.txt":  "879DFE1B0196BFD4E8E917B06363F2B3BDD50A83164D288D0868777E65AE2182"
+                          "Vibe-Flow-Windows-x64.zip":  "50918A9FBFCDDDB46A37868781A95EBBAE3D6F5983E71812D7436AF03FDC4CAF",
+                          "VibeFlow-Setup.exe":  "3CD0B1E3E65292E7546CEA90C165BC32975BE8D04861D2060CA0587B77306378",
+                          "SHA256SUMS.txt":  "27B96F091A04CEF10ABA38DBEFEDA6674955149AA2DD97FF09FD6923C62A7914"
                       },
     "versioning":  {
                        "captureFileVersion":  "1.2.1.0",
