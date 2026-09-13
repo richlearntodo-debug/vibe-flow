@@ -3205,6 +3205,7 @@ assert(includesAll(release, [
 // central user-data directory). The workflow therefore has to reset that state before each of the
 // three lifecycle runs — it previously failed instantly at the first one.
 assert((workflow.match(/Reset-LifecycleSandbox\.ps1/g) || []).length >= 3 &&
+  (workflow.match(/::error::LIFECYCLE FAILURE/g) || []).length >= 3 &&
   includesAll(read("scripts/tests/Reset-LifecycleSandbox.ps1"), [
     'Join-Path $LocalAppData "Vibe Flow Remote"',
     'Join-Path $LocalAppData "Programs\\Vibe Flow Remote"',

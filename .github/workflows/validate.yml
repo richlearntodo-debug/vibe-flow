@@ -77,13 +77,29 @@ jobs:
         run: .\scripts\tests\Reset-LifecycleSandbox.ps1
       - name: Test clean install, startup restoration, and uninstall
         shell: powershell
-        run: .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe
+        run: |
+          # A lifecycle failure must name its cause in the log and in the check-run annotation: the
+          # script's own throws are the only useful diagnostic and the runner log needs a login to read.
+          try {
+            .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe
+          } catch {
+            Write-Host "::error::LIFECYCLE FAILURE (clean install): $($_.Exception.Message)"
+            Write-Host $_.ScriptStackTrace
+            exit 1
+          }
       - name: Reset the lifecycle sandbox
         shell: powershell
         run: .\scripts\tests\Reset-LifecycleSandbox.ps1
       - name: Test unconfigured clean install and uninstall
         shell: powershell
-        run: .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe -NoConfigFixture
+        run: |
+          try {
+            .\scripts\Test-ReleaseLifecycle.ps1 -InstallerPath .\release\VibeFlow-Setup.exe -NoConfigFixture
+          } catch {
+            Write-Host "::error::LIFECYCLE FAILURE (unconfigured install): $($_.Exception.Message)"
+            Write-Host $_.ScriptStackTrace
+            exit 1
+          }
       - name: Reset the lifecycle sandbox
         shell: powershell
         run: .\scripts\tests\Reset-LifecycleSandbox.ps1
@@ -109,9 +125,15 @@ jobs:
           if ($actualPreviousHash -ne $expectedPreviousHash) {
             throw "V1.5 installer hash mismatch."
           }
-          .\scripts\Test-ReleaseLifecycle.ps1 `
-            -InstallerPath .\release\VibeFlow-Setup.exe `
-            -PreviousInstallerPath $previous
+          try {
+            .\scripts\Test-ReleaseLifecycle.ps1 `
+              -InstallerPath .\release\VibeFlow-Setup.exe `
+              -PreviousInstallerPath $previous
+          } catch {
+            Write-Host "::error::LIFECYCLE FAILURE (V1.5 upgrade): $($_.Exception.Message)"
+            Write-Host $_.ScriptStackTrace
+            exit 1
+          }
       - name: Remove signing certificate
         if: always()
         shell: powershell
