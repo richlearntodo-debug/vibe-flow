@@ -132,3 +132,12 @@ node scripts/validate.js
 .\BUILD_RELEASE.ps1            # 含界面矩阵 12 例
 Get-AuthenticodeSignature .\release\VibeFlow-Setup.exe
 ```
+
+---
+
+## 7. 发布后记录（2026-09-13 晚）
+
+- **已发布** ✔：GitHub 预发布 `v2.0.0-candidate.3`（tag → `d7d33e1`，`prerelease=true`，Latest 仍是 v1.5.0），资产 `VibeFlow-Setup.exe` / `Vibe-Flow-Windows-x64.zip` / `SHA256SUMS.txt`。从公开下载地址取回三个资产，SHA-256 与 `frozen-parameters.json` 的 `releaseAssets` **逐字节一致** ✔；发布页 8 张图片与 8 个文档链接全部 200 ✔。
+- **发布页修掉两处** ✔：正文最后一行曾把 `03-shortcuts-screenshot.png`（与 `03-shortcuts.png` **字节相同**）和 `03-shortcuts.png` 并排，等于同一张图在一行里出现两次 → 改为「语音工具：三选一」下拉截图；发布名与正文因**无 BOM 脚本被按 ANSI 读取**而乱码、正文被 GitHub 拒绝 → 发布名改从 `frozen-parameters.json` 读、正文按 UTF-8 字节解码。§2 的三项发布面缺陷由此全部闭环。
+- **新增门禁 3 条** ✔：发布正文引用的截图必须存在；同一小节内截图不得重复（跨小节复用允许）；`capture-ui-screenshots.ps1` 按文案匹配的每个标签必须仍存在于产品源码。第三条的起因是 `07/08` 两张对话框截图自 **2026-09-03** 起一直没被重拍 —— 脚本找的是 V1.5 时代的 `保持上方向（推荐）`，改名后 `Test-ChildText` 判定失败并**静默跳过**；现在改为匹配当前文案、找不到就报错，并新增 `-DialogsOnly` 只重拍对话框（`07/08/09` 已用出货构建重拍 ✔）。
+- **CI**：第 11 步 `Build release` ✔、第 12/14 步「干净安装」「未配置安装」✔（均为首次通过）；**第 16 步「V1.5 升级」仍失败** ✗，而本机同一序列通过 ✔ —— 迁移助手已排除（见 §3f 与 `docs/V2_0_PROGRESS.md`），已在安装器与测试中加日志，下一次 CI 运行直接给出「上一安装目录 / 旧文件是否存在 / 迁移助手退出码」。**不写成已修复。**
