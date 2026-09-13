@@ -3,52 +3,26 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 
 // Which input method owns the keyboard right now decides whether a voice tool can
-// be reached at all: WeChat's and Doubao's voice panels only exist while their own
-// input method is active, and Doubao additionally filters synthetic input. 八哥说 and
-// 讯飞 input are driven by their own shortcuts, which do not depend on the active IME.
+// be reached at all: WeChat's voice panel only exists while its own input method is
+// active. 网易八哥说 and a custom tool are driven by their own shortcuts, which do
+// not depend on the active input method.
 //
 // Both identifiers are matched because TSF reports the TIP CLSID and the language
 // profile GUID, and the two are easy to confuse: on this machine (verified
-// 2026-09-13) Doubao is CLSID {9D2B2E2B-...} with profile {2B4D4B3A-...}, WeType is
-// CLSID {86598FB9-...} with profile {607FDF85-...}, 讯飞 input is CLSID
-// {B722B5D7-...} with profile {0C7479AF-...}, and Microsoft Pinyin is CLSID
-// {81d4e9c9-...} with profile {FA550B04-...}.
+// 2026-09-13) WeType is CLSID {86598FB9-...} with profile {607FDF85-...} and
+// Microsoft Pinyin is CLSID {81d4e9c9-...} with profile {FA550B04-...}. An input
+// method the app does not have to reason about is deliberately not named here: a
+// catalogue entry exists only for an engine a dispatch decision can depend on.
 internal static class InputEngineCatalog
 {
-    internal const string DoubaoEngine = "doubao";
     internal const string WeChatEngine = "wechat";
-    internal const string XunfeiEngine = "xunfei";
-    internal const string SogouEngine = "sogou";
     internal const string MicrosoftPinyinEngine = "microsoft-pinyin";
     internal const string UnknownEngine = "unknown";
-
-    private static readonly string[] DoubaoIdentifiers =
-    {
-        "9D2B2E2B-3C93-4D2F-9D35-6EEB85F0D2B0",
-        "2B4D4B3A-4D4F-4C0A-8E66-7F771A2B9C10"
-    };
 
     private static readonly string[] WeChatIdentifiers =
     {
         "86598FB9-66A2-463E-B9C2-AEB906D477AD",
         "607FDF85-FCC8-4DBD-A365-41296F980C9C"
-    };
-
-    // 讯飞输入法 registers two text services: the input method itself and a launcher entry.
-    // The input method is the pair below; the launcher's CLSID {2FCE7706-...} is deliberately
-    // not listed, because it never owns the keyboard and matching it would report 讯飞 input as
-    // the active engine for a window that is merely showing the quick-launch entry.
-    private static readonly string[] XunfeiIdentifiers =
-    {
-        "B722B5D7-0C4C-4933-A7B9-DF8C91F2C643",
-        "0C7479AF-F27F-488C-A46B-5BDA6BF43E50"
-    };
-
-    // 搜狗拼音输入法's own pair, read off this machine (2026-09-13).
-    private static readonly string[] SogouIdentifiers =
-    {
-        "E7EA138E-69F8-11D7-A6EA-00065B844310",
-        "E7EA138F-69F8-11D7-A6EA-00065B844311"
     };
 
     private static readonly string[] MicrosoftPinyinIdentifiers =
@@ -59,14 +33,8 @@ internal static class InputEngineCatalog
 
     internal static string ClassifyEngine(string classId, string profileGuid)
     {
-        if (Matches(DoubaoIdentifiers, classId) || Matches(DoubaoIdentifiers, profileGuid))
-            return DoubaoEngine;
         if (Matches(WeChatIdentifiers, classId) || Matches(WeChatIdentifiers, profileGuid))
             return WeChatEngine;
-        if (Matches(XunfeiIdentifiers, classId) || Matches(XunfeiIdentifiers, profileGuid))
-            return XunfeiEngine;
-        if (Matches(SogouIdentifiers, classId) || Matches(SogouIdentifiers, profileGuid))
-            return SogouEngine;
         if (Matches(MicrosoftPinyinIdentifiers, classId) || Matches(MicrosoftPinyinIdentifiers, profileGuid))
             return MicrosoftPinyinEngine;
         return UnknownEngine;
@@ -76,20 +44,15 @@ internal static class InputEngineCatalog
     {
         switch (engineKey)
         {
-            case DoubaoEngine: return "豆包输入法";
             case WeChatEngine: return "微信输入法";
-            case XunfeiEngine: return "讯飞输入法";
-            case SogouEngine: return "搜狗输入法";
             case MicrosoftPinyinEngine: return "微软拼音";
             default: return "未知输入法";
         }
     }
 
     // Only the WeChat input method is offered as a voice tool whose panel is bound
-    // to its own input method; 八哥说, 讯飞语音输入法 and a custom tool are driven by
-    // shortcuts that do not depend on the active input method. The Doubao engine is
-    // still identified for diagnostics, but V2.0 no longer offers it as a selectable
-    // voice tool.
+    // to its own input method; 网易八哥说 and a custom tool are driven by shortcuts
+    // that do not depend on the active input method.
     internal static bool ProviderRequiresOwnInputMethod(string normalizedProviderKey)
     {
         return normalizedProviderKey == WeChatEngine;

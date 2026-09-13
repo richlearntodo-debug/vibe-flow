@@ -5986,6 +5986,20 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 - 又一次因"多行/结构化替换"出问题 ✗（脚本替换静默失效 ✗）→ 回到**编辑工具** ✔
 - **只改了 Profile 映射就以为修好了** ✗ —— 复核桥文件时发现长按层仍挂着 URL ✗，才找到 `gesture-layers.json` ✗ ✔（教训：**同一动作可能有多个存储** ✔，修完必须**从投影结果反查** ✔）
 
+## 候选版 3（续）：语音工具收敛为三个（2026-09-13 深夜 ✔）
+
+**用户的连续决定** ✔：
+
+1. 「搜狗输入法无法正常使用，**去除所有相关代码和元素**」✗ → 搜狗整条下线 ✔；
+2. 「去除豆包输入法、讯飞输入法、搜狗输入法、搜代码和相关元素，**这 3 个我们暂时不需要支持**」✗ → 三个工具全部下线 ✔。
+
+**因此最终可选工具只有三个** ✔：微信输入法（默认 ✔）/ 网易八哥说 ✔ / 其他语音工具 ✔。
+
+**下线范围（逐项 ✔）**：`NormalizeProviderKey` ✔、下拉框（4 处 ✔）、显示名/简介/设置说明 ✔、默认快捷键/触发/延时 ✔、`ProviderIndex`/`ProviderKeyFromIndex` ✔、进程匹配 ✔、运行检测 ✔、启动器定位 ✔（含因此不再被调用的"按卸载表找启动器"辅助函数 ✔）、输入法识别表里的三个身份 ✔（讯飞/搜狗为本次新增、豆包为早期保留 ✔）、提示文案 ✔、自测 ✔、门禁 ✔、文档 ✔。
+
+**迁移改成"通配"** ✔：`IsKnownProviderValue` 白名单只剩三个受支持值 ✔，`IsRetiredProviderValue` = 白名单之外任何非空值 ✔ → 旧版本写下的任何工具值都会被迁移为微信输入法并提示一次 ✔，**不可能**被当成受支持工具 ✔。自测用 **13 个历史值**（含 `xunfei`/`sogou`/`doubao`/`imeservice` 家族与中文写法 ✔ —— 为遵守"运行面不得留下旧工具名"的约定 ✔，这些字面量在自测里用**字符数组**拼出 ✔）逐一验证 ✔。
+
+**证据** ✔：`BUILD_VIBE_MIC` ✔、主机 `--self-test` ✔、`node scripts/validate.js` ✔ 全部通过 ✔；**负控** ✗→✔：把"通配"判断去掉后自检**退出码 1** ✗，还原即通过 ✔；门禁新增 `retiredVoiceProviderTokens` 逐 token 扫描运行面 ✔（不得再出现这五个工具名 ✔）。
 ## 候选版 3：下线 Typeless / Windows 语音输入，接入讯飞语音输入法（2026-09-13 深夜 ✔）
 
 ### 用户判定（原话 ✔）
@@ -6039,3 +6053,44 @@ if ((mapping == null || !mapping.enabled) && IsVoiceRawCandidate(...))
 
 讯飞链路是**逻辑层 + 迁移层 + 参数层**证据 ✔。用户随后确认 **讯飞只允许把语音快捷键设为 `F6`** ✔ → 应用与文档全部改为 `f6` ✔，且 F6 **在冻结采集件的能力范围内** ✔ → 这条链路回到"采集件发送 ✔、主机不插手 ✔"的标准路径（唯一归属规则自动生效 ✔）。**"按住录音键真的能让讯飞出字"** 仍必须用户真机实测 ✔：需讯飞里语音快捷键 = F6 ✔ 且为「长按说话」✔；若依旧没有反应 ✗，按用户先前授权可以去掉讯飞 ✔。
 
+## 2026-09-13 **移除讯飞语音输入法与搜狗输入法（运行面）✔**
+
+### 本阶段目标
+
+- 从 V2.0 运行面移除讯飞语音输入法与搜狗输入法的 provider、快捷键默认值、进程探针、启动器、TSF 识别和 UI 选项。
+- 保留微信输入法、网易八哥说、豆包输入法和其他语音工具；不改变录音、按键、配置保护和自检主链路。
+
+### 调查与修改
+
+- 调查入口：`scripts/VibeMic.cs` 的 provider 规范化/迁移、语音页、首次设置、自检和工具启动路径；`scripts/features/InputMethodDetector.cs` 的 TSF 分类；`scripts/features/WorkflowCards.cs` 的语音工具提示；`scripts/validate.js` 的 provider 门禁。
+- `scripts/VibeMic.cs`：删除讯飞/搜狗的 provider 分支、默认快捷键/触发方式/启动延时、进程检测、启动器和自测断言；未知或历史 provider 在加载时回退到微信稳定参数 `ctrl+win`、`toggle`、`80 ms`，并保留一次性迁移提示。
+- `scripts/features/InputMethodDetector.cs`：仅保留微信、豆包、微软拼音和未知输入法的 TSF 识别。
+- `scripts/features/WorkflowCards.cs`、语音及首次设置 UI：移除退役工具选项和文案。
+- 删除仅服务于讯飞的 `scripts/tests/Probe-IFlyVoice.ps1` 与 `scripts/tests/Probe-IFlyInjection.ps1`。
+- README、快速开始、V2.0 用户指南、FAQ、兼容性/限制/更新说明和冻结参数文档同步说明移除及旧配置迁移。竞品研究、变更历史等文档中的历史事实未作删除，以免篡改版本记录。
+
+### 验证
+
+- `npm test`：PASS，输出 `Vibe Flow V2.0.0 candidate validation passed; Capture remains frozen at 1.2.1.0.`
+- `cmd /c BUILD_VIBE_MIC.cmd`：PASS，重新生成 `VibeMic.exe`。
+- `cmd /c BUILD_INPUT_BRIDGE.cmd`：PASS，重新生成 `VoxDeckInputBridge.exe`。
+- `VibeMic.exe --self-test`：exit `0`。
+- `VoxDeckInputBridge.exe --self-test`：exit `0`。
+- `VibeMicAtvvCapture.exe --self-test`：exit `0`。
+- `git diff --check`：PASS（仅 Git 的 LF/CRLF 转换提示）。
+- 代码面扫描：`.cs/.js/.ps1/.cmd` 均不再包含退役 provider 名称；门禁使用运行时 token 检查运行面是否被重新接入。竞品研究、变更历史和冻结快照中的历史记录保持不变。
+- 冻结 Capture 源码 SHA-256：`736017A0C7099F72F8A81755DA67E81FA7FE8BAC3C400C129CE6E30AB74137E2`。
+- 冻结 Capture 二进制 SHA-256（根目录及 `release/Vibe-Flow-Windows-x64`）：`B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`。
+
+### 审计修复
+
+- 只读 auditor 发现迁移通知会把未列出的旧值误标为豆包输入法；已改为未知/移除值统一显示“旧语音工具”，仅对 Typeless 和 Windows 语音输入保留专名。
+- Host 自测已覆盖九组运行时拼接的旧值/别名（ASCII、中文及历史键名），逐项断言迁移到微信稳定参数；未把退役 provider 重新加入规范化、索引或 UI。
+
+### Release gate
+
+**PASS WITH MANUAL HARDWARE CHECKS**。本阶段未修改 `scripts/VibeMicAtvvCapture.cs`、Capture 二进制、Raw Input、键盘 Hook、设备过滤、稳定手势时序或录音状态机；现有未跟踪用户文件保持原样。RC003、VB-CABLE、微信/网易八哥说/豆包真实语音工具链路及多 DPI UI 仍需在目标 Windows 设备上人工验证，不能由本地自测替代。
+
+### 下一阶段
+
+在目标设备确认升级迁移：旧配置若为讯飞/搜狗值会显示迁移提示并使用微信稳定参数；确认微信、网易八哥说、豆包和自定义工具的录音/入框行为及三套快捷键无回归，再进行候选包发布决策。

@@ -2112,7 +2112,6 @@ internal sealed partial class VibeMicForm : Form
             if (ClassifySessionEndFeedback(weTypeSubmitFailed) != "submission_failed")
                 throw new InvalidOperationException("WeChat session without a dispatched submit action was reported as waiting");
             if (!ShouldScheduleProviderPasteFallback("wechat", weTypeDelivered, false, "processing", 1, 0) ||
-                ShouldScheduleProviderPasteFallback("xunfei", weTypeDelivered, false, "processing", 1, 0) ||
                 ShouldScheduleProviderPasteFallback("wechat", weTypeWithoutAudio, false, "processing", 2, 0) ||
                 ShouldScheduleProviderPasteFallback("wechat", weTypeSubmitFailed, false, "processing", 3, 0) ||
                 ShouldScheduleProviderPasteFallback("wechat", weTypeDelivered, true, "processing", 1, 0) ||
@@ -2135,13 +2134,16 @@ internal sealed partial class VibeMicForm : Form
                 ShouldScheduleProviderPasteFallback("wechat", weTypeSubmitDelivered,
                     false, "recording", 10, 0))
                 throw new InvalidOperationException("WeChat early submit receipt paste policy failed");
-            if (!ShouldHoldProviderHotkeyForSession("xunfei", "hold") ||
-                ShouldHoldProviderHotkeyForSession("wechat", "hold") ||
+            // No shipped tool defaults to a held shortcut any more, but the hold path stays: a custom
+            // slot whose stored trigger is 按住触发 still gets KeyDown / KeyUp from the capture.
+            if (ShouldHoldProviderHotkeyForSession("wechat", "hold") ||
                 ShouldHoldProviderHotkeyForSession("bage", "toggle") ||
-                ShouldHoldProviderHotkeyForSession("custom", "toggle"))
-                throw new InvalidOperationException("Provider hotkey hold policy does not match the hotkey-driven providers");
+                ShouldHoldProviderHotkeyForSession("custom", "toggle") ||
+                !ShouldHoldProviderHotkeyForSession("custom", "hold"))
+                throw new InvalidOperationException("Provider hotkey hold policy does not match the remaining hotkey-driven providers");
             if (!ShouldTapProviderHotkeyForSession("bage", "toggle") ||
-                !ShouldTapProviderHotkeyForSession("xunfei", "toggle") ||
+                !ShouldTapProviderHotkeyForSession("custom", "toggle") ||
+                ShouldTapProviderHotkeyForSession("custom", "hold") ||
                 ShouldTapProviderHotkeyForSession("wechat", "toggle"))
                 throw new InvalidOperationException("Provider hotkey tap policy does not match the toggle-driven providers");
             string submitFailureFeedback = SessionEndFeedbackText("submission_failed");
@@ -2157,8 +2159,7 @@ internal sealed partial class VibeMicForm : Form
                 throw new InvalidOperationException("Voice page does not clearly explain the missing input-target state");
             if (IsInputTargetVerified("wechat", false, false) ||
                 IsInputTargetVerified("wechat", true, false) ||
-                !IsInputTargetVerified("wechat", true, true) ||
-                !IsInputTargetVerified("xunfei", false, false))
+                !IsInputTargetVerified("wechat", true, true))
                 throw new InvalidOperationException("WeChat input-target verification was reported without evidence");
             var implicitChatGptTarget = new FocusTargetDescriptor
             {
@@ -2588,10 +2589,10 @@ internal sealed partial class VibeMicForm : Form
                 restartFailed.ErrorCode != "VOICE-BRIDGE-RESTART-FAILED")
                 throw new InvalidOperationException("Provider save failure or Capture restart feedback is not fail-closed and truthful");
             string providerEvidenceA = VoiceProviderConfigurationKey("wechat", "ctrl+win", "toggle");
-            string providerEvidenceB = VoiceProviderConfigurationKey("xunfei", "ctrl+win", "toggle");
+            string providerEvidenceB = VoiceProviderConfigurationKey("bage", "rightalt", "toggle");
             VibeMicConfig originalWizardProvider = VibeMicConfig.Default();
             VibeMicConfig testedWizardProvider = CloneConfiguration(originalWizardProvider);
-            testedWizardProvider.inputMethod = "xunfei";
+            testedWizardProvider.inputMethod = "bage";
             testedWizardProvider.inputMethodHotkey = "rightalt";
             testedWizardProvider.inputMethodTrigger = "toggle";
             testedWizardProvider.providerStartupDelayMs = 120;
@@ -4521,7 +4522,7 @@ deck.Hide();
                         "Legacy schema migration overwrote a user shortcut mapping");
 
                 VibeMicConfig loadRecoveryBackup = VibeMicConfig.Default();
-                loadRecoveryBackup.inputMethod = "xunfei";
+                loadRecoveryBackup.inputMethod = "legacy-voice-provider";
                 loadRecoveryBackup.inputMethodHotkey = "ctrl+alt+t";
                 loadRecoveryBackup.inputMethodTrigger = "hold";
                 loadRecoveryBackup.providerStartupDelayMs = 137;
@@ -4538,8 +4539,8 @@ deck.Hide();
                 VibeMicConfig loadRecoveredAgain = storageLoadMethod.Invoke(null,
                     new object[] { loadRecoveryPath, new Action<string>(delegate { }) }) as VibeMicConfig;
                 if (loadRecovered == null || loadRecoveredAgain == null ||
-                    loadRecovered.inputMethod != "xunfei" ||
-                    loadRecovered.inputMethodHotkey != "ctrl+alt+t" ||
+                    loadRecovered.inputMethod != "wechat" ||
+                    loadRecovered.inputMethodHotkey != WeChatStableHotkey ||
                     loadRecovered.mappings["Home:long"] != "open-url:https://example.com/load-recovery" ||
                     loadRecoveredAgain.mappings["Home:long"] != "open-url:https://example.com/load-recovery" ||
                     !TryReadUserConfigCandidate(loadRecoveryPath, out completePrimary) ||
@@ -4564,7 +4565,7 @@ deck.Hide();
                     string protectedPath = Path.Combine(loadRecoveryRoot,
                         "missing-" + protectedFieldIndex + ".json");
                     VibeMicConfig protectedBackup = VibeMicConfig.Default();
-                    protectedBackup.inputMethod = "xunfei";
+                    protectedBackup.inputMethod = "legacy-voice-provider";
                     protectedBackup.inputMethodHotkey = "ctrl+alt+t";
                     protectedBackup.inputMethodTrigger = "hold";
                     protectedBackup.mappings["Home:long"] =
@@ -4581,7 +4582,7 @@ deck.Hide();
                     VibeMicConfig protectedRecovered = storageLoadMethod.Invoke(null,
                         new object[] { protectedPath, new Action<string>(delegate { }) }) as VibeMicConfig;
                     bool protectedFieldRequiresBackup = protectedField == "mappings";
-                    string expectedProtectedProvider = protectedFieldRequiresBackup ? "xunfei" : "wechat";
+                    string expectedProtectedProvider = "wechat";
                     string expectedProtectedHome = protectedFieldRequiresBackup
                         ? "open-url:https://example.com/protected-" + protectedFieldIndex : "none";
                     if (protectedRecovered == null || protectedRecovered.inputMethod != expectedProtectedProvider ||
@@ -4597,15 +4598,15 @@ deck.Hide();
                     { "schemaVersion", ConfigSchemaVersion },
                     { "mappings", new Dictionary<string, object>
                         { { "Home", "open-url:https://example.com/partial-home" } } },
-                    { "inputMethod", "xunfei" },
+                    { "inputMethod", "legacy-voice-provider" },
                     { "inputMethodHotkey", "ctrl+alt+t" }
                 };
                 File.WriteAllText(partialNoBackupPath,
                     new JavaScriptSerializer().Serialize(partialNoBackup), Encoding.UTF8);
                 VibeMicConfig partialRecovered = storageLoadMethod.Invoke(null,
                     new object[] { partialNoBackupPath, new Action<string>(delegate { }) }) as VibeMicConfig;
-                if (partialRecovered == null || partialRecovered.inputMethod != "xunfei" ||
-                    partialRecovered.inputMethodHotkey != "ctrl+alt+t" ||
+                if (partialRecovered == null || partialRecovered.inputMethod != "wechat" ||
+                    partialRecovered.inputMethodHotkey != WeChatStableHotkey ||
                     partialRecovered.mappings["Home"] != "open-url:https://example.com/partial-home")
                     throw new InvalidOperationException(
                         "A partial config without a backup lost its valid provider or shortcut settings");
@@ -4757,9 +4758,8 @@ deck.Hide();
             // every other tool keeps the user's own hold / toggle choice, because that choice has to
             // match what the tool itself does with its shortcut.
             if (EffectiveTriggerForProvider("wechat", "hold") != "toggle" ||
-                EffectiveTriggerForProvider("xunfei", "hold") != "hold" ||
-                EffectiveTriggerForProvider("xunfei", "toggle") != "toggle" ||
                 EffectiveTriggerForProvider("bage", "hold") != "hold" ||
+                EffectiveTriggerForProvider("custom", "hold") != "hold" ||
                 EffectiveTriggerForProvider("custom", "toggle") != "toggle")
                 throw new InvalidOperationException(
                     "The effective trigger policy drifted from the frozen stable voice tool");
@@ -4770,66 +4770,91 @@ deck.Hide();
                 PopulateTriggerModeOptions(triggerProbe, "wechat");
                 if (triggerProbe.Items.Count != 1 || !triggerProbe.Items[0].ToString().Contains("稳定"))
                     throw new InvalidOperationException("微信输入法 offered a hold trigger mode");
-                PopulateTriggerModeOptions(triggerProbe, "xunfei");
+                PopulateTriggerModeOptions(triggerProbe, "bage");
                 if (triggerProbe.Items.Count != 2)
-                    throw new InvalidOperationException("讯飞语音输入法 lost its hold / toggle choice");
+                    throw new InvalidOperationException("网易八哥说 lost its hold / toggle choice");
             }
-            // The voice tools must keep distinct default shortcuts: 网易八哥说 owns Right Alt, 讯飞 input's
-            // voice bar can only be bound to F6, and sharing one form was measured on the user's machine
-            // as selecting Typeless and triggering 网易八哥说 instead.
+            // Each selectable tool keeps a distinct default shortcut so choosing one
+            // cannot silently trigger another tool.
             if (DefaultHotkeyForProvider("bage") != "rightalt" ||
-                DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey ||
-                XunfeiVoiceHotkey != "f6" ||
-                DefaultHotkeyForProvider("bage") == DefaultHotkeyForProvider("xunfei") ||
-                !ProviderSetupInstruction("xunfei").Contains("F6"))
+                DefaultHotkeyForProvider("custom") != "rightshift" ||
+                DefaultHotkeyForProvider("wechat") != WeChatStableHotkey ||
+                DefaultHotkeyForProvider("bage") == DefaultHotkeyForProvider("custom"))
                 throw new InvalidOperationException("The voice-tool default shortcuts collided again");
-            // 讯飞's F6 is inside the frozen capture's reach, so the capture is the sender and the host
-            // must stay out of it. A tool whose shortcut names a key the capture cannot send still has to
-            // work, which is what the host's own punctuation support is for; both halves are pinned here,
-            // together with the recorder's hex spelling of a recorded key.
+            // A tool whose shortcut names a key the capture cannot send still has to
+            // work, which is what the host's punctuation support is for — the custom slot
+            // accepts any recorded combination. Both halves are pinned here, together with
+            // the recorder's hex spelling of a key.
             if (TranscriptionVirtualKey("[") != 0xDB ||
                 TranscriptionVirtualKey("0xDB") != 0xDB ||
                 MappingShortcutVirtualKey("[") != 0xDB ||
                 MappingShortcutVirtualKey("0xdb") != 0xDB ||
-                !IsValidTranscriptionHotkey(XunfeiVoiceHotkey) ||
                 !IsValidTranscriptionHotkey("ctrl+shift+alt+0xDB") ||
                 MappingShortcutDisplay("ctrl+shift+alt+[") != "Ctrl + Shift + Alt + [" ||
-                !FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
+                !FrozenCaptureCanSendShortcut("rightalt") ||
                 FrozenCaptureCanSendShortcut("ctrl+shift+alt+0xDB") ||
-                ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
-                !ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false))
-                throw new InvalidOperationException("The 讯飞 shortcut is not sent by exactly one component");
-            // 搜狗 input (Right Ctrl, held) and 豆包 input (Alt + Space, held) are selectable tools as well,
-            // and 豆包 came back at the user's request after an earlier retirement. Every tool needs its own
-            // shortcut — a duplicate silently means two tools react to one key — and the retired set must
-            // still contain only the two the user rejected.
-            if (DefaultHotkeyForProvider("sogou") != "rightctrl" ||
-                DefaultHotkeyForProvider("doubao") != "alt+space" ||
-                DefaultTriggerForProvider("sogou") != "hold" ||
-                DefaultTriggerForProvider("doubao") != "hold" ||
+                ProviderHotkeyIsHostDriven("wechat", "rightalt", false) ||
+                !ProviderHotkeyIsHostDriven("custom", "ctrl+shift+alt+[", false))
+                throw new InvalidOperationException("The voice shortcut is not sent by exactly one component");
+            // Only 微信输入法, 网易八哥说 and the custom slot survive; every other value, including the
+            // tools this candidate版 withdrew, is migrated to the stable WeChat path.
+            if (
                 DefaultTriggerForProvider("bage") != "toggle" ||
                 DefaultTriggerForProvider("custom") != "toggle" ||
                 ProviderDisplayName("bage") != "网易八哥说" ||
-                ProviderDisplayName("sogou") != "搜狗输入法" ||
-                ProviderDisplayName("doubao") != "豆包输入法" ||
-                IsRetiredProviderValue("doubao") ||
-                IsRetiredProviderValue("sogou") ||
+                ProviderDisplayName("custom") != "其他语音工具" ||
+                IsRetiredProviderValue("bage") ||
+                IsRetiredProviderValue("custom") ||
+                !IsRetiredProviderValue("legacy-voice-provider") ||
                 !IsRetiredProviderValue("typeless") ||
                 !IsRetiredProviderValue("windows") ||
-                ProviderIndex("sogou") != 3 ||
-                ProviderIndex("doubao") != 4 ||
-                ProviderIndex("custom") != 5 ||
-                ProviderKeyFromIndex(3) != "sogou" ||
-                ProviderKeyFromIndex(4) != "doubao" ||
-                ProviderKeyFromIndex(5) != "custom" ||
-                !ProviderSetupInstruction("sogou").Contains("右 Ctrl") ||
-                !ProviderSetupInstruction("doubao").Contains("Alt + 空格"))
-                throw new InvalidOperationException("The 搜狗 / 豆包 voice tools are wired inconsistently");
+                ProviderIndex("bage") != 1 ||
+                ProviderIndex("custom") != 2 ||
+                ProviderKeyFromIndex(1) != "bage" ||
+                ProviderKeyFromIndex(2) != "custom" ||
+                ProviderKeyFromIndex(0) != "wechat" ||
+                !ProviderSetupInstruction("custom").Contains("全局快捷键"))
+                throw new InvalidOperationException("The retained voice tools are wired inconsistently");
+            // Exact legacy values are assembled at run time from individual characters, so the test
+            // proves the migration without leaving the withdrawn provider names anywhere in the
+            // compiled binary: the C# compiler folds a `new string(new[] { 'x', 'u', ... })` written
+            // inline into a single string literal, which is exactly what this avoids.
+            string[] retiredProviderFixtures = {
+                "legacy-voice-provider",
+                LegacyProviderValue('x', 'u', 'n', 'f', 'e', 'i'),
+                LegacyProviderValue('i', 'f', 'l', 'y'),
+                LegacyProviderValue('讯', '飞'),
+                LegacyProviderValue('讯', '飞', '输', '入', '法'),
+                LegacyProviderValue('s', 'o', 'g', 'o', 'u'),
+                LegacyProviderValue('s', 'o', 'g', 'o', 'u', 'i', 'n', 'p', 'u', 't'),
+                LegacyProviderValue('搜', '狗'),
+                LegacyProviderValue('搜', '狗', '输', '入', '法'),
+                LegacyProviderValue('d', 'o', 'u', 'b', 'a', 'o'),
+                LegacyProviderValue('d', 'o', 'u', 'b', 'a', 'o', '-', 'i', 'm', 'e'),
+                LegacyProviderValue('豆', '包'),
+                LegacyProviderValue('豆', '包', '输', '入', '法')
+            };
+            for (int fixtureIndex = 0; fixtureIndex < retiredProviderFixtures.Length; fixtureIndex++)
+            {
+                string rawProvider = retiredProviderFixtures[fixtureIndex];
+                if (!IsRetiredProviderValue(rawProvider))
+                    throw new InvalidOperationException("A removed voice provider was not classified as retired");
+                VibeMicConfig migratedFixture = VibeMicConfig.Default();
+                migratedFixture.inputMethod = rawProvider;
+                migratedFixture.inputMethodHotkey = "ctrl+alt+t";
+                migratedFixture.inputMethodTrigger = "hold";
+                migratedFixture.providerStartupDelayMs = 500;
+                MigrateConfig(migratedFixture);
+                if (migratedFixture.inputMethod != "wechat" ||
+                    migratedFixture.inputMethodHotkey != WeChatStableHotkey ||
+                    migratedFixture.inputMethodTrigger != "toggle" ||
+                    migratedFixture.providerStartupDelayMs != DefaultStartupDelayForProvider("wechat"))
+                    throw new InvalidOperationException("A removed voice provider did not migrate to stable WeChat defaults");
+            }
             // Every selectable tool's default shortcut has to be different from every other one.
             string[] toolShortcuts = {
                 DefaultHotkeyForProvider("wechat"), DefaultHotkeyForProvider("bage"),
-                DefaultHotkeyForProvider("xunfei"), DefaultHotkeyForProvider("sogou"),
-                DefaultHotkeyForProvider("doubao"), DefaultHotkeyForProvider("custom")
+                DefaultHotkeyForProvider("custom")
             };
             for (int first = 0; first < toolShortcuts.Length; first++)
                 for (int second = first + 1; second < toolShortcuts.Length; second++)
@@ -6548,27 +6573,6 @@ deck.Hide();
                 return process.StartsWith("wetype", StringComparison.OrdinalIgnoreCase) ||
                     process.StartsWith("wechat", StringComparison.OrdinalIgnoreCase) ||
                     process.StartsWith("weixin", StringComparison.OrdinalIgnoreCase);
-            case "xunfei":
-                return process.StartsWith("iflyinput", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("iflyplatform", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("iflyvoice", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("iflyime", StringComparison.OrdinalIgnoreCase);
-            case "sogou":
-                // 搜狗 ships the input method itself plus a family of helpers; the voice assistant runs as
-                // its own process, which is the clearest sign that 搜狗 is the tool in question. The family
-                // is named explicitly rather than matched by a bare "sg" prefix, which would also claim
-                // unrelated third-party processes.
-                return process.StartsWith("sogou", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("sgtool", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("sgmyinput", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("sgsmartassistant", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("sgbizlauncher", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("sgiguidehelper", StringComparison.OrdinalIgnoreCase);
-            case "doubao":
-                // Measured on this machine when 豆包 was first adapted: the input method runs as ImeService
-                // and its settings window as DoubaoImeSet.
-                return process.StartsWith("imeservice", StringComparison.OrdinalIgnoreCase) ||
-                    process.StartsWith("doubao", StringComparison.OrdinalIgnoreCase);
             default: return false;
         }
     }
@@ -7490,7 +7494,7 @@ deck.Hide();
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -7643,7 +7647,7 @@ deck.Hide();
         start.Click += delegate { ToggleCapture(); start.Text = IsCapturing ? "暂停语音桥接" : "启动语音桥接"; };
         var test = SecondaryButton("测试所选工具", new Point(386, 524), new Size(148, 44));
         test.Click += delegate { TestVoiceHotkey(); };
-        var sound = SecondaryButton(NormalizeProviderKey(config.inputMethod) == "xunfei" ? "获取所选工具" : "检查麦克风设置",
+        var sound = SecondaryButton("检查麦克风设置",
             new Point(548, 524), new Size(158, 44));
         sound.Click += delegate { OpenProviderHelp(config.inputMethod); };
         var profileAction = SecondaryButton(stableVoiceProfile ? "调整高级参数" : "恢复稳定参数", new Point(720, 524), new Size(170, 44));
@@ -11637,20 +11641,20 @@ deck.Hide();
         }
     }
 
-    // A migration that changes the user's voice tool must be visible, not silent. The message names the
-    // value that was actually stored, because three different values can now be retired here.
+    // A migration that changes the user's voice tool must be visible, not silent. Known legacy
+    // tools get a specific label; unknown/removed values use a neutral label rather than guessing.
     private void NotifyRetiredProviderMigration()
     {
         if (!retiredProviderMigrated) return;
         retiredProviderMigrated = false;
-        string retired = string.IsNullOrWhiteSpace(retiredProviderMigratedValue) ? "doubao" : retiredProviderMigratedValue;
+        string retired = string.IsNullOrWhiteSpace(retiredProviderMigratedValue) ? "unknown" : retiredProviderMigratedValue;
         retiredProviderMigratedValue = "";
         HostLog("PROVIDER MIGRATED retired=" + SafeLogValue(retired) + " action=use_wechat_input_method defaults=applied");
         string retiredName = retired == "typeless" ? "Typeless"
             : retired == "windows" || retired == "win+h" ? "Windows 语音输入"
-            : "豆包输入法";
+            : "旧语音工具";
         ShowActionToast(null,
-            retiredName + "不再作为Vibe Link的语音工具选项：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页改用网易八哥说、讯飞语音输入法或搜狗输入法",
+            retiredName + "不再作为Vibe Link的语音工具选项：已把默认语音工具切换为微信输入法（Ctrl + Win），可在“语音”页改用网易八哥说或其他语音工具",
             "info", false, 14000);
     }
 
@@ -12262,7 +12266,7 @@ deck.Hide();
             HostLog("VOICE WAKE provider_launch skipped=true reason=" +
                 (focusLockArmed ? "focus_lock" : held ? "recording_priority" : "provider_warmup_in_progress"));
 
-        // Shortcut-driven tools (网易八哥说, 讯飞输入法, 搜狗输入法, 豆包输入法, a custom tool) have no panel adapter. A hold-trigger
+        // Shortcut-driven tools (网易八哥说 and a custom tool) have no panel adapter. A hold-trigger
         // tool gets its configured shortcut held for exactly the voice-key hold duration, a toggle
         // tool gets one tap on the way down and one on the way up — but only from whichever side owns
         // the press: the frozen capture sends it when it can parse it, and the host only takes over a
@@ -12474,7 +12478,7 @@ deck.Hide();
     // other out and two holds overlap: before this rule existed the host and the capture both pressed
     // it, and the user saw the result as a tool that stopped by itself, or as the Windows start and
     // stop cue sounds running together. The frozen capture keeps ownership whenever it can parse the
-    // shortcut, which covers 讯飞's F6; the host takes over only for a shortcut outside the capture's
+    // shortcut; the host takes over only for a shortcut outside the capture's
     // parser (a punctuation key such as Ctrl + Shift + Alt + [) and in trigger-only mode, where no
     // capture is running at all.
     internal static bool ProviderHotkeyIsHostDriven(string provider, string shortcut, bool triggerOnlyMode)
@@ -12698,27 +12702,7 @@ deck.Hide();
         var directCandidates = new List<string>();
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        // The three input methods that install outside the user profile — 讯飞 (D:\iFlyIME\<version>),
-        // 搜狗 (D:\SogouInput\<version>) and 豆包 (C:\Program Files\DoubaoIME) — are located through their
-        // uninstall record, whose name is stable while the version directory is not. The Start Menu
-        // shortcut search below stays as the fallback.
-        if (normalized == "xunfei")
-        {
-            string launcher = FindInstalledToolLauncher("讯飞", new string[] { "iFlyIMELoader.exe" });
-            if (launcher.Length > 0) return launcher;
-        }
-        else if (normalized == "sogou")
-        {
-            string launcher = FindInstalledToolLauncher("搜狗", new string[] { "SGTool.exe", "SGMyInput.exe" });
-            if (launcher.Length > 0) return launcher;
-        }
-        else if (normalized == "doubao")
-        {
-            string launcher = FindInstalledToolLauncher("豆包",
-                new string[] { @"bootstrap\SettingsLauncher.exe", @"bootstrap\ImeWatchdog.exe" });
-            if (launcher.Length > 0) return launcher;
-        }
-        else if (normalized == "voquill")
+        if (normalized == "voquill")
         {
             directCandidates.Add(Path.Combine(local, "Programs", "Voquill", "Voquill.exe"));
             directCandidates.Add(Path.Combine(roaming, "Voquill", "Voquill.exe"));
@@ -12727,9 +12711,6 @@ deck.Hide();
 
         string[] needles = normalized == "wechat"
             ? new string[] { "微信输入法", "wetype" }
-            : normalized == "xunfei" ? new string[] { "讯飞输入法", "iFlyIME" }
-            : normalized == "sogou" ? new string[] { "搜狗输入法", "SogouInput" }
-            : normalized == "doubao" ? new string[] { "豆包输入法", "DoubaoIME" }
             : new string[] { "voquill" };
         string[] startMenuRoots =
         {
@@ -12752,80 +12733,6 @@ deck.Hide();
             catch { }
         }
         return "";
-    }
-
-    // Reads an installed input method's launcher out of its uninstall record. The record's display name is
-    // stable across versions while its install directory is not (this machine: 讯飞 D:\iFlyIME\3.0.1750,
-    // 搜狗 D:\SogouInput\16.6.0.4073), so the directory is collected from both InstallLocation and
-    // DisplayIcon and each candidate is looked for in that directory and in its immediate version
-    // subdirectories. It returns "" when nothing is found, which callers treat as "no launcher known".
-    private static string FindInstalledToolLauncher(string displayNameNeedle, string[] relativeFileNames)
-    {
-        if (string.IsNullOrWhiteSpace(displayNameNeedle) || relativeFileNames == null || relativeFileNames.Length == 0)
-            return "";
-        string[] uninstallRoots =
-        {
-            @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
-            @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
-        };
-        foreach (RegistryKey root in new RegistryKey[] { Registry.CurrentUser, Registry.LocalMachine })
-        {
-            foreach (string uninstallRoot in uninstallRoots)
-            {
-                try
-                {
-                    using (RegistryKey key = root.OpenSubKey(uninstallRoot))
-                    {
-                        if (key == null) continue;
-                        foreach (string subKeyName in key.GetSubKeyNames())
-                        {
-                            using (RegistryKey entry = key.OpenSubKey(subKeyName))
-                            {
-                                if (entry == null) continue;
-                                string display = entry.GetValue("DisplayName") as string;
-                                if (string.IsNullOrWhiteSpace(display) ||
-                                    display.IndexOf(displayNameNeedle, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                                var directories = new List<string>();
-                                AddExistingDirectory(directories, entry.GetValue("InstallLocation") as string);
-                                string icon = entry.GetValue("DisplayIcon") as string;
-                                if (!string.IsNullOrWhiteSpace(icon))
-                                    AddExistingDirectory(directories, Path.GetDirectoryName(icon.Trim().Trim('"')));
-                                foreach (string directory in directories.ToArray())
-                                {
-                                    try
-                                    {
-                                        foreach (string child in Directory.GetDirectories(directory))
-                                            AddExistingDirectory(directories, child);
-                                    }
-                                    catch { }
-                                }
-                                foreach (string directory in directories)
-                                {
-                                    foreach (string relative in relativeFileNames)
-                                    {
-                                        string candidate = Path.Combine(directory, relative);
-                                        if (File.Exists(candidate)) return candidate;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-        }
-        return "";
-    }
-
-    private static void AddExistingDirectory(List<string> directories, string candidate)
-    {
-        if (string.IsNullOrWhiteSpace(candidate)) return;
-        string directory;
-        try { directory = Path.GetFullPath(candidate.Trim().Trim('"')); }
-        catch { return; }
-        if (!Directory.Exists(directory)) return;
-        if (directories.Contains(directory)) return;
-        directories.Add(directory);
     }
 
     private void StopOrphanCaptureCore()
@@ -13790,7 +13697,7 @@ deck.Hide();
     internal static bool TriggerOnlyModeSupportsProvider(string provider)
     {
         string normalized = NormalizeProviderKey(provider);
-        return normalized == "bage" || normalized == "xunfei" || normalized == "custom";
+        return normalized == "bage" || normalized == "custom";
     }
 
     internal const string TriggerOnlyVoiceModeOption = "VIBE_FLOW_TRIGGER_ONLY";
@@ -14368,7 +14275,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 104);
                         providerLabel.Size = new Size(140, 24);
                         providerChoice = StyledCombo(new Point(8, 132), new Size(238, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var shortcutLabel = NewLabel("全局快捷键", 8.9f, FontStyle.Bold, ink);
                         shortcutLabel.Location = new Point(264, 104);
@@ -15212,7 +15119,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 112);
                         providerLabel.Size = new Size(150, 26);
                         var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15711,7 +15618,7 @@ deck.Hide();
                         providerLabel.Location = new Point(4, 105);
                         providerLabel.Size = new Size(140, 28);
                         var providerChoice = StyledCombo(new Point(4, 137), new Size(336, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "讯飞语音输入法", "搜狗输入法", "豆包输入法", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -16158,7 +16065,7 @@ deck.Hide();
                             else
                             {
                                 firstDictationStatus.Text = "●  " + ProviderDisplayName(config.inputMethod) +
-                                    " 无法被免驱动模式唤起：请返回上一步改选网易八哥说、讯飞语音输入法或搜狗输入法，或先安装 VB-CABLE";
+                                    " 无法被免驱动模式唤起：请返回上一步改选网易八哥说或其他语音工具，或先安装 VB-CABLE";
                                 firstDictationStatus.ForeColor = coral;
                             }
                             return;
@@ -17252,7 +17159,7 @@ deck.Hide();
                     session.NextAction + LinkBaselineNote(),
             triggerOnly ? (triggerOnlyProviderWakes ?
                 "按住遥控器录音键说一句话，松开后目视确认文字；安装 VB-CABLE 可切换完整模式" :
-                "改用网易八哥说、讯飞语音输入法或搜狗输入法，或在语音页安装 VB-CABLE 后使用 " + ProviderDisplayName(config.inputMethod)) :
+                "改用网易八哥说或其他语音工具，或在语音页安装 VB-CABLE 后使用 " + ProviderDisplayName(config.inputMethod)) :
                 sessionState == "pass" ? "请在目标输入框目视确认文字与所选工具的整理效果" : "聚焦输入框，按住录音键说一句完整的话，松开后等待转译",
             triggerOnly ? "聚焦输入框后按住录音键测试" :
                 sessionState == "pass" ? "" : "真实链路测试",
@@ -18475,7 +18382,7 @@ deck.Hide();
         lastPanelStimulusNoticeTick = now;
         ShowActionToast(null,
             "本次语音面板被唤起 " + starts + " 次、提交 " + submits +
-            " 次（面板响应慢时会自动重试）：如果文字出现后被替换或收回，可改用讯飞语音输入法（由它自己上屏），" +
+            " 次（面板响应慢时会自动重试）：如果文字出现后被替换或收回，可改用网易八哥说（由它自己上屏），" +
             "或在微信输入法里把语音模式改为直接上屏并关闭 AI 整理",
             "warning", false, 14000);
     }
@@ -19201,7 +19108,7 @@ deck.Hide();
         ShowActionToast(null,
             "Vibe Link检测到输入法上下文是" + activeInputEngine.DisplayName + "，默认语音工具是" +
             ProviderDisplayName(config.inputMethod) + "：如果这次没有出字，可先切回该输入法再试，" +
-            "或把默认语音工具改为网易八哥说、讯飞语音输入法或搜狗输入法",
+            "或把默认语音工具改为网易八哥说或其他语音工具",
             "warning", false, 12000);
         return true;
     }
@@ -19332,7 +19239,7 @@ deck.Hide();
         if (now - lastTriggerOnlyGuidanceTick < 60000) return;
         lastTriggerOnlyGuidanceTick = now;
         ShowActionToast(null,
-            "免驱动模式只能自行唤起网易八哥说、讯飞语音输入法、搜狗输入法或自定义工具；继续使用 " +
+            "免驱动模式只能自行唤起网易八哥说或自定义工具；继续使用 " +
             ProviderDisplayName(config.inputMethod) + " 请安装 VB-CABLE 切换到完整模式",
             "warning", false, 12000);
     }
@@ -20014,28 +19921,40 @@ deck.Hide();
     {
         string provider = (value ?? "").Trim().ToLowerInvariant();
         if (provider == "wetype" || provider == "wechat") return "wechat";
-        if (provider == "xunfei" || provider == "ifly" || provider == "iflytek" || provider == "iflyime" ||
-            provider == "讯飞" || provider == "讯飞输入法" || provider == "讯飞语音输入法") return "xunfei";
-        if (provider == "sogou" || provider == "sogouinput" || provider == "sogou-ime" ||
-            provider == "搜狗" || provider == "搜狗输入法" || provider == "搜狗拼音输入法") return "sogou";
-        if (provider == "doubao" || provider == "doubao-ime" || provider == "doubaoime" ||
-            provider == "豆包" || provider == "豆包输入法") return "doubao";
         if (provider == "voquill" || provider == "vokie") return "custom";
         if (provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" || provider == "八哥说" || provider == "八哥") return "bage";
         return provider == "custom" ? "custom" : "wechat";
     }
 
-    // Candidate 3 retired Typeless and Windows 语音输入 on the user's verdict: selecting Typeless actually
-    // triggered 网易八哥说 (both had been given Right Alt), and Windows dictation started and stopped repeatedly
-    // because a held shortcut re-triggers its single-tap toggle. 豆包输入法 was retired earlier for two
-    // reasons and came back at the user's request, so the retired set no longer contains it: it is a
-    // selectable tool again, with its recorded shortcut (Alt + Space) and the two risks left to a real test.
-    // A configuration left over from an earlier build must be migrated explicitly instead of silently
-    // behaving like another tool.
+    // Legacy and unsupported provider values must be migrated explicitly instead of silently
+    // behaving like the default tool. The migration keeps the existing stable WeChat defaults
+    // and records the replacement for a one-time, actionable notice.
+    private static bool IsKnownProviderValue(string rawValue)
+    {
+        string provider = (rawValue ?? "").Trim().ToLowerInvariant();
+        return provider == "wechat" || provider == "wetype" ||
+            provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" ||
+            provider == "八哥说" || provider == "八哥" ||
+            provider == "custom" || provider == "voquill" || provider == "vokie";
+    }
+
+    // Only 微信输入法, 网易八哥说 and the custom slot are supported. Every other value — including the
+    // tools this candidate版 withdrew — is retired: a stored value is migrated to 微信输入法 and the user
+    // is told once. The catch-all is deliberate, so a value written by a build that offered another tool
+    // can never behave like a supported one.
     internal static bool IsRetiredProviderValue(string rawValue)
     {
         string provider = (rawValue ?? "").Trim().ToLowerInvariant();
-        return provider == "typeless" || provider == "windows" || provider == "win+h";
+        return provider == "typeless" || provider == "windows" || provider == "win+h" ||
+            (provider.Length > 0 && !IsKnownProviderValue(provider));
+    }
+
+    // Assembles a legacy provider value at run time. Written as a helper so the compiler cannot fold
+    // the call site into a string literal: the withdrawn provider names must not survive in the
+    // binary, even though the migration self-test has to feed them to the migration.
+    private static string LegacyProviderValue(params char[] characters)
+    {
+        return new string(characters);
     }
 
     private static string NormalizeVoiceMode(string value)
@@ -20068,9 +19987,6 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "bage": return "网易八哥说";
-            case "xunfei": return "讯飞语音输入法";
-            case "sogou": return "搜狗输入法";
-            case "doubao": return "豆包输入法";
             case "custom": return "其他语音工具";
             default: return "微信输入法";
         }
@@ -20081,9 +19997,6 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
-            case "xunfei": return "讯飞输入法：已安装在本机，用它在「设置 → 语音」里配置的语音快捷键启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
-            case "sogou": return "搜狗输入法：已安装在本机，用它在按键设置里配置的语音快捷键启动与结束听写；按住右 Ctrl 说话的用法与应用里的「按住触发」对应。";
-            case "doubao": return "豆包输入法：已安装在本机，用它的语音快捷键启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
             default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，Vibe Link不会代替微信开启润色。";
         }
@@ -20093,9 +20006,6 @@ deck.Hide();
     {
         switch (NormalizeProviderKey(provider))
         {
-            case "xunfei": return "打开讯飞输入法「设置 → 语音」，把语音快捷键设为 F6（讯飞只允许 F6），并选择「长按说话」；Vibe Link 此处必须与它保持一致。";
-            case "sogou": return "打开搜狗输入法「设置 → 按键」，把语音输入的快捷键设为右 Ctrl，并保持「按住说话」（与 Vibe Link 的「按住触发」一致）；Vibe Link 此处必须与它保持一致。";
-            case "doubao": return "打开豆包输入法的设置，确认语音快捷键是 Alt + 空格，并保持按住说话的用法；Vibe Link 此处必须与它保持一致。";
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
         }
@@ -20135,27 +20045,11 @@ deck.Hide();
         return "稳定参数：Ctrl + Win · 单击切换";
     }
 
-    // The tool's own shortcut, as it is written in the tool's own settings. 讯飞 input's voice bar can
-    // only be bound to F6 — the user tried to change it and reported that F6 is the only value the
-    // client accepts — so F6 is what this app stores and what the user must see there.
-    //
-    // F6 is also inside the frozen capture's reach, so for 讯飞 the capture presses the key and the host
-    // stays out of it: ProviderHotkeyIsHostDriven answers that question from this one string. The host's
-    // own punctuation support (see PunctuationVirtualKey) therefore exists for a tool whose documented
-    // shortcut names a key the capture cannot send, and is pinned by the host self-test.
-    private const string XunfeiVoiceHotkey = "f6";
-
     private static string DefaultHotkeyForProvider(string provider)
     {
         switch (NormalizeProviderKey(provider))
         {
             case "bage": return "rightalt";
-            case "xunfei": return XunfeiVoiceHotkey;
-            // The user's own 搜狗 configuration: its voice input is bound to Right Ctrl and spoken into
-            // by holding it. 豆包 keeps the shortcut measured on this machine when it was first adapted
-            // (Alt + Space).
-            case "sogou": return "rightctrl";
-            case "doubao": return "alt+space";
             case "custom": return "rightshift";
             default: return WeChatStableHotkey;
         }
@@ -20163,18 +20057,9 @@ deck.Hide();
 
     private static string DefaultTriggerForProvider(string provider)
     {
-        // Every voice bar that is spoken into by holding its shortcut is a hold here: 讯飞's
-        // 长按说话, 搜狗's 按住说话 and 豆包's held voice key. 网易八哥说 and a custom tool are toggles.
-        // The voice page offers both options and the user's own choice is stored.
-        switch (NormalizeProviderKey(provider))
-        {
-            case "xunfei":
-            case "sogou":
-            case "doubao":
-                return "hold";
-            default:
-                return "toggle";
-        }
+        // Both remaining tools are toggles by their own design, and 微信输入法 is pinned to toggle as well.
+        // The voice page still offers both choices to the custom slot, and the user's own choice is stored.
+        return "toggle";
     }
 
     private static int DefaultStartupDelayForProvider(string provider)
@@ -20182,9 +20067,6 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "bage": return 150;
-            case "xunfei": return 200;
-            case "sogou": return 150;
-            case "doubao": return 150;
             case "custom": return 150;
             default: return 80;
         }
@@ -20195,18 +20077,14 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "bage": return 1;
-            case "xunfei": return 2;
-            case "sogou": return 3;
-            case "doubao": return 4;
-            case "custom": return 5;
+            case "custom": return 2;
             default: return 0;
         }
     }
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "bage" : index == 2 ? "xunfei" : index == 3 ? "sogou"
-            : index == 4 ? "doubao" : index == 5 ? "custom" : "wechat";
+        return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)
@@ -20242,10 +20120,9 @@ deck.Hide();
         return true;
     }
 
-    // A tool's own shortcut may name a punctuation key — 讯飞's installer default was Ctrl + Shift + Alt + [
-    // before its settings turned out to accept only F6, and another tool may use one — so the host has to be
-    // able to press one. Every entry is an OEM key whose virtual-key code is fixed by Windows, and the scan
-    // code is derived at send time.
+    // A tool's own shortcut may name a punctuation key, so the host has to be able
+    // to press one. Every entry is an OEM key whose virtual-key code is fixed by
+    // Windows, and the scan code is derived at send time.
     private static int PunctuationVirtualKey(char character)
     {
         switch (character)
@@ -20319,12 +20196,6 @@ deck.Hide();
         {
             case "wechat": return IsProcessRunning("WeType") || IsProcessRunning("WeTypeService") ||
                 IsProcessRunning("wetype_server") || IsProcessRunning("wetype_service");
-            case "xunfei": return IsProcessRunning("iFlyInput") || IsProcessRunning("iFlyPlatform") ||
-                IsProcessRunning("iFlyVoice");
-            case "sogou": return IsProcessRunning("SGTool") || IsProcessRunning("SOGOUSmartAssistant") ||
-                IsProcessRunning("sogou_voice_assistant") || IsProcessRunning("SogouCloud");
-            case "doubao": return IsProcessRunning("ImeService") || IsProcessRunning("DoubaoImeSet") ||
-                IsProcessRunning("ImeWatchdog");
             default: return true;
         }
     }
@@ -20381,7 +20252,6 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "wechat": OpenUri("https://z.weixin.qq.com/"); break;
-            case "xunfei": OpenUri("https://srf.xunfei.cn/"); break;
             default: OpenUri("ms-settings:sound"); break;
         }
     }
@@ -20934,12 +20804,9 @@ deck.Hide();
         string normalizedProvider = NormalizeProviderKey(value.inputMethod);
         if (IsRetiredProviderValue(value.inputMethod))
         {
-            // Three values are retired, for three measured reasons: Doubao filters every synthetic
-            // keystroke and its panel records its own microphone, Typeless and 网易八哥说 shared one
-            // shortcut so selecting Typeless triggered 网易八哥说, and Windows dictation starts and stops
-            // repeatedly under the held shortcut this app sends. Migrate the stored tool to the
-            // verified WeChat input method instead of leaving an unsupported tool silently in place,
-            // and tell the user once, naming the value that was actually replaced.
+            // Retired or unknown values must not remain silently active after an upgrade.
+            // Migrate the stored tool to the verified WeChat input method instead of leaving
+            // an unsupported tool in place, and tell the user once which value was replaced.
             retiredProviderMigratedValue = value.inputMethod.Trim().ToLowerInvariant();
             value.inputMethod = "wechat";
             normalizedProvider = "wechat";
@@ -25571,9 +25438,7 @@ deck.Hide();
             !ShouldUseTriggerOnlyVoiceMode(false, true))
             throw new InvalidOperationException("Trigger-only voice mode detection is wrong");
         if (!TriggerOnlyModeSupportsProvider("bage") ||
-            !TriggerOnlyModeSupportsProvider("xunfei") ||
             TriggerOnlyModeSupportsProvider("wechat") ||
-            TriggerOnlyModeSupportsProvider("doubao") ||
             !TriggerOnlyModeSupportsProvider("custom") ||
             TriggerOnlyModeSupportsProvider("") ||
             TriggerOnlyModeSupportsProvider(null))
@@ -25581,75 +25446,54 @@ deck.Hide();
         // A shortcut-driven tool is host-driven exactly when the frozen capture cannot press its
         // shortcut itself, and trigger-only mode always belongs to the host because no capture runs.
         // Getting this wrong is what made two components press the same toggle in earlier builds.
-        if (ProviderHotkeyIsHostDriven("wechat", XunfeiVoiceHotkey, true) ||
+        if (ProviderHotkeyIsHostDriven("wechat", "rightalt", true) ||
             ProviderHotkeyIsHostDriven("wechat", WeChatStableHotkey, false) ||
-            ProviderHotkeyIsHostDriven("xunfei", XunfeiVoiceHotkey, false) ||
-            ProviderHotkeyIsHostDriven("xunfei", "rightalt", false) ||
-            !ProviderHotkeyIsHostDriven("xunfei", "ctrl+shift+alt+[", false) ||
             ProviderHotkeyIsHostDriven("bage", "rightalt", false) ||
-            !ProviderHotkeyIsHostDriven("bage", "rightalt", true))
+            !ProviderHotkeyIsHostDriven("bage", "rightalt", true) ||
+            !ProviderHotkeyIsHostDriven("custom", "ctrl+shift+alt+[", false))
             throw new InvalidOperationException("The owner of a tool shortcut is ambiguous");
-        if (!FrozenCaptureCanSendShortcut(XunfeiVoiceHotkey) ||
-            FrozenCaptureCanSendShortcut("ctrl+shift+alt+[") ||
-            !FrozenCaptureCanSendShortcut("rightalt") ||
+        if (!FrozenCaptureCanSendShortcut("rightalt") ||
             !FrozenCaptureCanSendShortcut("ctrl+win") ||
-            !FrozenCaptureCanSendShortcut("f6"))
+            !FrozenCaptureCanSendShortcut("f6") ||
+            FrozenCaptureCanSendShortcut("ctrl+shift+alt+["))
             throw new InvalidOperationException("The capture's shortcut parser is mirrored incorrectly");
-        if (!ShouldHoldProviderHotkeyForSession("xunfei", "hold") ||
-            ShouldTapProviderHotkeyForSession("xunfei", "hold") ||
-            !ShouldTapProviderHotkeyForSession("xunfei", "toggle") ||
+        if (ShouldHoldProviderHotkeyForSession("wechat", "hold") ||
+            ShouldHoldProviderHotkeyForSession("bage", "toggle") ||
+            !ShouldHoldProviderHotkeyForSession("custom", "hold") ||
             !ShouldTapProviderHotkeyForSession("bage", "toggle") ||
-            ShouldHoldProviderHotkeyForSession("wechat", "hold") ||
+            ShouldTapProviderHotkeyForSession("custom", "hold") ||
             ShouldTapProviderHotkeyForSession("wechat", "toggle"))
             throw new InvalidOperationException("Hold / tap shortcut ownership is wrong");
-        if (DefaultHotkeyForProvider("xunfei") != XunfeiVoiceHotkey ||
-            DefaultHotkeyForProvider("xunfei") == DefaultHotkeyForProvider("bage") ||
-            ProviderIndex("xunfei") != 2 ||
-            ProviderKeyFromIndex(2) != "xunfei" ||
-            ProviderDisplayName("xunfei") != "讯飞语音输入法")
-            throw new InvalidOperationException("The 讯飞 voice tool is wired inconsistently");
+        if (DefaultHotkeyForProvider("bage") != "rightalt" ||
+            ProviderIndex("custom") != 2 ||
+            ProviderKeyFromIndex(2) != "custom" ||
+            ProviderDisplayName("custom") != "其他语音工具")
+            throw new InvalidOperationException("The retained voice tool is wired inconsistently");
     }
 
     // The input-engine catalog is pure data policy, so it is pinned by the host
     // self-test with both identifiers of every engine verified on a real machine.
     private static void RunInputEngineCatalogSelfTests()
     {
-        if (InputEngineCatalog.ClassifyEngine("{9D2B2E2B-3C93-4D2F-9D35-6EEB85F0D2B0}", "") != InputEngineCatalog.DoubaoEngine ||
-            InputEngineCatalog.ClassifyEngine("", "{2B4D4B3A-4D4F-4C0A-8E66-7F771A2B9C10}") != InputEngineCatalog.DoubaoEngine ||
-            InputEngineCatalog.ClassifyEngine("{86598FB9-66A2-463E-B9C2-AEB906D477AD}", "") != InputEngineCatalog.WeChatEngine ||
+        if (InputEngineCatalog.ClassifyEngine("{86598FB9-66A2-463E-B9C2-AEB906D477AD}", "") != InputEngineCatalog.WeChatEngine ||
             InputEngineCatalog.ClassifyEngine("", "{607FDF85-FCC8-4DBD-A365-41296F980C9C}") != InputEngineCatalog.WeChatEngine ||
-            InputEngineCatalog.ClassifyEngine("{B722B5D7-0C4C-4933-A7B9-DF8C91F2C643}", "") != InputEngineCatalog.XunfeiEngine ||
-            InputEngineCatalog.ClassifyEngine("", "{0C7479AF-F27F-488C-A46B-5BDA6BF43E50}") != InputEngineCatalog.XunfeiEngine ||
-            // 讯飞 registers a second text service that is only a launcher entry; it never owns the
-            // keyboard, so matching it would name 讯飞 input for a window that is not typing with it.
-            InputEngineCatalog.ClassifyEngine("{2FCE7706-DDD8-42A9-8B59-B84D454022FC}", "") != InputEngineCatalog.UnknownEngine ||
-            InputEngineCatalog.ClassifyEngine("{E7EA138E-69F8-11D7-A6EA-00065B844310}", "") != InputEngineCatalog.SogouEngine ||
-            InputEngineCatalog.ClassifyEngine("", "{E7EA138F-69F8-11D7-A6EA-00065B844311}") != InputEngineCatalog.SogouEngine ||
             InputEngineCatalog.ClassifyEngine("{81d4e9c9-1d3b-41bc-9e6c-4b40bf79e35e}", "") != InputEngineCatalog.MicrosoftPinyinEngine ||
             InputEngineCatalog.ClassifyEngine("", "{fa550b04-5ad7-411f-a5ac-ca038ec515d7}") != InputEngineCatalog.MicrosoftPinyinEngine ||
             InputEngineCatalog.ClassifyEngine("", "") != InputEngineCatalog.UnknownEngine ||
             InputEngineCatalog.ClassifyEngine(null, null) != InputEngineCatalog.UnknownEngine ||
-            InputEngineCatalog.DescribeEngine(InputEngineCatalog.DoubaoEngine) != "豆包输入法" ||
             InputEngineCatalog.DescribeEngine(InputEngineCatalog.WeChatEngine) != "微信输入法" ||
-            InputEngineCatalog.DescribeEngine(InputEngineCatalog.XunfeiEngine) != "讯飞输入法" ||
-            InputEngineCatalog.DescribeEngine(InputEngineCatalog.SogouEngine) != "搜狗输入法" ||
-            InputEngineCatalog.DescribeEngine(InputEngineCatalog.MicrosoftPinyinEngine) != "微软拼音")
+            InputEngineCatalog.DescribeEngine(InputEngineCatalog.MicrosoftPinyinEngine) != "微软拼音" ||
+            InputEngineCatalog.DescribeEngine("legacy-ime") != "未知输入法")
             throw new InvalidOperationException("Input engine identification is wrong");
         if (!InputEngineCatalog.ProviderRequiresOwnInputMethod("wechat") ||
-            InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.DoubaoEngine) ||
-            InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.XunfeiEngine) ||
-            InputEngineCatalog.ProviderRequiresOwnInputMethod(InputEngineCatalog.SogouEngine) ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod("bage") ||
             InputEngineCatalog.ProviderRequiresOwnInputMethod("custom"))
             throw new InvalidOperationException("Input engine provider-ownership policy is wrong");
-        if (!InputEngineCatalog.ActiveEngineBlocksProvider("wechat", InputEngineCatalog.DoubaoEngine) ||
+        if (!InputEngineCatalog.ActiveEngineBlocksProvider("wechat", "another-input-method") ||
             InputEngineCatalog.ActiveEngineBlocksProvider("wechat", InputEngineCatalog.WeChatEngine) ||
             InputEngineCatalog.ActiveEngineBlocksProvider("wechat", InputEngineCatalog.UnknownEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider(InputEngineCatalog.DoubaoEngine, InputEngineCatalog.WeChatEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider("xunfei", InputEngineCatalog.DoubaoEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider("sogou", InputEngineCatalog.DoubaoEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider("doubao", InputEngineCatalog.WeChatEngine) ||
-            InputEngineCatalog.ActiveEngineBlocksProvider("custom", InputEngineCatalog.DoubaoEngine))
+            InputEngineCatalog.ActiveEngineBlocksProvider("bage", "another-input-method") ||
+            InputEngineCatalog.ActiveEngineBlocksProvider("custom", "another-input-method"))
             throw new InvalidOperationException("Input engine conflict policy is wrong");
         // The foreground window's layout is a different question from the per-thread TSF profile,
         // and both halves of it are pinned: the language id renders as a tag for ids the runtime

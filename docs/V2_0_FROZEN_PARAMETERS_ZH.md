@@ -29,7 +29,7 @@
 | `autoLevel` | **`true`**（= 声音处理为 `speech`） | `StableVoiceProcessing = "speech"` |
 | `drainMs` | **`180`** | 尾音排空 |
 | 默认音频端点 | **`CABLE Input`** | `StableVoiceEndpoint`；录音端为 `CABLE Output` |
-| 可选语音工具 | 微信输入法（默认）/ Typeless / **八哥说（网易，默认快捷键右 Alt）** / Windows 语音输入 / 其他自定义工具；八哥说是否直写输入框**尚未实测**，因此**不启用**自动粘贴 | `ProviderIndex` 与 4 处下拉必须同序 |
+| 可选语音工具 | 微信输入法（默认）/ **网易八哥说（默认快捷键右 Alt）** / 其他自定义工具；三个选项按此顺序出现在语音页与向导 | `ProviderIndex` 与 4 处下拉必须同序；任何其它值（含已下线的 Typeless / Windows 语音输入 / 讯飞 / 搜狗 / 豆包）回退到微信输入法 |
 | 禁止项 | 无 MIC_EXTEND、无自动续接、无点击切换、无自动 Enter、无云端识别、无网页正文读取 | 由 `validate.js` 断言 |
 
 ## 3. 按键与手势
@@ -191,50 +191,36 @@
 | --- | --- | --- | --- |
 | **微信输入法**（默认 ✔） | **`ctrl+win`** ✔ | 单击切换（稳定 ✔） | **冻结值** ✗，不得改（真机验证过的稳定参数 ✔） |
 | **网易八哥说** ✔ | **`rightalt`** ✔ | 单击切换 ✔ | 用户确认其客户端即为**右 Alt** ✔；显示名按用户要求写成**网易八哥说** ✔ |
-| **讯飞语音输入法** ✔ | **`f6`** ✔ | **按住触发** ✔（长按说话 ✔） | **用户实测：讯飞的语音栏只允许绑定 F6** ✔（"快捷键只能设置为 f6" ✔）→ 应用按 F6 存 ✔ |
-| **搜狗输入法**（新增 ✔） | **`rightctrl`** ✔ | **按住触发** ✔（按住右 Ctrl 说话 ✔） | 用户本机配置 ✔：**右 Ctrl 激活** ✔，按住说话 ✔ → 应用按 `rightctrl` + 按住触发存 ✔ |
-| **豆包输入法**（新增 ✔） | **`alt+space`** ✔ | **按住触发** ✔ | 早期适配时在本机实测到的语音快捷键 ✔；用户要求重新接入 ✔（§12.1.3 ✔） |
 | **其他语音工具**（自定义 ✔） | **`rightshift`** ✔ | 单击切换 ✔ | **由 `ctrl+win` 改为 `rightshift`** ✗：此前与微信输入法**重复** ✗ |
 
-- **不变式** ✔（已加门禁 + 自测 ✔）：以上**六个**工具的默认快捷键**两两不同** ✔（自测用双重循环穷举比对 ✔）；改动前请同时更新 `scripts/validate.js` 的断言 ✔。
+- **不变式** ✔（已加门禁 + 自测 ✔）：以上**三个**工具的默认快捷键**两两不同** ✔（自测用双重循环穷举比对 ✔）；改动前请同时更新 `scripts/validate.js` 的断言 ✔。
 - **注意** ✗：应用里存的快捷键**只是"我们发送什么"** ✔ —— 必须与**该工具自己的设置**完全一致 ✔，否则按下不会启动听写 ✔。
-- **本机当前配置** ✔（读回 `vibe-mic-config.json` ✔）：迁移后为 `inputMethod = wechat` ✔、`inputMethodHotkey = ctrl+win` ✔、`inputMethodTrigger = toggle` ✔、`voiceMode = hold` ✔；改用讯飞时由应用把三个字段写成 `xunfei` / `f6` / `hold` ✔（备份 `vibe-mic-config.json.before-f6-switch.bak` ✔）。
 
-### 12.1.3 搜狗与豆包（2026-09-13 深夜，用户要求新增 ✔）
+### 12.1.1 已下线：Typeless、Windows 语音输入、讯飞、搜狗、豆包（2026-09-13 ✔）
 
-| 工具 | 默认值 ✔ | 用户侧前提 ✔ | 未验证 ✗ |
-| --- | --- | --- | --- |
-| **搜狗输入法** ✔ | `rightctrl` + **按住触发** ✔ | 搜狗「设置 → 按键」里语音输入快捷键 = **右 Ctrl** ✔ 且为**按住说话** ✔ | 真机"按住录音键能出字"未测 ✔ |
-| **豆包输入法** ✔ | `alt+space` + 按住触发 ✔ | 豆包设置里语音快捷键 = **Alt + 空格** ✔ | **两条历史风险**：其语音面板**可能不理会模拟按键** ✗；其麦克风列表**可能不含虚拟声卡 `CABLE Output`** ✗（早期记录未最终坐实 ✔）→ 实测决定去留 ✔ |
-
-- **进程识别** ✔：搜狗 = `SGTool` / `SOGOUSmartAssistant` / `sogou_voice_assistant` / `SogouCloud` ✔；豆包 = `ImeService` / `DoubaoImeSet` / `ImeWatchdog` ✔。
-- **TSF 身份** ✔（自检页会正确显示当前输入法 ✔）：搜狗 CLSID `{E7EA138E-…}` + profile `{E7EA138F-…}` ✔（本机注册表读得 ✔）。
-- **豆包不再算"已下线"** ✗→✔：`IsRetiredProviderValue` 现在**只剩** `typeless` / `windows` ✔，自测与门禁都钉住这一点 ✔。
-
-### 12.1.1 已下线：Typeless 与 Windows 语音输入（2026-09-13 深夜，用户判定 ✗）
-
-| 已下线工具 | 原因（用户实测 ✔） | 迁移方式 ✔ |
+| 已下线工具 | 原因 | 迁移方式 ✔ |
 | --- | --- | --- |
-| **Typeless** | 选 Typeless 却**实际触发八哥说** ✗（两者默认快捷键都是 `rightalt` ✗） | 存有该值的配置 **自动迁移为微信输入法** ✔ 并**弹窗点名** ✔ |
-| **Windows 语音输入** | Win+H 是**单击切换** ✔，被"按住"驱动 → **开始/结束反复触发** ✗、**停不下来** ✗ | 同上 ✔ |
+| **Typeless** ✗ | 用户实测：选它**实际触发网易八哥说** ✗（两者默认快捷键当时都是 `rightalt` ✗） | 存有该值的配置 **自动迁移为微信输入法** ✔ 并**弹一次提示** ✔ |
+| **Windows 语音输入** ✗ | 用户实测：Win+H 是**单击切换** ✔，被"按住"驱动 → **开始/结束反复触发** ✗、**停不下来** ✗ | 同上 ✔ |
+| **讯飞输入法** ✗ | 用户要求**暂时不支持** ✔（曾按 F6 接入 ✔） | 同上 ✔ |
+| **搜狗输入法** ✗ | 用户实测**"无法正常使用"** ✗（曾按右 Ctrl + 按住触发接入 ✔） | 同上 ✔ |
+| **豆包输入法** ✗ | 用户要求**暂时不支持** ✔（曾按 `alt+space` 接入 ✔，本身还有两条未坐实的风险 ✗） | 同上 ✔ |
 
-- 两者已从**所有下拉框**、`NormalizeProviderKey`、默认快捷键/触发/延时、进程匹配、状态文案中**彻底移除** ✔；`IsRetiredProviderValue` 现在同时覆盖 `doubao` / `typeless` / `windows` ✔（自测 + 门禁钉住 ✔）。
+- 五个值已从**所有下拉框**、`NormalizeProviderKey`、默认快捷键/触发/延时、进程匹配、状态文案、启动器定位、自测与门禁中**彻底移除** ✔。
+- **迁移是"通配"的** ✔：`IsRetiredProviderValue` = 已知三个值之外**任何非空值**都算退役 ✔（`IsKnownProviderValue` ✔），所以旧版本写下的任何工具值都**不可能**被当成受支持的工具 ✔（自测用 13 个历史值逐一验证迁移 ✔）。
 - 迁移会记一行 `PROVIDER MIGRATED retired=<值> action=use_wechat_input_method defaults=applied` ✔ 并弹一次提示 ✔。
 
-### 12.1.2 快捷键的"唯一归属"规则（讯飞用 F6，因此由**冻结采集件**发送 ✔）
+### 12.1.2 快捷键的"唯一归属"规则 ✔
 
-**实测发现的问题** ✗（2026-09-13 日志 ✔）：旧版对 Typeless / Windows 是**主机与冻结采集件同时发送**快捷键 ✗（`PROVIDER HOTKEY SESSION action=down` ✔ 与 `TRANSCRIPTION TRIGGER … sent=True` ✔ 同时出现 ✔）——两个组件各按一次切换键 ✔ = 自己开始/自己停止 ✗。
+**实测发现的问题** ✗（2026-09-13 日志 ✔）：旧版对已下线的两个工具是**主机与冻结采集件同时发送**快捷键 ✗（`PROVIDER HOTKEY SESSION action=down` ✔ 与 `TRANSCRIPTION TRIGGER … sent=True` ✔ 同时出现 ✔）——两个组件各按一次切换键 ✔ = 自己开始/自己停止 ✗。
 
 **因此新增"唯一归属"规则** ✔（`ProviderHotkeyIsHostDriven` ✔）：
 
 1. **微信输入法** ✔ → 面板由**冻结采集件**驱动 ✔，主机**从不**碰它的快捷键 ✔。
-2. 其它工具 ✔ → **采集件能解析就该采集件发** ✔；只有**采集件发不出去**的快捷键 ✔（标点键 ✗ —— 冻结件只认字母/数字/F1–F24/少量具名键 ✗）或**免驱动模式**（根本没有采集件 ✔）才由**主机**发 ✔。
-3. **讯飞的 F6 在采集件能力范围内** ✔ → **采集件发** ✔，主机**不发** ✔（切换值只需改一个常量 ✔，归属判断自动跟着走 ✔）。
-4. 触发语义跟随**有效触发值** ✔：`hold` → 按下 KeyDown、松开发 KeyUp ✔；`toggle` → 按下与松开各 tap 一次 ✔。
+2. 其它工具 ✔ → **采集件能解析就该采集件发** ✔（网易八哥说的 `rightalt` ✔、自定义的 `rightshift` ✔ 都在采集件能力范围内 ✔）；只有**采集件发不出去**的快捷键 ✔（标点键 ✗ —— 冻结件只认字母/数字/F1–F24/少量具名键 ✗）或**免驱动模式**（根本没有采集件 ✔）才由**主机**发 ✔。
+3. 触发语义跟随**有效触发值** ✔：`hold` → 按下 KeyDown、松开发 KeyUp ✔；`toggle` → 按下与松开各 tap 一次 ✔。
 
-**为什么保留标点支持** ✔：讯飞 3.0 安装时写进注册表的默认值是 `Ctrl + Shift + Alt + [` ✔（`iFlyImeVoiceShiftHotKey` ✔），但讯飞设置界面**只让绑 F6** ✗ → 应用最终用 F6 ✔；标点支持（`PunctuationVirtualKey` ✔ / 主机的 `0xDB` ✔ 与 `[` ✔ 等价 ✔）作为**通用能力**保留 ✔，并仍由自测 + 门禁钉住 ✔。
-
-**证据** ✔：主机自测断言 ✔（`ProviderHotkeyIsHostDriven` 多组合 ✔、`FrozenCaptureCanSendShortcut("f6")=true` ✔ 而 `ctrl+shift+alt+[` 为 false ✔、镜像解析器 ✔、hold/tap 归属 ✔）；`scripts/validate.js` **逐字比对**主机镜像与冻结采集件的键名表 ✔（采集件冻结 ✔，单边改动会变成"没人发送" ✗）。
+**证据** ✔：主机自测断言 ✔（`ProviderHotkeyIsHostDriven` 多组合 ✔、`FrozenCaptureCanSendShortcut("rightalt")=true` ✔ 而 `ctrl+shift+alt+[` 为 false ✔、镜像解析器 ✔、hold/tap 归属 ✔）；`scripts/validate.js` **逐字比对**主机镜像与冻结采集件的键名表 ✔（采集件冻结 ✔，单边改动会变成"没人发送" ✗），并**逐 token 断言**五个已下线工具的名字不再出现在运行面 ✔。
 
 ### 12.2 共用形态 `0xFF/0x5E` 的判别（电源键不再触发录音 ✔）
 
@@ -299,7 +285,6 @@
 
 - `EffectiveTriggerForProvider(provider, trigger)` ✔：**微信输入法一律 `toggle`** ✔（**无论配置里存的是什么** ✔，因为它是冻结的稳定路径 ✔）；其余工具**尊重用户选择** ✔（`hold` / `toggle` ✔）。采集参数传**有效值** ✔：`SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger))` ✔。
 - `PopulateTriggerModeOptions` ✔：微信输入法**只给一个**选项 ✔「单击切换（稳定）」✔ —— 界面上就**不可能**给它选"按住触发" ✔。
-- 讯飞默认 **`hold`** ✔（`DefaultTriggerForProvider` ✔），因为讯飞自己的语音栏是**长按说话 / 松手结束** ✔；用户在语音页可改成"单击切换" ✔。
 
 **证据** ✔（含负控 ✔）：把 `toggle` 的 pin 临时改成 `if (false)` ✗ → `VibeMic.exe --self-test` **退出码 1** ✗，报错正是 `The effective trigger policy drifted from the frozen stable voice tool` ✔；还原后自检**通过** ✔（退出码 0 ✔）。
 
