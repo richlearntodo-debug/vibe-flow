@@ -136,6 +136,38 @@ try {
     if ($NoConfigFixture -and -not [string]::IsNullOrWhiteSpace($PreviousInstallerPath)) {
         throw "NoConfigFixture cannot be combined with PreviousInstallerPath."
     }
+    # Vibe Link processes are stopped and named with the directory they run from: the previous release's own
+    # installer starts that release even in silent mode, and a running instance writes its configuration
+    # back. The account is disposable by contract (Assert-DisposableAccount refuses otherwise).
+    function Get-VibeLinkProcesses {
+        return @(Get-Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProcessName -in @("VibeFlow", "VibeMic", "VibeMicAtvvCapture", "VoxDeckInputBridge") })
+    }
+    function Format-VibeLinkProcesses($Processes) {
+        return (($Processes | ForEach-Object {
+            $path = ""
+            try { $path = $_.Path } catch { $path = "(path unavailable)" }
+            $_.ProcessName + "#" + $_.Id + "[" + $path + "]"
+        }) -join ", ")
+    }
+    function Stop-VibeLinkProcesses([string]$Phase) {
+        $running = Get-VibeLinkProcesses
+        if ($running.Count -gt 0) {
+            Write-Host ("stopping " + $running.Count + " running Vibe Link process(es) " + $Phase + ": " +
+                (Format-VibeLinkProcesses $running))
+            $running | Stop-Process -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 800
+        }
+        return $running.Count
+    }
+    function Get-TextSha256([string]$Text) {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            return (($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) |
+                ForEach-Object { $_.ToString("X2") }) -join "")
+        }
+        finally { $sha.Dispose() }
+    }
     $createdUserStateRoot = $true
     New-Item -ItemType Directory -Force -Path $sandbox | Out-Null
     if (-not [string]::IsNullOrWhiteSpace($PreviousInstallerPath)) {
@@ -144,12 +176,40 @@ try {
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
             "/DIR=$previousInstallDir"
         )
-        Stop-InstalledProcesses $previousInstallDir
+        # The previous release starts itself here. It has to be observed and stopped before the fixture is
+        # written, or it writes its own default configuration over the fixture a moment later.
+        $observedLaunch = $false
+        for ($attempt = 1; $attempt -le 20; $attempt++) {
+            $running = Get-VibeLinkProcesses
+            if ($running.Count -gt 0) {
+                Write-Host ("the previous release started itself after a silent install; stopping it: " +
+                    (Format-VibeLinkProcesses $running))
+                $running | Stop-Process -Force -ErrorAction SilentlyContinue
+                $observedLaunch = $true
+                Start-Sleep -Milliseconds 600
+            }
+            elseif ($observedLaunch) {
+                break
+            }
+            else {
+                Start-Sleep -Milliseconds 400
+            }
+        }
+        Write-Host ("previous release launch observed and stopped: " + $observedLaunch)
         if (-not (Test-Path -LiteralPath (Join-Path $previousInstallDir "VibeFlow.exe"))) {
             throw "Previous release did not install correctly."
         }
         Assert-RegisteredInstallLocation $previousInstallDir "Previous release"
         [IO.File]::WriteAllText($upgradeMarker, "preserve", [Text.UTF8Encoding]::new($false))
+        # A V1.5 installation that has been used keeps its configuration in the central user-data directory,
+        # not in the installation directory: V1.5's own installer starts the application even in silent mode
+        # (its [Run] entry has no skipifsilent), and the running application writes a default configuration to
+        # {localappdata}\Vibe Flow Remote\UserData. Measured on CI: that file appeared 0.7 s before the
+        # candidate installer initialised, and because the candidate installer deliberately never overwrites an
+        # existing user configuration it skipped the migration, reported success and preserved the default.
+        # So the fixture belongs where a real user's settings live, and the pre-install check below proves the
+        # fixture itself is still the text written here. The installation-directory copy that an older release
+        # left behind is covered by scripts/tests/Test-InstallerConfigMigration.ps1.
         $legacyFixture = [ordered]@{
             schemaVersion = 32
             stableVoiceProfileVersion = 11
@@ -194,14 +254,14 @@ try {
             onboardingStep = 4
             resumeSetupAfterRestart = $false
         } | ConvertTo-Json -Depth 20
-        $legacyConfigPath = Join-Path $previousInstallDir "vibe-mic-config.json"
-        [IO.File]::WriteAllText($legacyConfigPath, $legacyFixture, [Text.UTF8Encoding]::new($false))
+        New-Item -ItemType Directory -Force -Path $userStateRoot | Out-Null
+        [IO.File]::WriteAllText($userConfigPath, $legacyFixture, [Text.UTF8Encoding]::new($false))
         # The installer preserves the user's configuration verbatim, including a provider this
         # candidate retires: the migration to the stable WeChat baseline happens the first time the
         # application loads that configuration, and the upgrade path asserts it after the launch
         # further down.
-        $expectedConfigProjection = Get-ConfigContractProjection $legacyConfigPath
-        $fixturePath = $legacyConfigPath
+        $expectedConfigProjection = Get-ConfigContractProjection $userConfigPath
+        $fixturePath = $userConfigPath
         $fixtureContent = $legacyFixture
         $createdUserConfigFixture = $true
     }
@@ -263,50 +323,14 @@ try {
         }
     }
 
-    # The fixture has to be the file the installer preserves. The previous release's own installer can
-    # start that release — V1.5's [Run] entry has no skipifsilent — and a running instance writes its own
-    # configuration back, so the fixture can be replaced between the write above and the install below.
-    # The installer only checks that the file exists, which is why this surfaced as "the upgrade did not
-    # preserve the configuration" while the fixture was still present by name. Everything is stopped,
-    # the fixture is written again, and it is proven to be ours before the installer is handed it.
-    # The account is disposable by contract (Assert-DisposableAccount refuses otherwise), so stopping
-    # these processes is safe, and each one is named with the directory it runs from.
-    function Get-VibeLinkProcesses {
-        return @(Get-Process -ErrorAction SilentlyContinue |
-            Where-Object { $_.ProcessName -in @("VibeFlow", "VibeMic", "VibeMicAtvvCapture", "VoxDeckInputBridge") })
-    }
-    function Format-VibeLinkProcesses($Processes) {
-        return (($Processes | ForEach-Object {
-            $path = ""
-            try { $path = $_.Path } catch { $path = "(path unavailable)" }
-            $_.ProcessName + "#" + $_.Id + "[" + $path + "]"
-        }) -join ", ")
-    }
-    function Get-TextSha256([string]$Text) {
-        $sha = [Security.Cryptography.SHA256]::Create()
-        try {
-            return (($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text)) |
-                ForEach-Object { $_.ToString("X2") }) -join "")
-        }
-        finally { $sha.Dispose() }
-    }
-    function Stop-VibeLinkProcesses([string]$Phase) {
-        $running = Get-VibeLinkProcesses
-        if ($running.Count -gt 0) {
-            Write-Host ("stopping " + $running.Count + " running Vibe Link process(es) " + $Phase + ": " +
-                (Format-VibeLinkProcesses $running))
-            $running | Stop-Process -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Milliseconds 800
-        }
-        return $running.Count
-    }
+    # The fixture has to be the file the installer preserves. The previous release's installer starts that
+    # release even in silent mode (V1.5's [Run] entry has no skipifsilent), and the running instance writes
+    # its own default configuration over whatever is at that path. The candidate installer deliberately never
+    # overwrites an existing user configuration, so a replaced fixture makes it skip the migration, report
+    # success and preserve the wrong content — which is how this looked like "the upgrade did not preserve the
+    # configuration". The launch above is stopped, and this proves the fixture is still the text written here.
     Stop-VibeLinkProcesses "before the install" | Out-Null
     if (-not [string]::IsNullOrWhiteSpace($fixturePath)) {
-        # The published V1.5 installer's [Run] entry has no skipifsilent, so a silent install of the
-        # previous release still starts that release; it registers the configuration in its own directory
-        # and writes it back, which replaced this fixture with V1.5's defaults. The installer only checks
-        # that the file exists, so the copy succeeded and the projection compared the wrong content. This
-        # loop stops whatever the previous release keeps starting and re-proves the fixture each time.
         $wantedHash = Get-TextSha256 $fixtureContent
         $stable = $false
         for ($attempt = 1; $attempt -le 6 -and -not $stable; $attempt++) {
