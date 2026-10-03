@@ -1,4 +1,4 @@
-const fs = require("node:fs");
+﻿const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 
@@ -3810,4 +3810,33 @@ assert(includesAll(hardwareAcceptance, [
   "不提交版本标签", "增益 | `1.0`", "尾音排空 | `180 ms`", "录音内核 | `v1.0.3`",
 ]), "The V1.2.1 physical hardware release gate is incomplete");
 
+// When the remote's audio channel is not ready at boot, the host asks itself to restart. On 2026-10-03 that
+// request turned into the worst field failure so far: the exiting instance called Close(), the tray rule
+// cancelled the close because the configuration minimizes to tray, and the process then held the
+// single-instance mutex with its window hidden, its listener stopped and every wake request refused — while
+// the relaunch it had spawned was turned away by that same mutex. Nothing could reach it and clicking the icon
+// did nothing until the process was killed by hand. The close can no longer be swallowed, a foreground launch
+// recovers an instance that does not answer, and a relaunch can ask to take over.
+assert(includesAll(app, [
+  "if (!applicationExiting && config.minimizeToTray && e.CloseReason == CloseReason.UserClosing)",
+  "private const string TakeoverArgument = \"--takeover\";",
+  "private static bool ExistingInstanceIsWedged()",
+  "private static int EndUnresponsiveInstances()",
+  "singleInstanceTakeoverNote",
+]), "The single-instance takeover fix is gone, so an unreachable instance can hold the mutex again");
+// The remaining two halves belong to the boot self-heal itself, which arrives with the remote-link recovery
+// work rather than with this fix. Wherever that code is present, its relaunch must ask to take over and its
+// exit must be backed by the watchdog, so the gate tightens by itself in that tree.
+if (app.includes("BOOT SELF-HEAL restarting=true")) {
+  assert(includesAll(app, [
+    "ArmShutdownWatchdog(\"boot_self_heal\")",
+    "private void ArmShutdownWatchdog(string reason)",
+  ]), "The boot self-heal can leave an unreachable instance behind again");
+}
+// The recovery must never end a working instance, and a second launch during startup must never be treated as
+// a wedge: a visible window answers the show request, and an instance younger than the grace window is exempt.
+assert(app.includes("if (process.MainWindowHandle != IntPtr.Zero) continue;") &&
+  app.includes("if (process.MainWindowHandle != IntPtr.Zero) return false;") &&
+  app.includes("if ((now - process.StartTime.ToUniversalTime()).TotalSeconds < ExistingInstanceStartupGraceSeconds)"),
+  "The takeover can end a healthy instance instead of only an unreachable one");
 console.log("Vibe Link V2.0.0 release validation passed; Capture remains frozen at 1.2.1.0.");

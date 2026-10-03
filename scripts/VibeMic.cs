@@ -45,6 +45,15 @@ internal sealed partial class VibeMicForm : Form
     private const int StableVoiceProfileVersion = 11;
     private const string InstallerConfigStartupQueryArgument = "--installer-config-startup-query";
     private const string InstallerConfigMigrationArgument = "--installer-config-migrate";
+    // Set by the boot self-heal relaunch: the instance it replaces may be unable to finish exiting, so the
+    // relaunch asks to take the single-instance mutex instead of being turned away by it.
+    private const string TakeoverArgument = "--takeover";
+    // How long a wedged instance is given to answer the show request before a foreground launch takes over.
+    private const int ExistingInstanceShowRequestTimeoutSeconds = 6;
+    // An instance younger than this is still starting, not wedged, and is never taken over.
+    private const int ExistingInstanceStartupGraceSeconds = 20;
+    // Forced exit for an exit that was cancelled or blocked, so the process cannot survive as a wedge.
+    private const int ShutdownWatchdogGraceMs = 6000;
     private const int MinimumUsefulAudioMs = 700;
     private const int BridgeHealthStartupGraceSeconds = 12;
     private const int BridgeHealthFailureRecoverySeconds = 15;
@@ -184,6 +193,9 @@ internal sealed partial class VibeMicForm : Form
     private int startupRecoveryCount;
     private bool captureStopping;
     private bool applicationExiting;
+    // Set when a launch had to end an unreachable instance, and written to the host log once the log exists:
+    // the single-instance decision is made before the form is constructed, where HostLog is not available yet.
+    private static string singleInstanceTakeoverNote = "";
     private bool providerWarmupActive;
     private int providerWarmupLaunchRequested;
     private readonly object providerWarmupLock = new object();
@@ -390,11 +402,32 @@ internal sealed partial class VibeMicForm : Form
             if (!createdNew)
             {
                 bool replaceExisting = !uiSmoke && ExistingInstanceUsesDifferentPath();
-                if (replaceExisting)
+                bool takeoverRequested = !uiSmoke && Array.Exists(args, delegate(string arg)
+                {
+                    return arg.Equals(TakeoverArgument, StringComparison.OrdinalIgnoreCase);
+                });
+                // Someone who launches the application in the foreground is entitled to a window. Until this
+                // check existed, the only instance could hold the mutex while being completely unreachable — the
+                // state the boot self-heal produced: its window hidden, its event listener stopped and every wake
+                // request refused — and clicking the icon then did nothing at all until the process was killed by
+                // hand. A healthy instance, including one running in the tray, answers the show request instead.
+                bool replaceWedged = !replaceExisting && !takeoverRequested && !background && !uiSmoke &&
+                    ExistingInstanceIsWedged();
+                if (replaceExisting || takeoverRequested || replaceWedged)
                 {
                     SignalEvent("Local\\VibeMicExitForUpdate");
                     try { createdNew = instance.WaitOne(12000, false); }
                     catch (AbandonedMutexException) { createdNew = true; }
+                    if (!createdNew && (takeoverRequested || replaceWedged))
+                    {
+                        // An instance that ignored the exit request is wedged by definition: nothing else can
+                        // reach it, so it is ended and the wait repeated.
+                        int ended = EndUnresponsiveInstances();
+                        singleInstanceTakeoverNote = "SINGLE INSTANCE takeover=" +
+                            (takeoverRequested ? "requested" : "wedged") + " ended_instances=" + ended;
+                        try { createdNew = instance.WaitOne(5000, false); }
+                        catch (AbandonedMutexException) { createdNew = true; }
+                    }
                 }
                 if (!createdNew)
                 {
@@ -473,6 +506,87 @@ internal sealed partial class VibeMicForm : Form
         return false;
     }
 
+    // Asks the running instance to show its window and waits for one to appear. A healthy instance — including
+    // one started with --background, whose window handle is zero until it is asked — answers in well under a
+    // second, which was measured on this machine. The wedged instance the boot self-heal left behind never
+    // answers, and that difference is the whole test. An instance that is still starting is given grace, so a
+    // second launch during startup can never end it.
+    private static bool ExistingInstanceIsWedged()
+    {
+        try
+        {
+            DateTime now = DateTime.UtcNow;
+            string[] names = { "VibeFlow", "VibeMic" };
+            foreach (string name in names)
+            {
+                foreach (Process process in Process.GetProcessesByName(name))
+                {
+                    try
+                    {
+                        if (process.Id == Process.GetCurrentProcess().Id) continue;
+                        if ((now - process.StartTime.ToUniversalTime()).TotalSeconds < ExistingInstanceStartupGraceSeconds)
+                            return false;
+                    }
+                    catch { }
+                    finally { process.Dispose(); }
+                }
+            }
+
+            DateTime deadline = DateTime.UtcNow.AddSeconds(ExistingInstanceShowRequestTimeoutSeconds);
+            do
+            {
+                SignalEvent("Local\\VibeMicShowWindow");
+                DateTime pollUntil = DateTime.UtcNow.AddMilliseconds(400);
+                while (DateTime.UtcNow < pollUntil)
+                {
+                    foreach (string name in names)
+                    {
+                        foreach (Process process in Process.GetProcessesByName(name))
+                        {
+                            try
+                            {
+                                if (process.Id == Process.GetCurrentProcess().Id) continue;
+                                process.Refresh();
+                                if (process.MainWindowHandle != IntPtr.Zero) return false;
+                            }
+                            catch { }
+                            finally { process.Dispose(); }
+                        }
+                    }
+                    Thread.Sleep(100);
+                }
+            }
+            while (DateTime.UtcNow < deadline);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    // Ends instances of this application that have no window at all, which is what an unreachable instance looks
+    // like from the outside. A visible instance is never touched, and neither is this process.
+    private static int EndUnresponsiveInstances()
+    {
+        int ended = 0;
+        int currentId = Process.GetCurrentProcess().Id;
+        foreach (string name in new string[] { "VibeFlow", "VibeMic" })
+        {
+            foreach (Process process in Process.GetProcessesByName(name))
+            {
+                try
+                {
+                    if (process.Id == currentId) continue;
+                    process.Refresh();
+                    if (process.MainWindowHandle != IntPtr.Zero) continue;
+                    process.Kill();
+                    ended++;
+                }
+                catch { }
+                finally { process.Dispose(); }
+            }
+        }
+        return ended;
+    }
+
     private VibeMicForm(bool launchInBackground, bool smokeMode, bool resourceTestMode)
     {
         backgroundLaunch = launchInBackground;
@@ -503,6 +617,14 @@ internal sealed partial class VibeMicForm : Form
         brandLogoPath = Path.Combine(root, "vibe-flow-logo.png");
         hostLogPath = Path.Combine(sessionDir, "vibe-flow-host.log");
         Directory.CreateDirectory(sessionDir);
+        // The single-instance decision is made before this form exists, so it is recorded here now that the log
+        // path does: a takeover that happened because the previous instance was unreachable is exactly what a
+        // support log has to show.
+        if (!string.IsNullOrEmpty(singleInstanceTakeoverNote))
+        {
+            HostLog(singleInstanceTakeoverNote);
+            singleInstanceTakeoverNote = "";
+        }
         // A fresh install used to start with an empty layer table, which made the entire three-layer
         // gesture surface invisible until the user authored it by hand. The recommended table is
         // written once, and only when no table exists at all: an existing table — including one the
@@ -11709,7 +11831,13 @@ deck.Hide();
             base.OnFormClosing(e);
             return;
         }
-        if (config.minimizeToTray && e.CloseReason == CloseReason.UserClosing)
+        // An intentional exit must never be swallowed by the tray rule. The boot self-heal set the exiting flag and
+        // called Close(); because the close reason is UserClosing and the configuration minimizes to tray, this
+        // branch cancelled the close, hid the window and returned — leaving a process that held the single-instance
+        // mutex, ignored every wake request and could not be opened again until it was killed by hand. The other
+        // exit paths (tray exit, verified update) avoided it by clearing minimizeToTray first; the flag is checked
+        // here so that no path can reproduce the wedge.
+        if (!applicationExiting && config.minimizeToTray && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
             Hide();
@@ -18074,6 +18202,31 @@ deck.Hide();
         {
             RotateLogIfNeeded(hostLogPath, MaxHostLogBytes);
             File.AppendAllText(hostLogPath, timestamp + " " + message + Environment.NewLine, new UTF8Encoding(false));
+        }
+        catch { }
+    }
+
+    // Forces this process out when an intentional exit is cancelled or blocked. Every durable piece of state has
+    // already been written by the time this is armed, and the alternative is the wedge that made the application
+    // impossible to open: a process alive, holding the single-instance mutex, with its window hidden.
+    private void ArmShutdownWatchdog(string reason)
+    {
+        try
+        {
+            var watchdog = new System.Threading.Timer(delegate
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(hostLogPath))
+                    {
+                        File.AppendAllText(hostLogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") +
+                            " SHUTDOWN FORCED reason=" + reason + Environment.NewLine, new UTF8Encoding(false));
+                    }
+                }
+                catch { }
+                Environment.Exit(0);
+            }, null, ShutdownWatchdogGraceMs, Timeout.Infinite);
+            GC.KeepAlive(watchdog);
         }
         catch { }
     }
