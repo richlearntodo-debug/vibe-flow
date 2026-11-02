@@ -55,6 +55,7 @@ const requiredFiles = [
   "scripts/features/UsageStatsPolicy.cs",
   "scripts/features/CrashReports.cs",
   "scripts/features/SnippetStore.cs",
+  "scripts/features/CloudAsrService.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
   "scripts/check-ui-matrix.ps1",
@@ -1272,7 +1273,7 @@ assert(includesAll(app, [
   'case "custom": return "rightshift";',
   'case "custom": return 150;',
   'case "custom": return 2;',
-  'return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";',
+  'return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";',
   'private static bool IsKnownProviderValue(string rawValue)',
   '(provider.Length > 0 && !IsKnownProviderValue(provider))',
   'retiredProviderFixtures',
@@ -1285,6 +1286,40 @@ assert(includesAll(app, [
   !app.includes('return "Typeless"') && !app.includes('return "Windows 语音输入"') &&
   !app.includes('"豆包输入法", "') && !app.includes('"搜狗输入法", "') && !app.includes('"讯飞语音输入法", "'),
   "A voice tool is offered but not wired through, a retired tool is still selectable, or the dropdown order drifted from ProviderIndex");
+
+const cloudAsrSource = read("scripts/features/CloudAsrService.cs");
+// The cloud slot is experimental, optional and off by default — and it is the one slot that
+// uploads audio, so its gates are pinned here: the consent copy, the fail-closed upload check,
+// "no external tool, so the host never presses its placeholder shortcut", and the fact that the
+// API key is read from a local file that cannot live inside the repository.
+assert(includesAll(app, [
+  'case "cloud": return "云端 ASR（实验）";',
+  'case "cloud": return "f24";',
+  'case "cloud": return 20;',
+  'case "cloud": return 3;',
+  'case "cloud": return CloudAsrSettings.Load(userStateRoot, HostLog).IsUsable();',
+  'if (held && IsCloudVoiceProvider()) BeginCloudAsrSession();',
+  'if (normalized == "wechat" || normalized == "cloud") return false;',
+  'if (NormalizeProviderKey(provider) == "cloud") return false;',
+  'if (provider == "custom" || provider == "cloud") return;',
+  'private static string CaptureHotkeyForKernel(string provider, string hotkey)',
+  "SafeCaptureArgument(CaptureHotkeyForKernel(config.inputMethod, config.inputMethodHotkey))",
+  'private bool EnsureCloudAsrConsent()',
+  'if (requestedProvider == "cloud" && !EnsureCloudAsrConsent())',
+  'CancelCloudAsrSession("capture_stop");',
+]) && includesAll(cloudAsrSource, [
+  'public static bool ShouldUpload(bool enabled, bool consented, bool keyPresent,',
+  'if (!enabled || !consented || !keyPresent) return false;',
+  'value.enabled = false;',
+  'value.consentedAt = 0;',
+  'public const string AuthorisationNotice',
+  "Environment.GetEnvironmentVariable(\"VIBE_CLOUD_ASR_KEY_FILE\")",
+  'Path.Combine(profile, ".codex", "secrets", "siliconflow_api_key.txt")',
+  'CloudAsrWave.To16kMonoWav',
+]) && !/sk-[A-Za-z0-9]{8,}/.test(cloudAsrSource) &&
+  !cloudAsrSource.includes("Console.WriteLine") &&
+  !app.includes("api.siliconflow.cn"),
+  "The cloud voice slot lost its consent gate, its default-off state or its local-only key path");
 
 // Exactly one component may press a tool's shortcut.
 //
@@ -3080,6 +3115,7 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   "RunProjectSpaceStoreSelfTests", "RunProjectSpaceRunnerSelfTests",
   "RunProjectSpaceProcessSelfTests", "RunProjectProfileGatewaySelfTests",
+  "RunCloudAsrSelfTests",
   "PROJECT-PROFILE-ACK-PENDING", "CancelProjectSpaceForRecording",
   "CancelV2ExternalActionsForRecording",
 ]), "Host self-tests or recording-priority/Profile-ACK integration are incomplete");
@@ -3734,7 +3770,7 @@ assert(!retiredVoiceProviderTokens.some(token =>
   retiredVoiceProviderCode.toLowerCase().includes(token.toLowerCase())) &&
   includesAll(app, [
     '"微信输入法", "网易八哥说", "其他语音工具"',
-    'return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";',
+    'return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";',
   ]),
   "A retired voice provider is still present in the runtime surface or provider list");
 assert(includesAll(v2InstallerGuide, [

@@ -153,6 +153,10 @@ internal sealed partial class VibeMicForm : Form
     private TextBox logBox;
     private Process captureProcess;
     private string captureProviderConfigurationKey = "";
+    // 云端 ASR（实验）：不常驻任何进程或音频资源。一次按住说话 = 一个 CloudAsrSession，
+    // 松开后上传、出字、立刻释放；空闲时这里始终是 null。
+    private CloudAsrSession cloudAsrSession;
+    private readonly object cloudAsrSync = new object();
     // The app whose foreground edit the user was in when the physical voice
     // key went down. The WeType fallback may only paste back into this
     // session source (or the verified Smart Focus target); it never follows
@@ -5120,6 +5124,7 @@ deck.Hide();
             RunProjectProfileGatewaySelfTests();
             RunAudioEndpointShapeSelfTests();
             RunTriggerOnlyVoiceModeSelfTests();
+            RunCloudAsrSelfTests();
             // The effective trigger is what actually reaches the frozen capture. 微信输入法 is the
             // frozen stable path that is documented as 单击切换, so its stored value is pinned;
             // every other tool keeps the user's own hold / toggle choice, because that choice has to
@@ -7949,7 +7954,7 @@ deck.Hide();
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -7962,8 +7967,7 @@ deck.Hide();
         var hotkey = StyledTextBox(config.inputMethodHotkey, new Point(220, 202), new Size(220, 34));
         var triggerMode = StyledCombo(new Point(458, 200), new Size(184, 38));
         PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-        triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
-            config.inputMethodTrigger == "hold" ? 1 : 0;
+        triggerMode.SelectedIndex = TriggerModeIndex(config.inputMethod, config.inputMethodTrigger);
         var hotkeyHelp = NewLabel(ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger), 9f, FontStyle.Regular, muted);
         hotkeyHelp.Location = new Point(658, 207);
         hotkeyHelp.Size = new Size(242, 25);
@@ -8192,14 +8196,26 @@ deck.Hide();
         provider.SelectedIndexChanged += delegate
         {
             if (updating) return;
+            if (provider.SelectedIndex < 0) return;
+            string requestedProvider = NormalizeProviderKey(ProviderKeyFromIndex(provider.SelectedIndex));
+            // 云端槽默认关闭：打开前必须显式同意「录音会上传」，拒绝就回到原来的工具。
+            if (requestedProvider == "cloud" && !EnsureCloudAsrConsent())
+            {
+                updating = true;
+                provider.SelectedIndex = ProviderIndex(config.inputMethod);
+                updating = false;
+                return;
+            }
+            // 选中云端槽就打开上传开关，离开就关掉：配置文件始终反映当前真实状态。
+            SetCloudAsrEnabled(requestedProvider == "cloud",
+                requestedProvider == "cloud" ? "provider_selected" : "provider_switch_away");
             VibeMicConfig previousConfig = CloneConfiguration(config);
             bool captureWasRunning = IsCapturing;
             updating = true;
             ApplyProviderProfile(config, ProviderKeyFromIndex(provider.SelectedIndex));
             hotkey.Text = config.inputMethodHotkey;
             PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-            triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
-                config.inputMethodTrigger == "hold" ? 1 : 0;
+            triggerMode.SelectedIndex = TriggerModeIndex(config.inputMethod, config.inputMethodTrigger);
             hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             providerStatus.Text = ProviderStatusText(config.inputMethod);
             providerStatus.ForeColor = IsProviderRunning(config.inputMethod) ? green : amber;
@@ -12428,7 +12444,8 @@ deck.Hide();
                 start.FileName = nativeCapture;
                 start.Arguments = config.captureSeconds + " \"" + sessionDir + "\" \"" + config.audioEndpointName + "\" " +
                     config.gain.ToString(CultureInfo.InvariantCulture) + " " + config.drainMs + " " + config.autoLevel + " " +
-                    SafeCaptureArgument(config.inputMethod) + " " + SafeCaptureArgument(config.inputMethodHotkey) + " " +
+                    SafeCaptureArgument(config.inputMethod) + " " +
+                    SafeCaptureArgument(CaptureHotkeyForKernel(config.inputMethod, config.inputMethodHotkey)) + " " +
                     SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger)) + " " + config.providerStartupDelayMs + " " +
                     SafeCaptureArgument(config.audioProcessingMode) + " " + config.autoRouteVirtualMicrophone + " " +
                     SafeCaptureArgument(config.voiceMode);
@@ -12485,6 +12502,8 @@ deck.Hide();
     private void StopCapture()
     {
         captureStopping = true;
+        // 冻结 Capture 停了就不该继续从 CABLE Output 取音；未上传的会话直接丢弃。
+        CancelCloudAsrSession("capture_stop");
         bridgeReady = false;
         captureNotReadySince = DateTime.MinValue;
         captureHeartbeatUnhealthySince = DateTime.MinValue;
@@ -12809,6 +12828,9 @@ deck.Hide();
             HostLog("VOICE WAKE ignored reason=bridge_paused");
             return;
         }
+        // 云端槽在 Host 进程内取音：按住录音键时开一个会话，松开后上传出字。
+        // 它不派发任何外部快捷键，所以上面三个槽的派发行为完全不变。
+        if (held && IsCloudVoiceProvider()) BeginCloudAsrSession();
         if (!IsCapturing)
         {
             if (IsTriggerOnlyVoiceMode())
@@ -12996,14 +13018,14 @@ deck.Hide();
     internal static bool ShouldHoldProviderHotkeyForSession(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
-        if (normalized == "wechat") return false;
+        if (normalized == "wechat" || normalized == "cloud") return false;
         return EffectiveTriggerForProvider(normalized, trigger) == "hold";
     }
 
     internal static bool ShouldTapProviderHotkeyForSession(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
-        if (normalized == "wechat") return false;
+        if (normalized == "wechat" || normalized == "cloud") return false;
         return !ShouldHoldProviderHotkeyForSession(normalized, trigger);
     }
 
@@ -13017,6 +13039,8 @@ deck.Hide();
     internal static bool ProviderHotkeyIsHostDriven(string provider, string shortcut, bool triggerOnlyMode)
     {
         if (NormalizeProviderKey(provider) == "wechat") return false;
+        // 云端槽没有任何外部工具：快捷键只作为冻结 Capture 的占位参数，Host 绝不发送。
+        if (NormalizeProviderKey(provider) == "cloud") return false;
         if (triggerOnlyMode) return true;
         return !FrozenCaptureCanSendShortcut(shortcut);
     }
@@ -13151,7 +13175,7 @@ deck.Hide();
     private void WarmConfiguredProviderAsync(bool launchImmediately)
     {
         string provider = NormalizeProviderKey(config.inputMethod);
-        if (provider == "custom") return;
+        if (provider == "custom" || provider == "cloud") return;
         if (launchImmediately) Interlocked.Exchange(ref providerWarmupLaunchRequested, 1);
         lock (providerWarmupLock)
         {
@@ -14825,7 +14849,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 104);
                         providerLabel.Size = new Size(140, 24);
                         providerChoice = StyledCombo(new Point(8, 132), new Size(238, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var shortcutLabel = NewLabel("全局快捷键", 8.9f, FontStyle.Bold, ink);
                         shortcutLabel.Location = new Point(264, 104);
@@ -14833,8 +14857,7 @@ deck.Hide();
                         hotkeyBox = StyledTextBox(selectedHotkey, new Point(264, 132), new Size(202, 36));
                         hotkeyTrigger = StyledCombo(new Point(484, 130), new Size(194, 40));
                         PopulateTriggerModeOptions(hotkeyTrigger, selectedProvider);
-                        hotkeyTrigger.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        hotkeyTrigger.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         string testState = dictationSucceeded ? "●  已由用户目视确认测试框中的文字" :
                             freshAudio ? "●  音频与工具唤起已通过，请确认文字" : "●  等待一次真实听写";
                         var status = NewLabel(testState, 11.5f, FontStyle.Bold, dictationSucceeded ? green : cyan);
@@ -15702,7 +15725,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 112);
                         providerLabel.Size = new Size(150, 26);
                         var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15714,8 +15737,7 @@ deck.Hide();
                         hotkeyBox = StyledTextBox(selectedHotkey, new Point(8, 242), new Size(260, 36));
                         hotkeyTrigger = StyledCombo(new Point(286, 240), new Size(190, 40));
                         PopulateTriggerModeOptions(hotkeyTrigger, selectedProvider);
-                        hotkeyTrigger.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        hotkeyTrigger.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         var help = NewLabel(ProviderSetupInstruction(selectedProvider), 9f, FontStyle.Regular, muted);
                         help.Location = new Point(8, 312);
                         help.Size = new Size(670, 68);
@@ -16201,7 +16223,7 @@ deck.Hide();
                         providerLabel.Location = new Point(4, 105);
                         providerLabel.Size = new Size(140, 28);
                         var providerChoice = StyledCombo(new Point(4, 137), new Size(336, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -16360,8 +16382,7 @@ deck.Hide();
                         triggerLabel.Size = new Size(110, 28);
                         triggerBox = StyledCombo(new Point(140, 158), new Size(200, 38));
                         PopulateTriggerModeOptions(triggerBox, selectedProvider);
-                        triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        triggerBox.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         triggerBox.SelectedIndexChanged += delegate
                         {
                             selectedTrigger = triggerBox.SelectedIndex == 1 ? "hold" : "toggle";
@@ -16378,8 +16399,7 @@ deck.Hide();
                             selectedHotkey = DefaultHotkeyForProvider(selectedProvider);
                             selectedTrigger = DefaultTriggerForProvider(selectedProvider);
                             shortcutBox.Text = selectedHotkey;
-                            triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                                selectedTrigger == "hold" ? 1 : 0;
+                            triggerBox.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         };
                         var test = PrimaryButton("测试启动与结束", new Point(24, 216), new Size(166, 40));
                         test.Click += delegate
@@ -21029,6 +21049,7 @@ deck.Hide();
         string provider = (value ?? "").Trim().ToLowerInvariant();
         if (provider == "wetype" || provider == "wechat") return "wechat";
         if (provider == "voquill" || provider == "vokie") return "custom";
+        if (provider == "cloud" || provider == "cloud-asr" || provider == "云端") return "cloud";
         if (provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" || provider == "八哥说" || provider == "八哥") return "bage";
         return provider == "custom" ? "custom" : "wechat";
     }
@@ -21042,7 +21063,8 @@ deck.Hide();
         return provider == "wechat" || provider == "wetype" ||
             provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" ||
             provider == "八哥说" || provider == "八哥" ||
-            provider == "custom" || provider == "voquill" || provider == "vokie";
+            provider == "custom" || provider == "voquill" || provider == "vokie" ||
+            provider == "cloud" || provider == "cloud-asr" || provider == "云端";
     }
 
     // Only 微信输入法, 网易八哥说 and the custom slot are supported. Every other value — including the
@@ -21095,6 +21117,7 @@ deck.Hide();
         {
             case "bage": return "网易八哥说";
             case "custom": return "其他语音工具";
+            case "cloud": return "云端 ASR（实验）";
             default: return "微信输入法";
         }
     }
@@ -21105,6 +21128,7 @@ deck.Hide();
         {
             case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
+            case "cloud": return "实验用云端识别：Vibe Link 自己读 CABLE Output 的遥控器音频，松开录音键后上传识别，再把文字输入焦点输入框。默认关闭，开启会离开本机。";
             default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，Vibe Link不会代替微信开启润色。";
         }
     }
@@ -21114,6 +21138,7 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
+            case "cloud": return "在语音页选中「云端 ASR（实验）」并同意上传提示，然后把 API Key 写进本机文件（不进 Git）。不需要安装任何输入法。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
         }
     }
@@ -21132,6 +21157,9 @@ deck.Hide();
         // what the tool itself does with its shortcut.
         string normalized = NormalizeProviderKey(provider);
         if (normalized == "wechat") return "toggle";
+        // 云端槽在 Vibe Link 内部录音，语义固定是按住说话：不派发外部快捷键，
+        // 所以这里把它钉成 hold，避免配置里残留的 toggle 改变行为。
+        if (normalized == "cloud") return "hold";
         return string.Equals(trigger, "hold", StringComparison.OrdinalIgnoreCase) ? "hold" : "toggle";
     }
 
@@ -21141,13 +21169,24 @@ deck.Hide();
         string normalized = NormalizeProviderKey(provider);
         if (normalized == "wechat")
             target.Items.Add("单击切换（稳定）");
+        else if (normalized == "cloud")
+            target.Items.Add("按住说话（云端识别固定）");
         else
             target.Items.AddRange(new object[] { "单击切换", "按住触发" });
+    }
+
+    // 触发方式下拉框的选中项：云端槽只有一个选项，不能按 hold/toggle 去推索引。
+    private static int TriggerModeIndex(string provider, string trigger)
+    {
+        string normalized = NormalizeProviderKey(provider);
+        if (normalized == "wechat" || normalized == "cloud") return 0;
+        return string.Equals(trigger, "hold", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
     }
 
     private static string ProviderHotkeyHelp(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
+        if (normalized == "cloud") return "云端 ASR 由 Vibe Link 自己取音，不使用外部快捷键";
         if (normalized != "wechat") return "须与所选工具中的快捷键一致";
         return "稳定参数：Ctrl + Win · 单击切换";
     }
@@ -21158,6 +21197,9 @@ deck.Hide();
         {
             case "bage": return "rightalt";
             case "custom": return "rightshift";
+            // 云端槽没有外部工具可触发。这个占位值只用于满足冻结 Capture 的
+            // 「快捷键可解析才放行音频」检查，F24 在 Windows 上没有默认绑定。
+            case "cloud": return "f24";
             default: return WeChatStableHotkey;
         }
     }
@@ -21166,6 +21208,7 @@ deck.Hide();
     {
         // Both remaining tools are toggles by their own design, and 微信输入法 is pinned to toggle as well.
         // The voice page still offers both choices to the custom slot, and the user's own choice is stored.
+        if (NormalizeProviderKey(provider) == "cloud") return "hold";
         return "toggle";
     }
 
@@ -21175,6 +21218,7 @@ deck.Hide();
         {
             case "bage": return 150;
             case "custom": return 150;
+            case "cloud": return 20;
             default: return 80;
         }
     }
@@ -21185,13 +21229,14 @@ deck.Hide();
         {
             case "bage": return 1;
             case "custom": return 2;
+            case "cloud": return 3;
             default: return 0;
         }
     }
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";
+        return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)
@@ -21297,12 +21342,145 @@ deck.Hide();
         return names.TryGetValue(value, out result) ? result : -1;
     }
 
+    // ---- 云端 ASR（实验） ---------------------------------------------------------------
+    // 这一槽的承诺是「空闲零常驻」：没有常驻进程、不加载模型、没有后台连接。
+    // 按住录音键时才开一次 WASAPI 采集，松开后上传、出字，然后全部释放。
+
+    private bool IsCloudVoiceProvider()
+    {
+        return NormalizeProviderKey(config == null ? "" : config.inputMethod) == "cloud";
+    }
+
+    // 第一次选择云端槽时必须显式同意「录音会上传」；拒绝就留在原来的工具上。
+    private bool EnsureCloudAsrConsent()
+    {
+        CloudAsrSettings settings = CloudAsrSettings.Load(userStateRoot, HostLog);
+        if (settings.consentedAt > 0) return true;
+        DialogResult answer = MessageBox.Show(this, CloudAsrPolicy.AuthorisationNotice,
+            "云端 ASR：录音会上传", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes)
+        {
+            HostLog("CLOUD ASR consent declined");
+            Toast("已保留原来的语音工具；云端 ASR 未启用");
+            return false;
+        }
+        settings.consentedAt = (long)(DateTime.UtcNow -
+            new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+        settings.enabled = true;
+        bool saved = settings.Save(userStateRoot, HostLog);
+        HostLog("CLOUD ASR consent granted saved=" + saved);
+        if (!saved)
+        {
+            Toast("云端 ASR 的同意状态没有保存成功，这次不会启用");
+            return false;
+        }
+        return true;
+    }
+
+    private void SetCloudAsrEnabled(bool enabled, string reason)
+    {
+        CloudAsrSettings settings = CloudAsrSettings.Load(userStateRoot, HostLog);
+        if (settings.enabled == enabled) return;
+        settings.enabled = enabled;
+        bool saved = settings.Save(userStateRoot, HostLog);
+        HostLog("CLOUD ASR enabled=" + enabled + " reason=" + SafeLogValue(reason) + " saved=" + saved);
+    }
+
+    // 按一次录音键开一个会话。录音键本身仍由冻结 Capture / Bridge 处理，这里只取音频。
+    private void BeginCloudAsrSession()
+    {
+        if (applicationExiting || IsDisposed || captureStopping) return;
+        if (!IsCloudVoiceProvider()) return;
+        lock (cloudAsrSync)
+        {
+            if (cloudAsrSession != null)
+            {
+                HostLog("CLOUD ASR session skipped reason=session_in_flight");
+                return;
+            }
+            cloudAsrSession = new CloudAsrSession(userStateRoot, "CABLE Output", IsVoiceKeyHeld, HostLog,
+                HandleCloudAsrSessionFinished);
+        }
+        HostLog("CLOUD ASR session begin");
+        cloudAsrSession.Start();
+    }
+
+    private void CancelCloudAsrSession(string reason)
+    {
+        CloudAsrSession active;
+        lock (cloudAsrSync)
+        {
+            active = cloudAsrSession;
+            cloudAsrSession = null;
+        }
+        if (active == null) return;
+        HostLog("CLOUD ASR session cancel reason=" + SafeLogValue(reason));
+        try { active.Cancel(); } catch { }
+    }
+
+    private void HandleCloudAsrSessionFinished(CloudAsrSession session)
+    {
+        DispatchUi(delegate { CompleteCloudAsrOnUiThread(session); });
+    }
+
+    private void CompleteCloudAsrOnUiThread(CloudAsrSession session)
+    {
+        if (session == null) return;
+        lock (cloudAsrSync)
+        {
+            if (ReferenceEquals(cloudAsrSession, session)) cloudAsrSession = null;
+        }
+        CloudAsrResult result = session.Completed;
+        if (result == null || !result.Ok)
+        {
+            string code = result == null ? "UNKNOWN" : result.FailureCode;
+            HostLog("CLOUD ASR finished ok=false code=" + SafeLogValue(code));
+            ShowToast(CloudAsrPolicy.FailureMessage(code), "warning");
+            return;
+        }
+        // 只在按下录音键时的那个输入框仍然可写时才落字：不猜、也不投递到别的窗口。
+        FocusTargetDescriptor target = activeVoiceFocusTarget == null ? null : activeVoiceFocusTarget.Copy();
+        string observationCode = "";
+        bool focusedTarget = target != null &&
+            focusTargetService.ObserveFocusedTarget(target, out observationCode);
+        if (!focusedTarget)
+        {
+            HostLog("CLOUD ASR inject skipped=true reason=focus_changed code=" +
+                SafeLogValue(observationCode) + " characters=" +
+                (result.Text == null ? 0 : result.Text.Length));
+            ShowToast(CloudAsrPolicy.FailureMessage("FOCUS"), "warning");
+            return;
+        }
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        bool typed = CloudAsrTextInjection.TypeText(result.Text);
+        timer.Stop();
+        HostLog("CLOUD ASR inject ok=" + typed + " characters=" + result.Text.Length +
+            " inject_ms=" + timer.ElapsedMilliseconds + " release_to_text_ms=" + result.ReleaseToTextMs);
+        if (!typed)
+        {
+            ShowToast(CloudAsrPolicy.FailureMessage("INJECT"), "warning");
+            return;
+        }
+        ShowToast("云端识别已输入 " + result.Text.Length + " 个字（松开到出字 " +
+            Math.Max(0, result.ReleaseToTextMs) + " ms）", "success");
+    }
+
+    // 云端槽没有外部工具可触发，但冻结 Capture 只在「快捷键可解析」时才放行音频，
+    // 所以给它一个 Windows 上没有默认绑定的占位键 F24。Host 自己不会发送这个键。
+    private static string CaptureHotkeyForKernel(string provider, string hotkey)
+    {
+        if (NormalizeProviderKey(provider) == "cloud") return DefaultHotkeyForProvider("cloud");
+        return hotkey;
+    }
+
     private bool IsProviderRunning(string provider)
     {
         switch (NormalizeProviderKey(provider))
         {
             case "wechat": return IsProcessRunning("WeType") || IsProcessRunning("WeTypeService") ||
                 IsProcessRunning("wetype_server") || IsProcessRunning("wetype_service");
+            case "cloud": return CloudAsrSettings.Load(userStateRoot, HostLog).IsUsable();
             default: return true;
         }
     }
@@ -21310,6 +21488,10 @@ deck.Hide();
     private string ProviderStatusText(string provider)
     {
         string normalized = NormalizeProviderKey(provider);
+        if (normalized == "cloud")
+            return IsProviderRunning(provider)
+                ? "●  已配置 · 松开录音键后上传识别"
+                : "●  未配置：需要开启并填入 API Key";
         if (normalized == "custom") return "●  请确保客户端已启动";
         if (normalized == "wechat" && IsProviderRunning(provider))
             return "●  客户端运行 · AI 整理由微信内模式决定";
@@ -21337,6 +21519,10 @@ deck.Hide();
 
     private static string VoiceProviderNote(string provider, bool automaticRoute)
     {
+        if (NormalizeProviderKey(provider) == "cloud")
+            return "云端 ASR 直接从 CABLE Output 读取遥控器音频，松开录音键后才上传到所配置的服务商识别，" +
+                "再把文字输入焦点输入框。Vibe Link 不保存录音文件、不保存识别文字，也绝不自动回车或发送；" +
+                "音频会离开这台电脑，服务商的隐私政策适用。按录音键之前不会有任何网络请求。";
         return ProviderRouteInstruction(provider, automaticRoute) +
             "。Vibe Link只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。" +
             VoiceProviderCompatibilityNote(provider);
@@ -26577,6 +26763,76 @@ deck.Hide();
     // Trigger-only mode is a capability decision, so it is pinned by the host
     // self-test: it may only be claimed from the verified endpoint capability and
     // only for the tools whose wake-up the Host itself performs.
+    // 云端 ASR（实验）槽的策略在这里固定：默认关闭、没有同意就不上传、没按住录音键不出网。
+    private static void RunCloudAsrSelfTests()
+    {
+        if (NormalizeProviderKey("cloud") != "cloud" ||
+            NormalizeProviderKey("cloud-asr") != "cloud" ||
+            NormalizeProviderKey("CLOUD") != "cloud" ||
+            ProviderDisplayName("cloud") != "云端 ASR（实验）" ||
+            ProviderIndex("cloud") != 3 ||
+            ProviderKeyFromIndex(3) != "cloud" ||
+            !IsKnownProviderValue("cloud") ||
+            IsRetiredProviderValue("cloud") ||
+            DefaultTriggerForProvider("cloud") != "hold" ||
+            EffectiveTriggerForProvider("cloud", "toggle") != "hold" ||
+            DefaultStartupDelayForProvider("cloud") != 20 ||
+            TriggerModeIndex("cloud", "toggle") != 0 ||
+            CaptureHotkeyForKernel("cloud", "ctrl+win") != "f24" ||
+            CaptureHotkeyForKernel("bage", "rightalt") != "rightalt" ||
+            TriggerOnlyModeSupportsProvider("cloud"))
+            throw new InvalidOperationException("The cloud voice slot is not wired consistently");
+        // 云端槽没有外部工具：Host 绝不代按它的占位快捷键。
+        if (ProviderHotkeyIsHostDriven("cloud", "f24", false) ||
+            ProviderHotkeyIsHostDriven("cloud", "f24", true) ||
+            ShouldHoldProviderHotkeyForSession("cloud", "hold") ||
+            ShouldTapProviderHotkeyForSession("cloud", "hold"))
+            throw new InvalidOperationException("The cloud voice slot must not press any tool shortcut");
+        // 默认关闭：全新配置必须是关闭、未同意、不读 Key。
+        CloudAsrSettings defaults = CloudAsrSettings.Default();
+        if (defaults.enabled || defaults.consentedAt != 0 ||
+            defaults.endpoint != CloudAsrSettings.DefaultEndpoint ||
+            defaults.model != CloudAsrSettings.DefaultModel ||
+            defaults.IsUsable())
+            throw new InvalidOperationException("The cloud voice slot must default to off");
+        // 上传门槛必须 fail-closed：未开启 / 未同意 / 无 Key / 录得太短 一律不上传。
+        if (CloudAsrPolicy.ShouldUpload(false, true, true, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, false, true, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, true, false, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, true, true, 0, 0) ||
+            CloudAsrPolicy.ShouldUpload(true, true, true, 400000, CloudAsrPolicy.MinimumAudioMs - 1) ||
+            !CloudAsrPolicy.ShouldUpload(true, true, true, 400000, 5000))
+            throw new InvalidOperationException("The cloud upload gate is not fail-closed");
+        if (CloudAsrPolicy.ClassifyHttpFailure(401) != "AUTH" ||
+            CloudAsrPolicy.ClassifyHttpFailure(429) != "RATE_LIMIT" ||
+            CloudAsrPolicy.ClassifyHttpFailure(503) != "OVERLOADED" ||
+            CloudAsrPolicy.ClassifyHttpFailure(404) != "REQUEST" ||
+            CloudAsrPolicy.FailureMessage("FOCUS").Length == 0 ||
+            CloudAsrPolicy.AuthorisationNotice.IndexOf("上传", StringComparison.Ordinal) < 0)
+            throw new InvalidOperationException("Cloud failure classification or consent copy drifted");
+        // 48 kHz 立体声 float 源压出来必须是 16 kHz 单声道 16 bit 的 WAV。
+        NAudio.Wave.WaveFormat floatFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+        var source = new byte[floatFormat.AverageBytesPerSecond / 10];
+        for (int index = 0; index + 4 <= source.Length; index += 4)
+        {
+            byte[] sampleBytes = BitConverter.GetBytes((float)(Math.Sin(index / 32.0) * 0.25));
+            source[index] = sampleBytes[0];
+            source[index + 1] = sampleBytes[1];
+            source[index + 2] = sampleBytes[2];
+            source[index + 3] = sampleBytes[3];
+        }
+        int convertedMs;
+        byte[] wav = CloudAsrWave.To16kMonoWav(floatFormat, source, out convertedMs);
+        if (wav == null || wav.Length <= 44 ||
+            wav[0] != (byte)'R' || wav[8] != (byte)'W' ||
+            BitConverter.ToInt16(wav, 20) != 1 ||
+            BitConverter.ToInt16(wav, 22) != 1 ||
+            BitConverter.ToInt32(wav, 24) != 16000 ||
+            BitConverter.ToInt16(wav, 34) != 16 ||
+            convertedMs <= 0 || convertedMs > 200)
+            throw new InvalidOperationException("Cloud audio is not converted to 16 kHz mono WAV");
+    }
+
     private static void RunTriggerOnlyVoiceModeSelfTests()
     {
         if (!ShouldUseTriggerOnlyVoiceMode(false, false) ||
