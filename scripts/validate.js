@@ -55,6 +55,7 @@ const requiredFiles = [
   "scripts/features/UsageStatsPolicy.cs",
   "scripts/features/CrashReports.cs",
   "scripts/features/SnippetStore.cs",
+  "scripts/features/CloudAsrService.cs",
   "scripts/Set-UsbSelectiveSuspend.ps1",
   "scripts/check-ui-geometry.ps1",
   "scripts/check-ui-matrix.ps1",
@@ -420,15 +421,16 @@ assert(includesAll(read("scripts/ui/BrowserRemoteLiteForm.cs"), [
   "Colouring it needs custom draw.",
 ]), "The dark-mode table fix is gone, so the rows would render light on a dark page again");// The caveat also has to be where a downloader reads it, not only inside the application: the release body that
 // BUILD_RELEASE.ps1 generates from docs/GITHUB_RELEASE_BODY_ZH.md, the README, and the quick-start. All three
-// described using the record key without ever saying that without the signed filter the key uses hook isolation
-// scoped to the remote being online, and that an ordinary keyboard's F5 passes through when it is not.
+// described using the record key without distinguishing the immutable published release from the development
+// branch fix: v2.0.0 still suppresses by online scope, while the current branch fails open.
 assert(includesAll(read("docs/GITHUB_RELEASE_BODY_ZH.md"), [
   "录音键隔离现状（安装前请先读）",
   "遥控器**不在线**时，普通键盘的 F5 **原样直通**",
   "不能与签名过滤器等同",
 ]) && includesAll(read("README.md"), [
   "**录音键隔离**",
-  "普通键盘 F5 原样直通",
+  "当前开发分支已改为 fail-open",
+  "该修复尚未进入 `v2.0.0` 资产",
 ]) && includesAll(read("QUICK_START_ZH.md"), [
   "录音键隔离（安装前请先读）",
   "遥控器**不在线**时普通键盘的 F5 **原样直通**",
@@ -830,10 +832,9 @@ assert(includesAll(app, [
   "FavoriteAppSummaryText", "voiceFocusTargetButton", "添加应用", "常用应用",
   "尚未配置工作流", "重新聚焦输入框后重试",
 ]), "Voice UI does not expose the favourite-application state or submit recovery path");
-// The warning has to keep the two facts apart: the audio chain is unaffected, and the record key is intercepted for a
-// stated span. The wording changed with plan B — the interception now covers the first press too and ends when the
-// remote goes — but the distinction is what this pins.
-assert(app.includes("音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复"),
+// The warning has to keep the two facts apart: the audio chain is unaffected, and the remote's native key effect
+// can still reach the foreground application because an unconfirmed F5 fails open.
+assert(app.includes("实体键盘始终直通；遥控器录音键的原始按键效果也可能同时发生"),
   "The RC003 filter warning does not distinguish audio availability from key-isolation risk");
 assert(includesAll(bridge, [
   "HandleVoicePhysicalTransition", "voiceTransitionLock",
@@ -853,25 +854,30 @@ assert(voiceSignalSection.indexOf("voiceKeyPressedEvent != null && voiceKeyPress
   "Bridge no longer preserves the V1.5 immediate voice-edge ordering");
 // Measured constraint of this Windows Bluetooth stack: the low-level hook edge
 // precedes Raw Input and hook suppression cancels the Raw Input packet, so the
-// hook can never attribute a single F5 event to the RC003 device. The voice F5
-// isolation must therefore be scoped to RC003-connected moments: while the RC003
-// is physically present and the voice mapping is enabled with suppression, F5
-// is captured at the hook and driven through the voice state machine from there
-// (rc003_present_hook). Without the RC003, or with a healthy per-device filter,
-// an ordinary keyboard F5 must pass through untouched.
-const scopedHookVoiceIndex = bridge.indexOf("ShouldUseScopedHookVoice(");
+// hook can never attribute a single F5 event to the RC003 device. When the
+// device filter is unavailable the hook must fail open, including while the
+// remote is connected; Raw Input remains the device-scoped voice source.
+const failOpenHookVoiceIndex = bridge.indexOf("VoiceF5HookFailOpenReason(");
 assert(!bridge.includes("ShouldSuppressVoiceHookForRc003Fallback") &&
   !bridge.includes("keyboard_hook_rc003_fallback") &&
   !bridge.includes('HandleVoicePhysicalTransition(isDown, "keyboard_hook"') &&
   !bridge.includes('HandleVoicePhysicalTransition(!keyUp, "keyboard_hook"') &&
-  bridge.includes('"rc003_present_hook"') &&
-  bridge.includes("ShouldUseScopedHookVoice") &&
+  !bridge.includes('"rc003_present_hook"') &&
+  bridge.includes("VoiceF5HookFailOpenReason") &&
+  bridge.includes("VOICE F5 HOOK PASSTHROUGH") &&
+  bridge.includes("decision=fail_open") &&
   bridge.includes("Rc003PresentRecently()") &&
   bridge.indexOf('if (isVoiceMapping && mapping.suppress)') > 0 &&
-  scopedHookVoiceIndex > 0 &&
-  bridge.indexOf("RC003_PRESENT_GRACE_MS") > 0 &&
+  failOpenHookVoiceIndex > 0 &&
   bridge.indexOf("rc003DevicePresentUtc") > 0,
-  "Bridge expands device-blind low-level Hook interception for the recording key");
+  "Bridge can suppress an F5 whose source device is unknown");
+const unknownSourceVoiceHookBranch = section(bridge,
+  "if (isVoiceMapping && mapping.suppress)",
+  "// Enabled non-voice mappings and disabled voice mappings");
+assert(unknownSourceVoiceHookBranch.includes("return CallNextHookEx") &&
+  !unknownSourceVoiceHookBranch.includes("HandleVoicePhysicalTransition") &&
+  !unknownSourceVoiceHookBranch.includes("return (IntPtr)1"),
+  "The source-unknown voice-hook branch can suppress F5 or start recording without device identity");
 // A record key that keeps reporting "held" with no release edge used to wedge the voice
 // state: the held event stayed set, so the frozen Capture re-armed a session on every ATVV
 // reconnect (RecoverHeldVoiceRequestAtReady) and each one failed for want of audio. One
@@ -886,18 +892,19 @@ assert(includesAll(stuckWatchdog, [
 ]) && /heldMs\s*>=\s*VOICE_HOLD_STUCK_BOUND_MS/.test(stuckWatchdog),
   "The stuck-hold watchdog measures idle time only, which a repeating record key never reaches");
 assert(includesAll(bridge, [
-  "VOICE_HOLD_LATCH_CLEAR_MS", "voiceHoldRepeatsSuppressed", "voiceHoldStaleReleaseCount",
+  "VOICE_HOLD_LATCH_CLEAR_MS", 'health["voice_hold_repeats_suppressed"]', "voiceHoldStaleReleaseCount",
   "The stuck-hold latch can clear before the restart guard expires",
 ]) && /VOICE_HOLD_LATCH_CLEAR_MS\s*<=\s*VOICE_RESTART_GUARD_MS/.test(bridge),
   "A stuck record key can be re-armed by its own repeats, or the next real press is lost");
-// Logging every suppressed edge wrote about thirty lines a second and consumed a 2 MB log
-// in ten minutes (13862 isolation lines plus 17486 in the rotated file, about four fifths
-// of everything recorded). Repeats must be aggregated instead.
+// A held F5 repeats at the keyboard rate. The fail-open logger must aggregate
+// those pass-through edges and the self-test must exercise that logger.
 assert(includesAll(bridge, [
-  "LogIsolationEdge", "repeat_held=true repeats=", "hold_summary repeats=",
-  "ISOLATION_REPEAT_LOG_INTERVAL_MS",
-]) && !bridge.includes('" rc003_connected_no_filter");\n                                return (IntPtr)1;'),
-  "Held-key repeats are logged one line each again, which rotates away the useful history");
+  "LogVoiceF5HookFailOpenEdge", "VOICE F5 HOOK PASSTHROUGH repeat_held=true repeats=",
+  "VOICE F5 HOOK PASSTHROUGH hold_summary repeats=", "ISOLATION_REPEAT_LOG_INTERVAL_MS",
+  "Fail-open F5 repeats are not being aggregated",
+]) && !bridge.includes("LogIsolationEdge") &&
+  !bridge.includes('" rc003_connected_no_filter");\n                                return (IntPtr)1;'),
+  "Fail-open F5 repeats are not aggregated or the retired suppression logger is still present");
 assert(includesAll(bridge, [
   'health["voice_hold_repeats_suppressed"]', 'health["voice_hold_stale_releases"]',
   'health["voice_hold_stale_latched"]',
@@ -1219,19 +1226,14 @@ assert(includesAll(app, [
   'result.Message;',
   '(string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : "\\r\\n" + result.ErrorCode)',
 ]) && !app.includes('result.Message + (string.IsNullOrWhiteSpace(result.ErrorCode) ? "" : " · " + result.ErrorCode)'),
-  "The wizard's status line is showing its error code again");// Plan B for the record-key isolation: close the window the first press fell through, and say what the fallback does.
+  "The wizard's status line is showing its error code again");
+// The Raw Input health probe also refreshes the RC003 presence marker used by diagnostics and reconnect healing.
+// It runs on the same named window so the reported presence state is current. The F5 hook no longer depends on this
+// marker for suppression: a source-unknown F5 always fails open, while Raw Input owns the device-scoped voice edge.
 //
-// The scoped suppression treats the RC003 as present only for a short window after the last sign of it, and the Raw
-// Input health probe is the only thing that refreshes that sign while the remote is idle. The probe ran every 30 s
-// against a 5 s window, so for most of every 30 s the presence had expired — and the *first* press of a session, the
-// one that starts dictation, was not suppressed. The ISOLATION lines in this machine's own log only ever showed
-// scoped_suppress=true for auto-repeat edges, which is what that looks like from outside. The probe now runs inside
-// the window it feeds, the window is a named constant, and a startup line records both so a log says which timer is
-// feeding the suppression.
-//
-// The copy no longer says the app "does not intercept keys of unknown origin", which was no longer true: it says the
-// app judges by whether the remote is present, that the record key is then intercepted for both the remote and the
-// keyboard's F5, that this ends when the remote goes, and that non-voice keys keep passing their native effect.
+// The copy must follow the fail-open hook policy: an F5 without confirmed
+// device identity reaches the foreground application, while Raw Input still
+// drives the RC003 voice transition after the device identity check.
 assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
   "private const int Rc003PresenceWindowMs = 5000;",
   "TotalMilliseconds <= Rc003PresenceWindowMs;",
@@ -1239,10 +1241,11 @@ assert(includesAll(read("scripts/VoxDeckInputBridge.cs"), [
   "rawInputHealthTimer.Interval = healthIntervalMs;",
   'Log("Raw Input health timer interval_ms=" + healthIntervalMs +',
 ]) && includesAll(app, [
-  '未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。',
-  '未安装签名通道时，Vibe Link按「遥控器是否在场」判断',
-]) && !app.includes('RC003 按键隔离未就绪') && !app.includes('Vibe Link不拦截来源未知的键'),
-  "The presence probe fell back outside its window, or the copy went back to saying keys of unknown origin pass through");// The voice page reports the last session's measured capture level.
+  '未安装签名通道：实体键盘始终直通；遥控器录音键的原始按键效果也可能同时发生。详见「自检」。',
+  '未安装签名通道时，Vibe Link不拦截来源未知的 F5',
+]) && !app.includes('RC003 按键隔离未就绪') &&
+  !app.includes('键盘 F5 同时被拦截'),
+  "The presence probe fell back outside its window, or the copy disagrees with the fail-open F5 policy");// The voice page reports the last session's measured capture level.
 //
 // This is the one place where the software can help with the microphone problem: measured over 920 sessions, the
 // median output level was 5% against the 10% speech recognition needs, 92% of sessions sat below it, and the
@@ -1270,7 +1273,7 @@ assert(includesAll(app, [
   'case "custom": return "rightshift";',
   'case "custom": return 150;',
   'case "custom": return 2;',
-  'return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";',
+  'return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";',
   'private static bool IsKnownProviderValue(string rawValue)',
   '(provider.Length > 0 && !IsKnownProviderValue(provider))',
   'retiredProviderFixtures',
@@ -1283,6 +1286,40 @@ assert(includesAll(app, [
   !app.includes('return "Typeless"') && !app.includes('return "Windows 语音输入"') &&
   !app.includes('"豆包输入法", "') && !app.includes('"搜狗输入法", "') && !app.includes('"讯飞语音输入法", "'),
   "A voice tool is offered but not wired through, a retired tool is still selectable, or the dropdown order drifted from ProviderIndex");
+
+const cloudAsrSource = read("scripts/features/CloudAsrService.cs");
+// The cloud slot is experimental, optional and off by default — and it is the one slot that
+// uploads audio, so its gates are pinned here: the consent copy, the fail-closed upload check,
+// "no external tool, so the host never presses its placeholder shortcut", and the fact that the
+// API key is read from a local file that cannot live inside the repository.
+assert(includesAll(app, [
+  'case "cloud": return "云端 ASR（实验）";',
+  'case "cloud": return "f24";',
+  'case "cloud": return 20;',
+  'case "cloud": return 3;',
+  'case "cloud": return CloudAsrSettings.Load(userStateRoot, HostLog).IsUsable();',
+  'if (held && IsCloudVoiceProvider()) BeginCloudAsrSession();',
+  'if (normalized == "wechat" || normalized == "cloud") return false;',
+  'if (NormalizeProviderKey(provider) == "cloud") return false;',
+  'if (provider == "custom" || provider == "cloud") return;',
+  'private static string CaptureHotkeyForKernel(string provider, string hotkey)',
+  "SafeCaptureArgument(CaptureHotkeyForKernel(config.inputMethod, config.inputMethodHotkey))",
+  'private bool EnsureCloudAsrConsent()',
+  'if (requestedProvider == "cloud" && !EnsureCloudAsrConsent())',
+  'CancelCloudAsrSession("capture_stop");',
+]) && includesAll(cloudAsrSource, [
+  'public static bool ShouldUpload(bool enabled, bool consented, bool keyPresent,',
+  'if (!enabled || !consented || !keyPresent) return false;',
+  'value.enabled = false;',
+  'value.consentedAt = 0;',
+  'public const string AuthorisationNotice',
+  "Environment.GetEnvironmentVariable(\"VIBE_CLOUD_ASR_KEY_FILE\")",
+  'Path.Combine(profile, ".codex", "secrets", "siliconflow_api_key.txt")',
+  'CloudAsrWave.To16kMonoWav',
+]) && !/sk-[A-Za-z0-9]{8,}/.test(cloudAsrSource) &&
+  !cloudAsrSource.includes("Console.WriteLine") &&
+  !app.includes("api.siliconflow.cn"),
+  "The cloud voice slot lost its consent gate, its default-off state or its local-only key path");
 
 // Exactly one component may press a tool's shortcut.
 //
@@ -1333,9 +1370,8 @@ assert(bridge.split("MappingHasNoAction(mapping)) && IsVoiceRawCandidate(").leng
 //
 // Three facts have to stay true or the recorded bug comes back: the bridge's built-in power mapping stays disabled
 // (unassigned means the scan code belongs to Windows and to the record fallback), an actionless mapping never takes the
-// key away from the record fallback, and the record-key suppression window stays the same size as the probe that keeps
-// it fresh. The last one matters because the probe is the only thing refreshing presence while the remote is idle: with
-// a 30 s probe against a 5 s window the first press of a session was not suppressed and the page refreshed.
+// key away from the record fallback, and the diagnostic presence window stays aligned with its refresh probe. The F5
+// hook itself fails open regardless of presence, so this timing no longer gates physical-keyboard passthrough.
 assert(includesAll(bridge, [
   'name = "power", label = "电源键", vk = "0xFF", scan = "0x5E", enabled = false, suppress = false',
   "if ((mapping == null || !mapping.enabled || MappingHasNoAction(mapping)) && IsVoiceRawCandidate(",
@@ -1457,7 +1493,7 @@ assert(includesAll(app, [
 // native effect can still fire, and the channel is optional. The log note and the statistics note lost their padding.
 // "配置 schema" became 参数版本: schema is the word the code uses, not the word a user reads.
 assert(includesAll(app, [
-  '未安装签名通道时，Vibe Link按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。',
+  '未安装签名通道时，Vibe Link不拦截来源未知的 F5：实体键盘始终直通；RC003 录音仍由设备级 Raw Input 驱动，但原始 F5 也可能到达前台。签名通道装上后可精确拦截。',
   '每个日志上限 4 MB。诊断音频每次都要你明确确认。',
   '参数版本 " + ConfigSchemaVersion',
   '只统计当前日志窗口内有结束回执的会话（日志限长，旧记录随滚动丢弃）；不含录音、转写文字、窗口标题或设备地址。',
@@ -1928,8 +1964,12 @@ assert(includesAll(bridge, [
   "RawKeyboardEdgeTracker", "RouteAuthoritativeRawKeyboard",
   "returning 1 here prevents Windows from delivering",
   "RC003 action routed source=raw_input", "delivery=native_passthrough",
+  "source_device=rc003",
   'health["routing_authority"] = filterHealthy ? "device_filter" : "raw_input"',
   'health["routing_isolation"] = filterHealthy ? "exact_device" : "native_passthrough"',
+  'health["voice_f5_isolation"] = filterHealthy ? "device_filter" : "keyboard_fail_open"',
+  'health["voice_f5_hook_fail_open_edges"]',
+  'health["voice_f5_last_hook_decision"]',
   'health["raw_remote_edges"]', 'health["raw_action_edges"]',
   "Vibe Link device-aware keyboard hook", "WM_APP_REINSTALL_HOOK",
 ]), "RC003 source isolation or its deterministic regression tests are incomplete");
@@ -1937,8 +1977,9 @@ assert(includesAll(app, [
   "Retired compatibility routing was not normalized to strict",
   // The card's statement follows the actual state now: it used to assert device-level isolation unconditionally,
   // right next to a badge and a note saying that isolation was not there.
-  // Plan B: the state line says what the fallback does and when it ends, instead of naming the missing subsystem.
-  "未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复",
+  // The fallback state says that the physical keyboard always passes through and that the remote's native F5
+  // effect can still reach the foreground application.
+  "未安装签名通道：实体键盘始终直通；遥控器录音键的原始效果可能同时发生",
   "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作",
   "Raw Input 安全直通", "设备级精确隔离",
 ]) && !app.includes("compatibility.CheckedChanged"),
@@ -1956,9 +1997,11 @@ assert(includesAll(bridge, [
   "IoctlHeartbeat = 0x8000A408U", "IoctlReadEvents = 0x8000640CU",
   "IoctlDisarm = 0x8000A410U",
 ]), "The optional RC003 filter client lacks protocol checks, health, or strict fallback");
-const hookFilterGuard = bridge.indexOf("ShouldBypassHookForRc003Filter(IsRc003FilterHealthy()");
+const hookFilterGuard = bridge.indexOf("bool filterHealthy = IsRc003FilterHealthy();");
 const hookNativePassthrough = bridge.indexOf("bool nonVoiceCandidate", hookFilterGuard);
-assert(hookFilterGuard >= 0 && hookNativePassthrough > hookFilterGuard,
+assert(hookFilterGuard >= 0 &&
+  bridge.indexOf("ShouldBypassHookForRc003Filter(filterHealthy", hookFilterGuard) > hookFilterGuard &&
+  hookNativePassthrough > hookFilterGuard,
   "A healthy RC003 filter does not release matching physical-keyboard input before hook routing");
 
 assert(includesAll(rc003FilterPublic, [
@@ -2074,8 +2117,9 @@ assert(bridge.includes("IsDeviceScopedVoiceSource") &&
   !bridge.includes('HandleVoicePhysicalTransition(isDown, "keyboard_hook"') &&
   !bridge.includes('HandleVoicePhysicalTransition(!keyUp, "keyboard_hook"') &&
   !bridge.includes('MarkRemoteInput("keyboard_hook")') &&
-  bridge.includes('"rc003_present_hook"'),
-  "The device-blind keyboard hook can still enter the voice recording state machine outside its RC003-connected scope");
+  bridge.includes("VoiceF5HookFailOpenReason") &&
+  bridge.includes("VOICE F5 HOOK PASSTHROUGH"),
+  "The device-blind keyboard hook can still suppress F5 or enter recording without a source identity");
 assert(!bridge.includes("RouteDeviceScopedHookEvent(") && !bridge.includes("deviceInputGate."),
   "The retired Hook-to-Raw pairing route is still active");
 
@@ -2737,7 +2781,7 @@ assert(includesAll(app, [
 // opposite ("Vibe Link不会拦截来源未知的键"). The bold line and the checkbox state now follow the actual state, so the
 // four parts of that card agree. A checked box promising what the same card denies is worse than saying nothing.
 assert(includesAll(app, [
-  '"未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复"',
+  '"未安装签名通道：实体键盘始终直通；遥控器录音键的原始效果可能同时发生"',
   '"设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"',
   "exactDeviceIsolation, new Point(32, 62));",
 ]) && !app.includes('"设备识别：只有带 RC003 身份的事件可以执行遥控器动作"'),
@@ -3071,6 +3115,7 @@ assert(includesAll(app, [
 assert(includesAll(app, [
   "RunProjectSpaceStoreSelfTests", "RunProjectSpaceRunnerSelfTests",
   "RunProjectSpaceProcessSelfTests", "RunProjectProfileGatewaySelfTests",
+  "RunCloudAsrSelfTests",
   "PROJECT-PROFILE-ACK-PENDING", "CancelProjectSpaceForRecording",
   "CancelV2ExternalActionsForRecording",
 ]), "Host self-tests or recording-priority/Profile-ACK integration are incomplete");
@@ -3725,7 +3770,7 @@ assert(!retiredVoiceProviderTokens.some(token =>
   retiredVoiceProviderCode.toLowerCase().includes(token.toLowerCase())) &&
   includesAll(app, [
     '"微信输入法", "网易八哥说", "其他语音工具"',
-    'return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";',
+    'return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";',
   ]),
   "A retired voice provider is still present in the runtime surface or provider list");
 assert(includesAll(v2InstallerGuide, [

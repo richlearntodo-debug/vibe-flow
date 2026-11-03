@@ -454,10 +454,22 @@ internal sealed class FocusTargetService
         return IsProcessRunning(target.ProcessName) ? "已验证" : "已验证 · 应用未运行";
     }
 
+    // The Host keeps one process-name snapshot that answers every "is X running" question and refreshes it
+    // in the background, so it installs that answer here. Process.GetProcessesByName enumerates the whole
+    // process table, and the status caption is rebuilt on every interface refresh; measured, that was the
+    // single largest cost of an idle refresh on this class of machine.
+    internal static Func<string, bool> processRunningProbe;
+
     private static bool IsProcessRunning(string processName)
     {
         string normalized = FocusTargetDescriptor.NormalizeProcessName(processName);
         if (normalized.Length == 0) return false;
+        Func<string, bool> probe = processRunningProbe;
+        if (probe != null)
+        {
+            try { return probe(normalized); }
+            catch { }
+        }
         try
         {
             Process[] processes = Process.GetProcessesByName(normalized);

@@ -2,6 +2,17 @@
 
 > **当前范围（2026-09-08）**：便签本、Notes Deck、AI 便签整理及其用户入口已从当前 Host 产品面移除。下方 2026-09-07 及更早的 Notes Deck、项目现场和便签页记录只用于历史审计，不代表当前可达功能；历史 `notes.json`、备份和旧源码为兼容保留，不由生产 Host 构建或执行。当前可达主导航为：首页、快捷键、语音、自检、设置。
 
+## 2026-10-18 F5 误拦截改为设备未知时 fail-open
+
+- **发布边界**：本条记录的是 `play` 开发分支与本地开发构建；已发布 `v2.0.0` 的资产和说明未变，不能把本修复当成 `v2.0.0` 已修复。
+- **现场根因**：`input-bridge-health.json` 中 `last_hook_input_vk=116`（F5）、`voice_f5_isolation=rc003_scoped_hook`、`voice_f5_suppressed_edges=599`；桥日志的对应分支是 `RC003 ISOLATION scoped_suppress=true ... reason=rc003_connected_no_filter`，随后直接 `Key 录音键 DOWN/UP source=rc003_present_hook`。旧逻辑在“遥控器在线但设备过滤器不健康”时由设备盲 Hook 吞掉 F5。
+- **`win32_2` 含义**：`CreateFile("\\\\.\\VibeFlowRc003Filter")` 返回 `ERROR_FILE_NOT_FOUND(2)`；系统没有已发布键盘驱动包，RC003 设备节点也没有加载该过滤器。不是权限拒绝（那会是 `ERROR_ACCESS_DENIED(5)`），也不是驱动已加载但设备接口忙。
+- **修复决策**：低级键盘 Hook 没有来源设备身份，且在目标 Windows 蓝牙栈上 Hook 返回 `1` 会取消后续 Raw Input。因此过滤器不健康时，F5 一律 fail-open，不再调用录音状态机；RC003 的语音边沿继续由带设备实例路径校验的 Raw Input 驱动。
+- **日志与健康状态**：新增 `VOICE F5 HOOK PASSTHROUGH edge=... decision=fail_open source=unknown reason=... filter_state=...`；Raw Input 分支记录 `RC003 RAW KEY ... source_device=rc003`。健康状态新增 `voice_f5_isolation=keyboard_fail_open`、`voice_f5_hook_fail_open_edges`、`voice_f5_last_hook_decision`，旧 `voice_f5_suppressed_edges` 保持字段兼容并固定为 `0`。
+- **未改动边界**：微信输入法 `Ctrl+Win`、录音 hold 状态机、约 60 秒设备边界、Capture 二进制与发送流程均未改；没有新增修改录音键的 UI，也没有安装或修改驱动。
+- **自动验证**：Windows 开发构建、Host/Bridge/Capture 自检、安装配置迁移、`npm test`、V2 聚焦功能套件通过；冻结 Capture SHA-256 仍为 `B62DE035A9CAD0A16B97F6935C6E4DE0BF2B73C61B180595482D852C0582E683`。
+- **待真机验证**：RC003 在线时实体键盘 F5 / Shift+F5 / Ctrl+F5；RC003 按住开始与松开结束；RC003 断开后的 F5；微信输入法 `Ctrl+Win`；以及日志中同一时刻的 `VOICE F5 HOOK PASSTHROUGH` 与 `RC003 RAW KEY ... source_device=rc003`。
+
 ## 2026-09-10 豆包输入法链路彻查与最终选型（用户真机迭代）
 
 - **结论：豆包无法接入遥控器自动链路**（已用全部可行手段实测）：

@@ -62,13 +62,11 @@ internal static class VoxDeckInputBridge
     private const int VOICE_RESTART_GUARD_MS = 500;
     private const int SMART_PROFILE_POLL_MS = 250;
     private const int SMART_PROFILE_DEBOUNCE_MS = 350;
-    // RC003 voice F5 isolation (no signed device filter). Measured on this
-    // machine: the hook edge precedes Raw Input and hook suppression cancels
-    // the Raw Input packet, so per-event device attribution is impossible in
-    // user mode. V1.5 treated F5 as the voice key and suppressed it at the
-    // hook. V2 keeps that suppression but only while the RC003 HID device is
-    // physically connected; ordinary-keyboard F5 passes through otherwise.
-    private const int RC003_PRESENT_GRACE_MS = 5000;
+    // RC003 voice F5 isolation. Measured on this machine: the hook edge
+    // precedes Raw Input and hook suppression cancels the Raw Input packet,
+    // so per-event device attribution is impossible in user mode. Without a
+    // healthy device filter the hook therefore fails open; Raw Input remains
+    // the device-scoped voice source.
     private const int RC003_VOICE_STUCK_RELEASE_MS = 900;
     // The remote/ATVV chain ends a session at its own device-controlled boundary (about
     // 60 s), so a genuine hold cannot be reported for much longer than that. The stuck
@@ -132,20 +130,21 @@ internal static class VoxDeckInputBridge
     private static readonly TimeSpan SharedFormVoiceWindow = TimeSpan.FromMinutes(10);
     private static DateTime lastDuplicateDownLogUtc = DateTime.MinValue;
     private static DateTime rc003DevicePresentUtc = DateTime.MinValue;
-    // How long a sign of the RC003 keeps it "present" for the hook's scoped record-key suppression. The Raw
-    // Input health probe refreshes that sign and must run inside this window, or the first key press of a
-    // session is not suppressed; Rc003PresenceWindowMs is what ties the two together.
+    // How long a Raw Input sign keeps the RC003 classified as present for
+    // diagnostics and the safe fail-open decision. The Raw Input health probe
+    // refreshes that sign inside the same window.
     private const int Rc003PresenceWindowMs = 5000;
-    private static long suppressedHookEdgeCount;
+    private static long hookVoiceFailOpenEdgeCount;
     // Stuck-hold bookkeeping. voiceHoldStartedTicks is the start of the CURRENT hold,
     // which is what tells a genuinely held key from one whose release edge was lost:
     // "time since last activity" cannot, because a repeating key always looks active.
     private static long voiceHoldStartedTicks;
     private static int voiceHoldStaleLatched;
     private static int voiceHoldStaleReleaseCount;
-    private static int voiceHoldRepeatsSuppressed;
-    private static DateTime lastIsolationLogUtc = DateTime.MinValue;
-    private static int isolationRepeatCount;
+    private static DateTime lastHookVoiceFailOpenLogUtc = DateTime.MinValue;
+    private static int hookVoiceFailOpenRepeatCount;
+    private static int hookUnknownSourceF5Held;
+    private static string lastVoiceF5HookDecision = "";
     private static readonly BlockingCollection<MappingEvent> mappingQueue = new BlockingCollection<MappingEvent>();
     private static Thread mappingWorker;
     private static BridgeConfig config = BridgeConfig.Default();
@@ -188,6 +187,13 @@ internal static class VoxDeckInputBridge
     private static DateTime lastRawActionUtc = DateTime.MinValue;
     private static string lastRawAction = "";
     private static string lastActionSource = "";
+    // The last routed edge is not evidence that a key was pressed: a person presses and releases, so by
+    // the time the heartbeat is read this reads "...:up". First-run setup asks for exactly one direction
+    // press, and judging that from the last edge alone made the task impossible to pass with a normal
+    // press. The press is therefore recorded on its own, next to the edge that keeps the status line honest.
+    private static DateTime lastRawPressUtc = DateTime.MinValue;
+    private static string lastRawPress = "";
+    private static string lastRawPressSource = "";
     private static readonly object actionReceiptLock = new object();
     private static long actionReceiptSequence;
     private static ActionExecutionReceipt lastExecutionReceipt;
@@ -200,13 +206,36 @@ internal static class VoxDeckInputBridge
     private static int smartProfileEvaluationRunning;
 
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory;
-    private static readonly string ConfigPath = Path.Combine(Root, "voxdeck-shortcuts.json");
-    private static readonly string LogPath = Path.Combine(Root, "input-bridge-log.txt");
-    private static readonly string HealthPath = Path.Combine(Root, "input-bridge-health.json");
-    private static readonly string CustomCaptureRequestPath = Path.Combine(Root, "custom-button-capture-request.json");
-    private static readonly string CustomCaptureResultPath = Path.Combine(Root, "custom-button-capture-result.json");
-    private static readonly string CustomTestPath = Path.Combine(Root, "custom-button-test.json");
-    private static readonly string CustomTestResultPath = Path.Combine(Root, "custom-button-test-result.json");
+    // Everything this process writes used to live beside its own executable. In a Program Files
+    // installation that directory is read-only for the ordinary user, so the mapping document could
+    // not be written, the log and the heartbeat could not be updated, and the host refused to start
+    // the bridge at all - "KEYBOARD BRIDGE start_aborted=true reason=config_sync_failed" - which left
+    // the remote's mapped keys dead while voice, handled by another process, still worked. The
+    // writable state lives where the host already keeps its own: the user's local application data.
+    private static readonly string StateRoot = ResolveStateRoot();
+    private static readonly string ConfigPath = Path.Combine(StateRoot, "voxdeck-shortcuts.json");
+    private static readonly string LogPath = Path.Combine(StateRoot, "input-bridge-log.txt");
+    private static readonly string HealthPath = Path.Combine(StateRoot, "input-bridge-health.json");
+    private static readonly string CustomCaptureRequestPath = Path.Combine(StateRoot, "custom-button-capture-request.json");
+    private static readonly string CustomCaptureResultPath = Path.Combine(StateRoot, "custom-button-capture-result.json");
+    private static readonly string CustomTestPath = Path.Combine(StateRoot, "custom-button-test.json");
+    private static readonly string CustomTestResultPath = Path.Combine(StateRoot, "custom-button-test-result.json");
+
+    private static string ResolveStateRoot()
+    {
+        try
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (!string.IsNullOrWhiteSpace(localAppData))
+            {
+                string directory = Path.Combine(localAppData, "Vibe Flow Remote", "UserData");
+                Directory.CreateDirectory(directory);
+                return directory;
+            }
+        }
+        catch { }
+        return Root;
+    }
 
     [STAThread]
     private static void Main(string[] args)
@@ -422,7 +451,8 @@ internal static class VoxDeckInputBridge
                     bool isVoiceMapping = mapping != null &&
                         (mapping.name ?? "").Equals("voice", StringComparison.OrdinalIgnoreCase);
                     bool taskSwitcherNavigation = IsTaskSwitcherNavigationCandidate(data.vkCode);
-                    if (ShouldBypassHookForRc003Filter(IsRc003FilterHealthy(),
+                    bool filterHealthy = IsRc003FilterHealthy();
+                    if (ShouldBypassHookForRc003Filter(filterHealthy,
                         mapping != null, taskSwitcherNavigation))
                     {
                         // A healthy per-device filter has already removed every
@@ -447,37 +477,24 @@ internal static class VoxDeckInputBridge
                     {
                         if (isVoiceMapping && mapping.suppress)
                         {
-                            // No signed per-device filter is installed, and this
-                            // machine's input stack delivers the low-level hook
-                            // edge before Raw Input and cancels the Raw Input
-                            // packet when the hook suppresses the event. Precise
-                            // per-event device attribution is therefore impossible
-                            // in user mode. V1.5 handled this by treating F5 as
-                            // the voice key and suppressing it at the hook.
-                            //
-                            // V2 keeps the same suppression but scopes it to the
-                            // moments the RC003 is physically connected: only
-                            // then is F5 captured and driven through the voice
-                            // state machine. Without the RC003, an ordinary
-                            // keyboard F5 always passes through untouched. The
-                            // edge is dispatched here because suppressing it
-                            // would otherwise cancel the Raw Input packet that
-                            // used to drive the state machine.
-                            if (ShouldUseScopedHookVoice(IsRc003FilterHealthy(),
-                                mapping.enabled, mapping.suppress, Rc003PresentRecently()))
-                            {
-                                Interlocked.Increment(ref suppressedHookEdgeCount);
-                                // Read the held state BEFORE the transition, so this edge
-                                // can be recognised as a repeat of the current hold.
-                                bool repeatEdge = isDown && Volatile.Read(ref voiceKeyHeldState) == 1;
-                                HandleVoicePhysicalTransition(isDown,
-                                    "rc003_present_hook", data.vkCode, data.scanCode);
-                                LogIsolationEdge(isDown, repeatEdge, data.vkCode, data.scanCode);
-                                return (IntPtr)1;
-                            }
-                            // The RC003 is not connected (or the healthy device
-                            // filter owns its edges): this F5 belongs to an
-                            // ordinary keyboard and must pass through untouched.
+                            // The low-level hook has no source-device identity,
+                            // and returning 1 necessarily cancels Raw Input on
+                            // this Windows Bluetooth stack. Suppressing an
+                            // unconfirmed F5 would break the physical keyboard,
+                            // so fail open and let device-scoped Raw Input drive
+                            // the RC003 voice transition.
+                            bool repeatEdge = isDown &&
+                                Volatile.Read(ref hookUnknownSourceF5Held) == 1;
+                            Volatile.Write(ref hookUnknownSourceF5Held, isDown ? 1 : 0);
+                            string reason = VoiceF5HookFailOpenReason(
+                                filterHealthy, mapping.enabled,
+                                mapping.suppress, Rc003PresentRecently());
+                            Interlocked.Increment(ref hookVoiceFailOpenEdgeCount);
+                            lastVoiceF5HookDecision = "fail_open:" + reason;
+                            Rc003FilterClient filterClient = rc003FilterClient;
+                            LogVoiceF5HookFailOpenEdge(isDown, repeatEdge, data.vkCode,
+                                data.scanCode, reason,
+                                filterClient == null ? "not_started" : filterClient.State);
                             Interlocked.Increment(ref hookCandidatePassthroughCount);
                             return CallNextHookEx(hookHandle, nCode, wParam, lParam);
                         }
@@ -656,12 +673,23 @@ internal static class VoxDeckInputBridge
     private static void RecordFilterAction(string actionName, bool keyUp)
     {
         Interlocked.Increment(ref filterActionEdgeCount);
-        lastRawActionUtc = DateTime.UtcNow;
-        lastRawAction = (actionName ?? "unknown") + (keyUp ? ":up" : ":down");
-        lastActionSource = "device_filter";
+        RecordRawAction(actionName, keyUp, "device_filter");
         Log("RC003 action routed source=device_filter button=" + (actionName ?? "unknown") +
             " edge=" + (keyUp ? "up" : "down") +
             " revision=" + (config == null ? "" : config.revision ?? ""));
+    }
+
+    private static void RecordRawAction(string actionName, bool keyUp, string source)
+    {
+        string name = actionName ?? "unknown";
+        DateTime nowUtc = DateTime.UtcNow;
+        lastRawActionUtc = nowUtc;
+        lastRawAction = name + (keyUp ? ":up" : ":down");
+        lastActionSource = source;
+        if (keyUp) return;
+        lastRawPressUtc = nowUtc;
+        lastRawPress = name + ":down";
+        lastRawPressSource = source;
     }
 
     private static int VirtualKeyFromRc003FilterEvent(int makeCode, int flags)
@@ -709,9 +737,7 @@ internal static class VoxDeckInputBridge
         string actionName = taskSwitcherNavigation
             ? "task-switcher-navigation"
             : mapping == null ? "unmapped" : mapping.name ?? mapping.labelOrName();
-        lastRawActionUtc = DateTime.UtcNow;
-        lastRawAction = actionName + (keyUp ? ":up" : ":down");
-        lastActionSource = "raw_input";
+        RecordRawAction(actionName, keyUp, "raw_input");
 
         if (taskSwitcherNavigation && ObserveNativeTaskSwitcherNavigation(virtualKey, !keyUp, keyUp))
         {
@@ -879,6 +905,18 @@ internal static class VoxDeckInputBridge
             if (GestureBindingStore.ResolveSteps(
                 ToGestureEntry(new ShortcutMapping { name = "up" }), GestureKind.Short).Count != 0)
                 throw new InvalidOperationException("A gesture layer with no action resolved to something instead of nothing");
+            // Raw Input must pass the physical key through so the packet can be read. When the
+            // selected layer resolves to that same key, injecting it again makes one RC003 press
+            // move twice. The native event already delivered the action.
+            var nativeArrowMapping = new ShortcutMapping {
+                name = "left", label = "左键", vk = "Left", scan = "0x4B", sourceType = "keyboard"
+            };
+            if (!ShouldUseNativeRawPassthrough(nativeArrowMapping, "left", "raw_input") ||
+                ShouldUseNativeRawPassthrough(nativeArrowMapping, "right", "raw_input") ||
+                ShouldUseNativeRawPassthrough(nativeArrowMapping, "left", "device_filter") ||
+                ShouldUseNativeRawPassthrough(nativeArrowMapping, "ctrl+left", "raw_input"))
+                throw new InvalidOperationException(
+                    "A same-key Raw Input action would be injected after Windows already received it");
             // One action per layer: a mapping whose double layer carries a single action must resolve to
             // exactly that, and the removal of macros must leave no way for a mapping document to smuggle a
             // multi-step sequence back in.
@@ -1015,18 +1053,12 @@ internal static class VoxDeckInputBridge
                 ShouldRecoverVoiceHostAfterSignal(true, true) ||
                 ShouldRecoverVoiceHostAfterSignal(false, true))
                 throw new InvalidOperationException("Voice host recovery still treats a named-event Set as a listener acknowledgement");
-            // RC003 voice F5 isolation policy: without a healthy device filter,
-            // hook capture of F5 is allowed only while the RC003 device is
-            // physically connected AND the voice mapping is enabled with
-            // suppression. In every other combination an ordinary keyboard F5
-            // must pass through untouched.
-            if (ShouldUseScopedHookVoice(true, true, true, true) ||
-                ShouldUseScopedHookVoice(false, false, true, true) ||
-                ShouldUseScopedHookVoice(false, true, false, true) ||
-                ShouldUseScopedHookVoice(false, true, true, false))
-                throw new InvalidOperationException("RC003 scoped hook voice admitted an ordinary-keyboard edge");
-            if (!ShouldUseScopedHookVoice(false, true, true, true))
-                throw new InvalidOperationException("RC003 scoped hook voice rejected the connected-remote case");
+            if (VoiceF5HookFailOpenReason(true, true, true, true) != "device_filter" ||
+                VoiceF5HookFailOpenReason(false, false, true, true) != "voice_mapping_inactive" ||
+                VoiceF5HookFailOpenReason(false, true, false, true) != "voice_mapping_inactive" ||
+                VoiceF5HookFailOpenReason(false, true, true, false) != "rc003_absent_source_unknown" ||
+                VoiceF5HookFailOpenReason(false, true, true, true) != "filter_unavailable_source_unknown")
+                throw new InvalidOperationException("Unknown-source F5 hook logging policy is inconsistent");
             string[] executableShortcuts = {
                 "up", "down", "left", "right", "ctrl+c", "ctrl+x", "ctrl+v", "ctrl+z",
                 "ctrl+shift+z", "ctrl+s", "ctrl+a", "ctrl+f", "enter", "escape", "tab",
@@ -1483,8 +1515,8 @@ internal static class VoxDeckInputBridge
             DateTime savedRelease = lastVoiceReleaseUtc;
             int savedLatched = Volatile.Read(ref voiceHoldStaleLatched);
             int savedStaleReleases = voiceHoldStaleReleaseCount;
-            int savedRepeats = voiceHoldRepeatsSuppressed;
-            int savedIsolationRepeats = isolationRepeatCount;
+            int savedFailOpenRepeats = hookVoiceFailOpenRepeatCount;
+            DateTime savedFailOpenLogUtc = lastHookVoiceFailOpenLogUtc;
             try
             {
                 // The latch can only be cleared by a quiet gap, so by the time it lifts the
@@ -1520,13 +1552,14 @@ internal static class VoxDeckInputBridge
                 if (Volatile.Read(ref voiceKeyHeldState) != 1)
                     throw new InvalidOperationException("A genuine press after a stuck release was rejected");
                 HandleVoicePhysicalTransition(false, "self_test_after_release", 0x74, 0x3F);
-                // Repeats are aggregated: the counter grows but the log stays quiet.
-                int repeatsBefore = voiceHoldRepeatsSuppressed;
-                for (int repeat = 0; repeat < 50; repeat++) LogIsolationEdge(true, true, 0x74, 0x3F);
-                if (voiceHoldRepeatsSuppressed != repeatsBefore + 50)
-                    throw new InvalidOperationException("Held-key repeats are not being aggregated");
-                if (isolationRepeatCount != savedIsolationRepeats + 50)
-                    throw new InvalidOperationException("The repeat counter did not follow the held-key repeats");
+                // Fail-open repeats are aggregated even though every edge is
+                // passed through to Windows.
+                int repeatsBefore = hookVoiceFailOpenRepeatCount;
+                for (int repeat = 0; repeat < 50; repeat++)
+                    LogVoiceF5HookFailOpenEdge(true, true, 0x74, 0x3F,
+                        "filter_unavailable_source_unknown", "fallback:open_failed_win32_2");
+                if (hookVoiceFailOpenRepeatCount != repeatsBefore + 50)
+                    throw new InvalidOperationException("Fail-open F5 repeats are not being aggregated");
             }
             finally
             {
@@ -1536,8 +1569,8 @@ internal static class VoxDeckInputBridge
                 lastVoiceReleaseUtc = savedRelease;
                 Interlocked.Exchange(ref voiceHoldStaleLatched, savedLatched);
                 voiceHoldStaleReleaseCount = savedStaleReleases;
-                voiceHoldRepeatsSuppressed = savedRepeats;
-                isolationRepeatCount = savedIsolationRepeats;
+                hookVoiceFailOpenRepeatCount = savedFailOpenRepeats;
+                lastHookVoiceFailOpenLogUtc = savedFailOpenLogUtc;
             }
             Console.WriteLine("Vibe Link input bridge self-test passed.");
             return 0;
@@ -1797,7 +1830,13 @@ internal static class VoxDeckInputBridge
                 }
                 else
                 {
-                    bool success = TapShortcut(mapping);
+                    bool nativePassthrough = ShouldUseNativeRawPassthrough(
+                        mapping, mapping.shortcut, source);
+                    if (nativePassthrough)
+                        Log("Shortcut action skipped label=" + mapping.labelOrName() +
+                            " action=" + mapping.shortcut +
+                            " reason=raw_input_native_passthrough");
+                    bool success = nativePassthrough || TapShortcut(mapping);
                         RecordActionExecution(mapping, "单击", mapping.shortcut, success, source);
                     BridgeForm.SetStatusText(mapping.labelOrName() + " 轻触 -> " + mapping.shortcut);
                 }
@@ -2036,6 +2075,21 @@ internal static class VoxDeckInputBridge
         }
     }
 
+    private static bool ShouldUseNativeRawPassthrough(ShortcutMapping mapping, string action, string source)
+    {
+        if (mapping == null ||
+            !string.Equals(source, "raw_input", StringComparison.OrdinalIgnoreCase) ||
+            !(mapping.sourceType ?? "keyboard").Equals("keyboard", StringComparison.OrdinalIgnoreCase))
+            return false;
+        string normalized = (action ?? "").Trim();
+        if (normalized.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase))
+            normalized = normalized.Substring("shortcut:".Length).Trim();
+        List<int> keys = ParseShortcut(normalized);
+        if (keys.Count != 1) return false;
+        int physicalKey = VkFromName(mapping.vk);
+        return physicalKey > 0 && keys[0] == physicalKey;
+    }
+
     private static bool ExecuteMappingAction(ShortcutMapping source, string action, string phase, string actionSource)
     {
         string normalized = (action ?? "").Trim();
@@ -2046,6 +2100,14 @@ internal static class VoxDeckInputBridge
             BridgeForm.SetStatusText(source.labelOrName() + " " + phase + "未执行");
             RecordActionExecution(source, phase, normalized, false, actionSource);
             return false;
+        }
+        if (ShouldUseNativeRawPassthrough(source, normalized, actionSource))
+        {
+            Log("Gesture action skipped label=" + source.labelOrName() + " phase=" + phase +
+                " action=" + normalized + " reason=raw_input_native_passthrough");
+            BridgeForm.SetStatusText(source.labelOrName() + " " + phase + " -> " + normalized);
+            RecordActionExecution(source, phase, normalized, true, actionSource);
+            return true;
         }
 
         var mapping = new ShortcutMapping
@@ -2132,13 +2194,9 @@ internal static class VoxDeckInputBridge
     // Measured on this machine: the low-level hook edge arrives before the Raw
     // Input packet, and returning 1 from the hook cancels the Raw Input packet
     // for that event. Per-event device attribution in user mode is therefore
-    // impossible. The V1.5 stable contract treated F5 as the voice key and
-    // suppressed it at the hook. V2 keeps that suppression but scopes it
-    // strictly to moments the RC003 HID device is physically connected: only
-    // then is F5 captured and driven through the voice state machine from the
-    // hook. An ordinary keyboard F5 always passes through untouched while the
-    // RC003 is absent, and a healthy signed filter keeps every RC003 edge out
-    // of this hook entirely.
+    // impossible. Without a healthy device filter the hook fails open so an
+    // ordinary keyboard F5 always reaches the foreground application. A
+    // healthy signed filter keeps every RC003 edge out of this hook entirely.
     private static void TouchRc003Present()
     {
         rc003DevicePresentUtc = DateTime.UtcNow;
@@ -2150,11 +2208,14 @@ internal static class VoxDeckInputBridge
             (DateTime.UtcNow - rc003DevicePresentUtc).TotalMilliseconds <= Rc003PresenceWindowMs;
     }
 
-    internal static bool ShouldUseScopedHookVoice(bool filterHealthy,
+    internal static string VoiceF5HookFailOpenReason(bool filterHealthy,
         bool voiceMappingEnabled, bool mappingSuppress, bool rc003PresentRecently)
     {
-        return !filterHealthy && voiceMappingEnabled && mappingSuppress &&
-            rc003PresentRecently;
+        if (filterHealthy) return "device_filter";
+        if (!voiceMappingEnabled || !mappingSuppress) return "voice_mapping_inactive";
+        return rc003PresentRecently
+            ? "filter_unavailable_source_unknown"
+            : "rc003_absent_source_unknown";
     }
 
     private static void HandleVoicePhysicalTransition(bool isDown, string source, int vk, int scan)
@@ -2181,9 +2242,9 @@ internal static class VoxDeckInputBridge
                     }
                     if (alreadyHeld)
                     {
-                        // Auto-repeat DOWN edges are expected while the remote
-                        // is held; the scoped hook path produces one per repeat.
-                        // Log them once per hold instead of once per repeat.
+                        // Auto-repeat DOWN edges are expected while a voice
+                        // source is held. Log them once per hold instead of
+                        // once per repeat.
                         if (lastDuplicateDownLogUtc == DateTime.MinValue ||
                             (DateTime.UtcNow - lastDuplicateDownLogUtc).TotalMilliseconds >= 2000)
                         {
@@ -2241,32 +2302,28 @@ internal static class VoxDeckInputBridge
         }
     }
 
-    // One line per hold instead of one line per repeat. A held key repeats at the
-    // keyboard rate (~30/s), and the previous unconditional log therefore wrote about
-    // thirty lines a second: that consumed the whole 2 MB log in roughly ten minutes and
-    // rotated away the history that makes the log worth keeping (13862 isolation lines in
-    // one log plus 17486 in its predecessor, about four fifths of all recorded lines).
-    // The start of a hold, a periodic repeat count, and a closing summary keep the same
-    // diagnostic value at a fraction of the volume.
-    private static void LogIsolationEdge(bool isDown, bool repeatEdge, int vk, int scan)
+    private static void LogVoiceF5HookFailOpenEdge(bool isDown, bool repeatEdge,
+        int vk, int scan, string reason, string filterState)
     {
         string edge = " vk=0x" + vk.ToString("X2") + " scan=0x" + scan.ToString("X2") +
-            " reason=rc003_connected_no_filter";
+            " source=unknown reason=" + reason +
+            " filter_state=" + (filterState ?? "unknown");
         if (repeatEdge)
         {
-            int repeats = Interlocked.Increment(ref isolationRepeatCount);
-            Interlocked.Increment(ref voiceHoldRepeatsSuppressed);
-            if (lastIsolationLogUtc != DateTime.MinValue &&
-                (DateTime.UtcNow - lastIsolationLogUtc).TotalMilliseconds < ISOLATION_REPEAT_LOG_INTERVAL_MS)
+            int repeats = Interlocked.Increment(ref hookVoiceFailOpenRepeatCount);
+            if (lastHookVoiceFailOpenLogUtc != DateTime.MinValue &&
+                (DateTime.UtcNow - lastHookVoiceFailOpenLogUtc).TotalMilliseconds <
+                ISOLATION_REPEAT_LOG_INTERVAL_MS)
                 return;
-            lastIsolationLogUtc = DateTime.UtcNow;
-            Log("RC003 ISOLATION scoped_suppress=true repeat_held=true repeats=" + repeats + edge);
+            lastHookVoiceFailOpenLogUtc = DateTime.UtcNow;
+            Log("VOICE F5 HOOK PASSTHROUGH repeat_held=true repeats=" + repeats + edge);
             return;
         }
-        int held = Interlocked.Exchange(ref isolationRepeatCount, 0);
+        int held = Interlocked.Exchange(ref hookVoiceFailOpenRepeatCount, 0);
         if (held > 0)
-            Log("RC003 ISOLATION hold_summary repeats=" + held + edge);
-        Log("RC003 ISOLATION scoped_suppress=true " + (isDown ? "down" : "up") + edge);
+            Log("VOICE F5 HOOK PASSTHROUGH hold_summary repeats=" + held + edge);
+        Log("VOICE F5 HOOK PASSTHROUGH edge=" + (isDown ? "down" : "up") +
+            " decision=fail_open" + edge);
     }
 
     private static string VoiceKeyLogLabel()
@@ -2275,12 +2332,12 @@ internal static class VoxDeckInputBridge
     }
 
     // A held voice key repeats DOWN edges while physically held and normally
-    // receives its UP edge from the hook. If that UP edge is lost (Bluetooth
-    // blip, or a suppressed event that never reaches this state machine),
-    // release the stale hold shortly after the last observed activity so the
-    // next press is not rejected as a duplicate. The frozen Capture ends its
-    // session on the natural ATVV stop regardless; this only restores the
-    // bridge/host voice state.
+    // receives its UP edge. If that UP edge is lost (Bluetooth blip, or an
+    // event that never reaches this state machine), release the stale hold
+    // shortly after the last observed activity so the next press is not
+    // rejected as a duplicate. The frozen Capture ends its session on the
+    // natural ATVV stop regardless; this only restores the bridge/host voice
+    // state.
     //
     // The idle test alone can never fire while the key is genuinely stuck: a repeating
     // key refreshes lastVoiceActivityUtc every ~31 ms, so "time since last activity" never
@@ -3233,7 +3290,7 @@ internal static class VoxDeckInputBridge
                 RAWKEYBOARD keyboard = (RAWKEYBOARD)Marshal.PtrToStructure(data, typeof(RAWKEYBOARD));
                 bool keyUp = IsRawKeyUp(keyboard.Message);
                 // Any RC003 keyboard packet proves the device is connected and
-                // keeps the scoped hook voice isolation armed.
+                // refreshes the presence timestamp used by diagnostics.
                 TouchRc003Present();
                 if (IsRc003FilterHealthy())
                 {
@@ -3243,9 +3300,9 @@ internal static class VoxDeckInputBridge
                     return;
                 }
                 // Raw Input is the only user-mode API in this process that carries
-                // the originating device handle. Execute RC003 actions here. The
-                // low-level hook only suppresses the matching legacy event or
-                // replays an unconfirmed physical-keyboard event unchanged.
+                // the originating device handle. Execute RC003 actions here; the
+                // source-blind low-level hook fails open so a physical F5 still
+                // reaches the foreground application.
                 ShortcutMapping mapping = FindRc003FilterMapping(keyboard.VKey, keyboard.MakeCode);
                 // Same rule as the filter path: an unassigned (disabled) power key hands the shared raw form 0xFF/0x5E
                 // back to the record fallback, so a microphone that reports that way keeps working.
@@ -3273,7 +3330,7 @@ internal static class VoxDeckInputBridge
                     keyboard.VKey, keyboard.MakeCode, keyUp);
                 Log("RC003 RAW KEY " + (keyUp ? "UP" : "DOWN") +
                     " vk=0x" + keyboard.VKey.ToString("X2") + " scan=0x" + keyboard.MakeCode.ToString("X2") +
-                    " flags=0x" + keyboard.Flags.ToString("X2") +
+                    " flags=0x" + keyboard.Flags.ToString("X2") + " source_device=rc003" +
                     " action_routed=" + actionRouted);
 
                 return;
@@ -4574,11 +4631,14 @@ internal static class VoxDeckInputBridge
             health["config_revision"] = snapshot == null ? "" : snapshot.revision ?? "";
             health["config_loaded_at"] = configLoadedAtUtc == DateTime.MinValue ? "" : configLoadedAtUtc.ToString("o");
             health["config_mapping_count"] = snapshot == null || snapshot.mappings == null ? 0 : snapshot.mappings.Length;
-            health["voice_f5_isolation"] = Rc003PresentRecently() ? "rc003_scoped_hook" : "keyboard_passthrough";
-            health["voice_f5_suppressed_edges"] = suppressedHookEdgeCount;
+            bool filterHealthy = IsRc003FilterHealthy();
+            health["voice_f5_isolation"] = filterHealthy ? "device_filter" : "keyboard_fail_open";
+            health["voice_f5_hook_fail_open_edges"] = Interlocked.Read(ref hookVoiceFailOpenEdgeCount);
+            health["voice_f5_last_hook_decision"] = lastVoiceF5HookDecision ?? "";
+            health["voice_f5_suppressed_edges"] = 0L;
             // Published so the self-check can explain a stuck record key instead of
             // leaving the user with a remote that looks like it stopped responding.
-            health["voice_hold_repeats_suppressed"] = voiceHoldRepeatsSuppressed;
+            health["voice_hold_repeats_suppressed"] = 0;
             health["voice_hold_stale_releases"] = voiceHoldStaleReleaseCount;
             health["voice_hold_stale_latched"] = Volatile.Read(ref voiceHoldStaleLatched) == 1;
             health["smart_profiles_enabled"] = snapshot != null && snapshot.smartProfilesEnabled;
@@ -4590,7 +4650,6 @@ internal static class VoxDeckInputBridge
             health["smart_profile_match_state"] = smartProfileMatchState ?? "";
             health["input_routing_mode"] = snapshot == null
                 ? "strict" : NormalizeInputRoutingMode(snapshot.inputRoutingMode);
-            bool filterHealthy = IsRc003FilterHealthy();
             health["routing_authority"] = filterHealthy ? "device_filter" : "raw_input";
             health["routing_isolation"] = filterHealthy ? "exact_device" : "native_passthrough";
             health["raw_remote_edges"] = Interlocked.Read(ref rawRemoteEdgeCount);
@@ -4600,6 +4659,9 @@ internal static class VoxDeckInputBridge
             health["last_raw_action_at"] = lastRawActionUtc == DateTime.MinValue ? "" : lastRawActionUtc.ToString("o");
             health["last_raw_action"] = lastRawAction ?? "";
             health["last_action_source"] = lastActionSource ?? "";
+            health["last_raw_press_at"] = lastRawPressUtc == DateTime.MinValue ? "" : lastRawPressUtc.ToString("o");
+            health["last_raw_press"] = lastRawPress ?? "";
+            health["last_raw_press_source"] = lastRawPressSource ?? "";
             ActionExecutionReceipt receipt;
             lock (actionReceiptLock) receipt = lastExecutionReceipt;
             health["last_execution_sequence"] = receipt == null ? 0L : receipt.Sequence;
@@ -4782,13 +4844,9 @@ internal static class VoxDeckInputBridge
             // delivering a usable WM_INPUT_DEVICE_CHANGE notification. Rebind
             // at a low frequency so the bridge heals itself while idle.
             rawInputHealthTimer = new System.Windows.Forms.Timer();
-            // 5 s, not 30 s. The hook's scoped record-key suppression treats the RC003 as present only for
-            // Rc003PresenceWindowMs after the last sign of it, and this probe is the only thing that refreshes that
-            // sign while the remote is idle. At a 30 s interval the presence had usually expired again by the time a
-            // user pressed the record key, so the *first* press of a session — the one that starts dictation — went
-            // unsuppressed and the foreground application received F5 as well. The probe now runs inside the window it
-            // feeds. Measured on this machine before the change: the ISOLATION lines only ever showed
-            // scoped_suppress=true for auto-repeat edges, never for the first press.
+            // Match the presence window so reconnect healing and diagnostic
+            // presence state agree. The probe itself remains independent of the
+            // fail-open hook decision.
             int healthIntervalMs = Rc003PresenceWindowMs;
             rawInputHealthTimer.Interval = healthIntervalMs;
             DateTime lastHealthLogUtc = DateTime.MinValue;
@@ -4820,7 +4878,7 @@ internal static class VoxDeckInputBridge
                     Log("Raw Input health check ok device_present=true");
                 }
             };
-            // One line at startup, so the interval that feeds the suppression window is visible in any log.
+            // One line at startup, so reconnect healing and diagnostic presence timing are visible in any log.
             Log("Raw Input health timer interval_ms=" + healthIntervalMs +
                 " presence_window_ms=" + Rc003PresenceWindowMs);
             rawInputHealthTimer.Start();
@@ -4857,8 +4915,7 @@ internal static class VoxDeckInputBridge
                     HandleVoicePhysicalTransition(false, "raw_device_removed", 0, 0);
                 if (changeType == 2)
                 {
-                    // Expire the scoped hook-voice lease: with the RC003 gone,
-                    // an ordinary keyboard F5 must pass through untouched.
+                    // Expire the diagnostic presence marker when the RC003 goes.
                     rc003DevicePresentUtc = DateTime.MinValue;
                 }
                 DateTime now = DateTime.UtcNow;
@@ -5239,6 +5296,9 @@ internal static class VoxDeckInputBridge
             IntPtr opened = CreateFile(DevicePath, GenericRead | GenericWrite, 0,
                 IntPtr.Zero, OpenExisting, 0, IntPtr.Zero);
             if (opened == InvalidHandleValue)
+                // ERROR_FILE_NOT_FOUND (2) on this device path means the
+                // control-device interface is absent (driver not installed or
+                // not loaded). Access denied would be ERROR_ACCESS_DENIED (5).
                 throw new IOException("open_failed_win32_" + Marshal.GetLastWin32Error());
             deviceHandle = opened;
 

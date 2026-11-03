@@ -153,6 +153,10 @@ internal sealed partial class VibeMicForm : Form
     private TextBox logBox;
     private Process captureProcess;
     private string captureProviderConfigurationKey = "";
+    // 云端 ASR（实验）：不常驻任何进程或音频资源。一次按住说话 = 一个 CloudAsrSession，
+    // 松开后上传、出字、立刻释放；空闲时这里始终是 null。
+    private CloudAsrSession cloudAsrSession;
+    private readonly object cloudAsrSync = new object();
     // The app whose foreground edit the user was in when the physical voice
     // key went down. The WeType fallback may only paste back into this
     // session source (or the verified Smart Focus target); it never follows
@@ -160,6 +164,10 @@ internal sealed partial class VibeMicForm : Form
     private string voiceSessionSourceProcess = "";
     private FocusTargetDescriptor voiceSessionSourceTarget;
     private uint voiceSessionClipboardSequence;
+    // Character count of the dictation target captured when the voice key went down.
+    // The WeType paste fallback compares the same control against it before pasting.
+    private int voiceSessionTargetTextLength = -1;
+    private int voiceTargetGrowthProbeToken;
     private Process keyboardBridgeProcess;
     private EventWaitHandle showWindowEvent;
     private EventWaitHandle exitApplicationEvent;
@@ -167,7 +175,6 @@ internal sealed partial class VibeMicForm : Form
     private EventWaitHandle providerHotkeyTapEvent;
     private EventWaitHandle providerHotkeyDownEvent;
     private EventWaitHandle providerHotkeyUpEvent;
-    private EventWaitHandle inputTargetMissingEvent;
     // Set only after Smart Focus (or a verified manual focus observation) has
     // confirmed the editable target. This is a passive safety/feedback token;
     // the Bridge still owns the frozen recording edge and does not wait on UIA.
@@ -188,6 +195,39 @@ internal sealed partial class VibeMicForm : Form
     private System.Windows.Forms.Timer reconnectTimer;
     private System.Windows.Forms.Timer visualTimer;
     private System.Windows.Forms.Timer systemRecoveryTimer;
+    private System.Windows.Forms.Timer uiProgressTimer;
+    // Windows runs a modal loop while the user moves or resizes the window. The poll is suspended for
+    // that loop so the drag stays smooth; the timestamp is the guard against a loop that never reports
+    // its end and would otherwise suspend the poll for the rest of the session.
+    private bool windowModalMoveLoopActive;
+    private DateTime windowModalMoveLoopAt = DateTime.MinValue;
+    private DateTime uiProgressObservedAt = DateTime.MinValue;
+    private DateTime lastUiStallLogAt = DateTime.MinValue;
+    private const int UiStallThresholdMs = 400;
+    // The poll reports the longest tick it saw once per window, and only when one was long enough to be
+    // felt. See RecordPollDuration.
+    private const int PollReportWindowSeconds = 30;
+    // Measured on the machine this was fixed for: an idle poll averaged about 20 ms and the worst tick in
+    // a 30 second window stayed under 40 ms once the repeated log reads, process scans, repaints and regex
+    // passes were removed. These thresholds are the "it got slow again" alarm, not a target.
+    private const int PollSlowTickMs = 60;
+    private const int PollSlowAverageMs = 40;
+    private double worstPollMs;
+    private double totalPollMs;
+    private long pollTicksInWindow;
+    private DateTime pollWindowStartedAt = DateTime.Now;
+    // A tick that costs milliseconds is invisible until it is attributed, so the poll accounts for
+    // itself stage by stage and reports the average per stage with the window it already reports.
+    private const int PollStageCount = 22;
+    private const int PollTopLevelStageCount = 11;
+    private readonly double[] pollStageMs = new double[PollStageCount];
+    private System.Diagnostics.Stopwatch activePollClock;
+    private double uiHeartbeatMs;
+    private long uiHeartbeatTicks;
+    private static readonly string[] PollStageLabels = { "focus", "engine", "capture_btn", "mapping",
+        "runtime", "input", "bridge", "capture", "events", "session", "snapshot",
+        "s_build", "s_apply", "s_tail", "s_scan", "s_health", "s_map", "s_focus", "s_create",
+        "s_ui", "s_ovw", "s_vis" };
     private long lastEventLength;
     private int reconnectAttempt;
     private int startupRecoveryCount;
@@ -206,6 +246,10 @@ internal sealed partial class VibeMicForm : Form
     private DateTime lastFocusObservationUtc = DateTime.MinValue;
     private bool lastFocusObservationReady;
     private string lastFocusObservationCode = "";
+    // The observation retries about once a second, so the same failure reports the same disarm over
+    // and over: that repeat says nothing new and only buried the log. The reason last written is kept
+    // here, and arming clears it so the next genuine change is reported again.
+    private string lastFocusLockDisarmReason = "";
     private string activeVoiceFocusTargetId = "";
     private FocusTargetDescriptor activeVoiceFocusTarget;
     private DateTime lastCaptureRecoveryAt = DateTime.MinValue;
@@ -240,6 +284,31 @@ internal sealed partial class VibeMicForm : Form
     private MemoryStream dictationStopSound;
     private long runtimeFeedbackPosition;
     private long inputFeedbackPosition;
+    // The 500 ms poll re-read and re-parsed up to ~750 KB of the runtime log on every tick, which cost
+    // tens of milliseconds of the UI thread on this class of machine and showed up as stutter while
+    // dragging the window. The tail and its parsed session are cached together and rebuilt only when
+    // the log really changes; the key carries the configuration the parse depends on.
+    private RuntimeLogTail runtimeLogTail;
+    private const int RuntimeLogTailBytes = 512 * 1024;
+    // The parsed bridge health document, kept until the file changes.
+    private Dictionary<string, object> bridgeHealthDocument;
+    private string bridgeHealthDocumentRevision;
+    // The capture heartbeat document, kept until the file changes for the same reason as the bridge one:
+    // the poll asks for it twice a second and only ever needs the newest document written.
+    private Dictionary<string, object> captureHealthDocument;
+    private string captureHealthDocumentRevision;
+    // Both caches below exist because enumerating the process table costs milliseconds and the 500 ms poll
+    // asks about several processes on every tick. processLookupCache holds the per-name topology the
+    // self-check inspects, and only while the process is running: a restart must be noticed immediately.
+    private static readonly Dictionary<string, ProcessLookupEntry> processLookupCache =
+        new Dictionary<string, ProcessLookupEntry>(StringComparer.OrdinalIgnoreCase);
+    // A running process's topology does not change second to second, and every caller that needs the
+    // current answer (the self-check, the duplicate-process tests) forces a refresh anyway.
+    private const int ProcessTopologyCacheMs = 3000;
+    private const int ProcessSnapshotMs = 2000;
+    private static DateTime processSnapshotAt = DateTime.MinValue;
+    private static HashSet<string> processSnapshotNames;
+    private static int processSnapshotRefreshing;
     private int lastFeedbackGeneration;
     private int lastPasteFallbackGeneration;
     private int updateOperationActive;
@@ -274,6 +343,9 @@ internal sealed partial class VibeMicForm : Form
     private int panelSubmitStimulusCount;
     private int lastPanelStimulusNoticeTick;
     private bool triggerOnlyModeForced;
+    private bool triggerOnlyModeCached;
+    private DateTime triggerOnlyModeResolvedAt = DateTime.MinValue;
+    private const int TriggerOnlyModeCacheMs = 2000;
     private bool triggerOnlyModeForcedResolved;
     private ActiveInputEngine activeInputEngine;
     private DateTime activeInputEngineReadAt = DateTime.MinValue;
@@ -290,6 +362,13 @@ internal sealed partial class VibeMicForm : Form
     private string transientFeedbackText = "";
     private Color currentVisualAccent = Color.FromArgb(15, 158, 100);
     private string currentVisualState = "connecting";
+    // The surfaces ApplyVisualState paints, remembered by identity so that a rebuilt page (which
+    // creates new controls) is always painted once, while an unchanged state on the same controls is
+    // not painted again. See ApplyVisualState.
+    private object lastPaintedHeroPanel;
+    private object lastPaintedRemoteVisual;
+    private object lastPaintedConnectionBadge;
+    private object lastPaintedVoiceBridgeStateLabel;
     private DateTime windowsHardwareProbeAt = DateTime.MinValue;
     private WindowsHardwareProbe windowsHardwareProbe;
     private int windowsHardwareProbeRunning;
@@ -609,6 +688,11 @@ internal sealed partial class VibeMicForm : Form
         focusAutomationBackend = new WindowsUiaFocusAutomationBackend(recordingPriorityCommitGate);
         focusTargetService = new FocusTargetService(focusAutomationBackend, IsVoiceKeyHeld, HostLog,
             recordingPriorityCommitGate);
+        // The workflow status caption asks whether the target application is running on every interface
+        // refresh. The Host already keeps one process-name snapshot for exactly that question and refreshes
+        // it in the background, so the shared service is given that answer instead of enumerating the
+        // process table on the UI thread for a caption.
+        FocusTargetService.processRunningProbe = IsProcessRunning;
         focusTargetDocument = LoadFocusTargetDocument();
         string migratedConfigSource = uiSmokeMode ? "" : MigrateLegacyUserConfig(root, userStateRoot);
         sessionDir = Path.Combine(userStateRoot, "remote-voice-session");
@@ -672,7 +756,7 @@ internal sealed partial class VibeMicForm : Form
         if (!uiSmokeMode) ReleaseVoiceHotkey();
         RotateLogFile(Path.Combine(sessionDir, "vibe-mic-runtime.log"), 4 * 1024 * 1024);
         RotateLogFile(hostLogPath, 2 * 1024 * 1024);
-        RotateLogFile(Path.Combine(root, "input-bridge-log.txt"), 4 * 1024 * 1024);
+        RotateLogFile(BridgeStateFile("input-bridge-log.txt"), 4 * 1024 * 1024);
         if (!uiSmokeMode)
         {
             audioDuckingLease = new WindowsAudioDuckingLease(
@@ -681,7 +765,7 @@ internal sealed partial class VibeMicForm : Form
         }
         string existingRuntimeLog = Path.Combine(sessionDir, "vibe-mic-runtime.log");
         runtimeFeedbackPosition = File.Exists(existingRuntimeLog) ? new FileInfo(existingRuntimeLog).Length : 0;
-        string existingInputLog = Path.Combine(root, "input-bridge-log.txt");
+        string existingInputLog = BridgeStateFile("input-bridge-log.txt");
         inputFeedbackPosition = File.Exists(existingInputLog) ? new FileInfo(existingInputLog).Length : 0;
 
         AutoScaleDimensions = new SizeF(96f, 96f);
@@ -730,7 +814,6 @@ internal sealed partial class VibeMicForm : Form
             providerHotkeyTapEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyTapRequested");
             providerHotkeyDownEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyDownRequested");
             providerHotkeyUpEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicProviderHotkeyUpRequested");
-            inputTargetMissingEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicInputTargetMissing");
             focusTargetLockedEvent = new EventWaitHandle(false, EventResetMode.ManualReset, "Local\\VibeMicFocusTargetLocked");
             focusTargetLockedEvent.Reset();
             recordingStartCueEvent = new EventWaitHandle(false, EventResetMode.AutoReset, "Local\\VibeMicRecordingStartCue");
@@ -738,7 +821,7 @@ internal sealed partial class VibeMicForm : Form
             ThreadPool.QueueUserWorkItem(delegate
             {
                 WaitHandle[] handles = { showWindowEvent, exitApplicationEvent, voiceWakeRequestEvent,
-                    providerHotkeyTapEvent, providerHotkeyDownEvent, providerHotkeyUpEvent, inputTargetMissingEvent };
+                    providerHotkeyTapEvent, providerHotkeyDownEvent, providerHotkeyUpEvent };
                 while (!applicationExiting && !IsDisposed)
                 {
                     try
@@ -754,15 +837,15 @@ internal sealed partial class VibeMicForm : Form
                             // editable target synchronously before the UI
                             // thread paints any feedback, so provider startup
                             // cannot race a stale or lost focus.
-                            bool focusPrepared = PrepareVoiceFocusForWake();
+                            bool wakeTextDestinationSeen;
+                            bool focusPrepared = PrepareVoiceFocusForWake(out wakeTextDestinationSeen);
                             BeginInvoke(new Action(delegate
                             {
-                                HandleVoiceWakeRequest(focusPrepared);
+                                HandleVoiceWakeRequest(focusPrepared, wakeTextDestinationSeen);
                             }));
                         }
                         else if (signal == 3) HandleProviderHotkeyTapRequest();
                         else if (signal == 4 || signal == 5) HandleProviderHotkeyHoldRequest(signal == 4);
-                        else if (signal == 6) BeginInvoke(new Action(HandleMissingInputTarget));
                     }
                     catch (Exception ex)
                     {
@@ -786,6 +869,13 @@ internal sealed partial class VibeMicForm : Form
             activityTimer.Interval = 500;
             activityTimer.Tick += delegate { PollActivity(); };
             activityTimer.Start();
+
+            // A timer this cheap can not be starved by anything the poll does: if it runs late, the UI
+            // thread really was blocked, and that is what the user feels as a stutter.
+            uiProgressTimer = new System.Windows.Forms.Timer();
+            uiProgressTimer.Interval = 200;
+            uiProgressTimer.Tick += delegate { ObserveUiThreadProgress(); };
+            uiProgressTimer.Start();
         }
 
         visualTimer = new System.Windows.Forms.Timer();
@@ -1545,6 +1635,19 @@ internal sealed partial class VibeMicForm : Form
         return Path.Combine(localAppData, "Vibe Flow Remote", "UserData");
     }
 
+    // The mapping document the keyboard bridge loads, its log, its heartbeat and the custom-button
+    // handshake files used to be written beside the executable. In a Program Files installation that
+    // directory is read-only for the ordinary user, so the write threw, the sync returned no revision
+    // and the host aborted the bridge start on every launch - "KEYBOARD BRIDGE start_aborted=true
+    // reason=config_sync_failed" - leaving the remote's mapped keys dead while the voice path, which
+    // runs in its own process, kept working. This state belongs next to the configuration the host
+    // already keeps in the user's own directory, and that is the one location a portable copy and an
+    // installed copy agree on.
+    private string BridgeStateFile(string fileName)
+    {
+        return Path.Combine(userStateRoot, fileName);
+    }
+
     private static string MigrateLegacyUserConfig(string legacyRoot, string stateRoot)
     {
         return MigrateLegacyUserConfig(legacyRoot, stateRoot, true);
@@ -2003,6 +2106,41 @@ internal sealed partial class VibeMicForm : Form
                     Application.DoEvents();
                 }
             }
+            // The floating panel may only pop up on its own while 设置 ▸ 交互反馈 allows it. A
+            // receipt raised with the main window hidden is the case that used to put the panel in
+            // the bottom-right corner unasked, so that is the case pinned here — off must stay
+            // hidden, on must reach the user, and the preference must survive the check.
+            if (failure.Length == 0)
+            {
+                bool previousAutoShow = config.liveHudAutoShow;
+                liveHud.HideInactive();
+                liveHudPresentationKey = "";
+                liveHudExplicitlyRequested = false;
+                liveHudSessionSuppressed = false;
+                latestActionResult = ActionResult.Create("截图提问", "已验证目标", ActionState.Warning,
+                    "悬浮窗自动弹出偏好的回归检查", "", "", "LIVE-HUD-PREFERENCE-PROBE");
+                Hide();
+                Application.DoEvents();
+                config.liveHudAutoShow = false;
+                PublishFeedbackSnapshot();
+                Application.DoEvents();
+                if (liveHud.IsPresented)
+                    failure = "The floating panel popped up while its automatic pop-up was turned off";
+                if (failure.Length == 0)
+                {
+                    liveHudPresentationKey = "";
+                    config.liveHudAutoShow = true;
+                    PublishFeedbackSnapshot();
+                    Application.DoEvents();
+                    if (!liveHud.IsPresented)
+                        failure = "The floating panel stayed hidden while its automatic pop-up was turned on";
+                }
+                config.liveHudAutoShow = previousAutoShow;
+                liveHud.HideInactive();
+                liveHudPresentationKey = "";
+                Show();
+                Application.DoEvents();
+            }
             if (failure.Length == 0)
             {
                 ShowContextDeck();
@@ -2090,7 +2228,7 @@ internal sealed partial class VibeMicForm : Form
                 ") duration_ms=" + testTimer.ElapsedMilliseconds +
                 (failure.Length == 0 ? "" : " FAILURE " + failure);
             Console.WriteLine(result);
-            string reportDirectory = Path.Combine(root, "tmp");
+            string reportDirectory = Path.Combine(userStateRoot, "tmp");
             Directory.CreateDirectory(reportDirectory);
             File.WriteAllText(Path.Combine(reportDirectory, "ui-resource-test.txt"), result, Encoding.UTF8);
             Environment.ExitCode = failure.Length == 0 && userDelta <= 120 && gdiDelta <= 50 ? 0 : 1;
@@ -2261,6 +2399,12 @@ internal sealed partial class VibeMicForm : Form
                 ShouldScheduleProviderPasteFallback("wechat", weTypeSubmitDelivered,
                     false, "recording", 10, 0))
                 throw new InvalidOperationException("WeChat early submit receipt paste policy failed");
+            if (ShouldSkipPasteForChangedTarget(0, 0) ||
+                !ShouldSkipPasteForChangedTarget(0, 12) ||
+                !ShouldSkipPasteForChangedTarget(40, 52) ||
+                ShouldSkipPasteForChangedTarget(-1, 12) ||
+                ShouldSkipPasteForChangedTarget(12, -1))
+                throw new InvalidOperationException("WeChat paste fallback did not honour the target text change guard");
             // No shipped tool defaults to a held shortcut any more, but the hold path stays: a custom
             // slot whose stored trigger is 按住触发 still gets KeyDown / KeyUp from the capture.
             if (ShouldHoldProviderHotkeyForSession("wechat", "hold") ||
@@ -2738,20 +2882,76 @@ internal sealed partial class VibeMicForm : Form
                 WizardCaptureRestoreResult(false, true).State != ActionState.Error)
                 throw new InvalidOperationException("Reopened setup can leave the voice bridge in the wrong running state after cancel");
             if (!VoiceProviderEvidenceIsCurrent(providerEvidenceA, providerEvidenceA, providerEvidenceA,
-                    10, 11, true, true) ||
+                    true, true) ||
                 VoiceProviderEvidenceIsCurrent(providerEvidenceB, providerEvidenceA, providerEvidenceB,
-                    10, 11, true, true) ||
+                    true, true) ||
                 VoiceProviderEvidenceIsCurrent(providerEvidenceB, providerEvidenceB, providerEvidenceA,
-                    10, 11, true, true) ||
+                    true, true) ||
                 VoiceProviderEvidenceIsCurrent(providerEvidenceA, "", providerEvidenceA,
-                    10, 11, true, true) ||
+                    true, true) ||
                 VoiceProviderEvidenceIsCurrent(providerEvidenceA, providerEvidenceA, providerEvidenceA,
-                    11, 11, true, true) ||
+                    false, true) ||
                 VoiceProviderEvidenceIsCurrent(providerEvidenceA, providerEvidenceA, providerEvidenceA,
-                    10, 11, false, true) ||
-                VoiceProviderEvidenceIsCurrent(providerEvidenceA, providerEvidenceA, providerEvidenceA,
-                    10, 11, true, false))
+                    true, false))
                 throw new InvalidOperationException("Voice provider evidence survived a configuration change or incomplete test");
+            var dictationBaseline = new DateTime(2026, 9, 4, 2, 0, 0, DateTimeKind.Utc);
+            var laterDictation = new SessionHealth { LastCompletedAt = dictationBaseline.AddSeconds(1) };
+            var sameMomentDictation = new SessionHealth { LastCompletedAt = dictationBaseline };
+            var earlierDictation = new SessionHealth { LastCompletedAt = dictationBaseline.AddSeconds(-1) };
+            var noDictation = new SessionHealth();
+            if (!DictationAudioIsFresh(laterDictation, dictationBaseline) ||
+                DictationAudioIsFresh(sameMomentDictation, dictationBaseline) ||
+                DictationAudioIsFresh(earlierDictation, dictationBaseline) ||
+                DictationAudioIsFresh(noDictation, dictationBaseline) ||
+                DictationAudioIsFresh(null, dictationBaseline))
+                throw new InvalidOperationException("Dictation freshness accepted a completion that did not happen after the test started");
+            var completedDictationLines = new[]
+            {
+                "2026-09-04 10:00:00.000 VOICE KEY detected generation=1; waiting_for_natural_stream_ms=120",
+                "2026-09-04 10:00:03.250 WETYPE SESSION END generation=1 audio_delivered=True submitted=True panel_wait_ms=100",
+                "2026-09-04 10:00:07.500 TRANSCRIPTION SESSION END provider=bage generation=1 audio_delivered=True mode=toggle sent=True",
+                "2026-09-04 10:00:09.750 WETYPE SESSION END generation=2 audio_delivered=False submitted=False panel_wait_ms=0",
+                "no timestamp here WETYPE SESSION END audio_delivered=True submitted=True"
+            };
+            if (LatestCompletedDictationAt(completedDictationLines) != new DateTime(2026, 9, 4, 10, 0, 7, 500) ||
+                LatestCompletedDictationAt(new[] {
+                    "2026-09-04 10:00:09.750 WETYPE SESSION END generation=2 audio_delivered=False submitted=False panel_wait_ms=0" })
+                    != DateTime.MinValue ||
+                LatestCompletedDictationAt(null) != DateTime.MinValue)
+                throw new InvalidOperationException("Latest completed dictation did not come from the newest delivered and submitted receipt");
+            var cachedHealth = new SessionHealth { Started = true, AudioMs = 4321, NextAction = "original" };
+            SessionHealth cachedHealthCopy = cachedHealth.Copy();
+            cachedHealthCopy.AudioMs = 1;
+            cachedHealthCopy.NextAction = "changed";
+            cachedHealthCopy.Started = false;
+            if (cachedHealth.AudioMs != 4321 || cachedHealth.NextAction != "original" || !cachedHealth.Started)
+                throw new InvalidOperationException("Copying a cached session health let a caller write into the cache");
+            var topologySource = new ProcessTopologySnapshot
+            {
+                TotalCount = 3, CurrentRootCount = 1, ForeignCount = 1, InaccessibleCount = 1
+            };
+            ProcessTopologySnapshot topologyCopy = CopyProcessTopology(topologySource);
+            topologyCopy.CurrentRootCount = 9;
+            if (topologySource.CurrentRootCount != 1 || topologyCopy.ForeignCount != 1)
+                throw new InvalidOperationException("Copying a cached process topology let a caller write into the cache");
+            if (ReadProcessLookupCache("self-test-absent") != null)
+                throw new InvalidOperationException("Process lookup cache answered for an entry that was never stored");
+            var storedLookup = new ProcessLookupEntry();
+            storedLookup.Running = true;
+            WriteProcessLookupCache("self-test-fresh", storedLookup);
+            ProcessLookupEntry freshLookup = ReadProcessLookupCache("self-test-fresh");
+            if (freshLookup == null || !freshLookup.Running || ReadProcessLookupCache("self-test-FRESH") == null)
+                throw new InvalidOperationException("Process lookup cache did not answer a fresh entry");
+            storedLookup.At = DateTime.UtcNow.AddSeconds(-5);
+            if (ReadProcessLookupCache("self-test-fresh") != null)
+                throw new InvalidOperationException("Process lookup cache served an answer past its lifetime");
+            HashSet<string> runningNow = ProcessNamesSnapshot(true);
+            if (!runningNow.Contains(Process.GetCurrentProcess().ProcessName))
+                throw new InvalidOperationException("The process snapshot did not contain the host process itself");
+            if (!object.ReferenceEquals(runningNow, ProcessNamesSnapshot(false)))
+                throw new InvalidOperationException("The process snapshot was rebuilt inside its lifetime");
+            if (ProcessNamesSnapshot(false).Contains("vibe-flow-self-test-absent-process"))
+                throw new InvalidOperationException("The process snapshot reported a process that does not exist");
             if (!BridgeConfigurationMatchesExpected("revision-a", "revision-a") ||
                 BridgeConfigurationMatchesExpected("revision-a", "") ||
                 BridgeConfigurationMatchesExpected("", "revision-a") ||
@@ -4630,6 +4830,22 @@ deck.Hide();
 
                 VibeMicConfig legacyMappingFixture = VibeMicConfig.Default();
                 legacyMappingFixture.schemaVersion = 8;
+                // The floating panel's automatic pop-up arrived after schema 32 shipped: a file
+                // written before it existed must load with the pop-up off, and a file that carries
+                // it must keep the user's choice through a save.
+                VibeMicConfig liveHudPreferenceFixture = VibeMicConfig.Default();
+                liveHudPreferenceFixture.liveHudAutoShow = true;
+                var liveHudPreferenceDocument = new JavaScriptSerializer().DeserializeObject(
+                    SerializeConfigPreservingUnknown(liveHudPreferenceFixture)) as Dictionary<string, object>;
+                object liveHudPreferenceValue;
+                if (schemaEightLoaded.liveHudAutoShow || VibeMicConfig.Default().liveHudAutoShow ||
+                    liveHudPreferenceDocument == null ||
+                    !liveHudPreferenceDocument.TryGetValue("liveHudAutoShow", out liveHudPreferenceValue) ||
+                    !(liveHudPreferenceValue is bool) || !(bool)liveHudPreferenceValue ||
+                    !DeserializeConfigPreservingUnknown(
+                        SerializeConfigPreservingUnknown(liveHudPreferenceFixture)).liveHudAutoShow)
+                    throw new InvalidOperationException(
+                        "The floating-panel pop-up preference does not default to off or does not survive a save");
                 legacyMappingFixture.mappings = new Dictionary<string, string>
                 {
                     { "Home", "open-url:https://example.com/legacy-home" },
@@ -4908,6 +5124,7 @@ deck.Hide();
             RunProjectProfileGatewaySelfTests();
             RunAudioEndpointShapeSelfTests();
             RunTriggerOnlyVoiceModeSelfTests();
+            RunCloudAsrSelfTests();
             // The effective trigger is what actually reaches the frozen capture. 微信输入法 is the
             // frozen stable path that is documented as 单击切换, so its stored value is pinned;
             // every other tool keeps the user's own hold / toggle choice, because that choice has to
@@ -5456,28 +5673,14 @@ deck.Hide();
         content.BackColor = pageBackground;
         content.AutoScroll = true;
         content.AutoScrollMinSize = new Size(UiDesignTokens.ContentMinimumWidth, UiDesignTokens.ContentMinimumHeight);
-        content.Paint -= PaintWorkspaceTexture;
-        content.Paint += PaintWorkspaceTexture;
+        // The canvas is deliberately left as a plain page-coloured surface. It used to carry a decorative
+        // dot grid and two accent lines drawn from a Paint handler on this panel, and because Windows Forms
+        // asks the parent to paint the background behind every transparent child, that texture was redrawn
+        // once per label on the page: one scroll step measured 230 ms before the walk was bounded by the
+        // clip and 2.4 ms after it. The decoration itself was then removed by request instead of kept.
         Controls.Add(content);
         Controls.Add(sidebar);
         BuildToastOverlay();
-    }
-
-    private void PaintWorkspaceTexture(object sender, PaintEventArgs e)
-    {
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var dot = new SolidBrush(Color.FromArgb(22, 109, 121, 155)))
-        {
-            for (int y = 18; y < content.Height; y += 32)
-                for (int x = 18; x < content.Width; x += 32)
-                    e.Graphics.FillEllipse(dot, x, y, 1.4f, 1.4f);
-        }
-        using (var cyanLine = new Pen(Color.FromArgb(25, cyan), 1f))
-        using (var violetLine = new Pen(Color.FromArgb(18, violet), 1f))
-        {
-            e.Graphics.DrawLine(cyanLine, Math.Max(0, content.Width - 260), 0, content.Width, 0);
-            e.Graphics.DrawLine(violetLine, Math.Max(0, content.Width - 160), 4, content.Width, 4);
-        }
     }
 
     private void ApplyRoundedRegion(Control control, int radius)
@@ -6608,6 +6811,7 @@ deck.Hide();
                 StringComparison.OrdinalIgnoreCase);
             activeVoiceFocusTargetId = targetId;
             activeVoiceFocusTarget = target.Copy();
+            lastFocusLockDisarmReason = "";
             if (targetChanged) UpdateVoiceFocusIndicator(target);
             if (!alreadyArmed)
                 HostLog("VOICE FOCUS LOCK armed=true target_id=" + SafeLogValue(target.Id) +
@@ -6633,11 +6837,14 @@ deck.Hide();
         }
         try
         {
+            bool wasArmed = IsFocusLockArmed();
             focusTargetLockedEvent.Reset();
             activeVoiceFocusTargetId = "";
             activeVoiceFocusTarget = null;
             ResetVoiceFocusIndicator();
-            HostLog("VOICE FOCUS LOCK armed=false reason=" + SafeLogValue(reason));
+            if (wasArmed || !string.Equals(lastFocusLockDisarmReason, reason, StringComparison.Ordinal))
+                HostLog("VOICE FOCUS LOCK armed=false reason=" + SafeLogValue(reason));
+            lastFocusLockDisarmReason = reason ?? "";
         }
         catch { }
     }
@@ -6809,10 +7016,23 @@ deck.Hide();
             string.Equals(candidate.ControlType, "Edit", StringComparison.OrdinalIgnoreCase);
     }
 
+    // The idle observer only needs the target, so it keeps the short form.
     private FocusTargetDescriptor TryCaptureTransientVoiceTarget(
         FocusTargetDescriptor configuredTarget, out string errorCode)
     {
+        bool editableControlSeen;
+        return TryCaptureTransientVoiceTarget(configuredTarget, out errorCode, out editableControlSeen);
+    }
+
+    // The extra flag answers one question on its own: does the foreground process
+    // hold a focused, writable control right now. The provider types at the caret,
+    // so that is exactly when the words have somewhere to land even if the app is
+    // not an approved voice target — and therefore not worth a warning.
+    private FocusTargetDescriptor TryCaptureTransientVoiceTarget(
+        FocusTargetDescriptor configuredTarget, out string errorCode, out bool editableControlSeen)
+    {
         errorCode = "FOCUS-NO-FOCUS";
+        editableControlSeen = false;
         string focusedProcess = GetForegroundProcessName(GetForegroundWindow());
         if (focusedProcess.Length == 0) return null;
         if (string.Equals(focusedProcess, "vibemic", StringComparison.OrdinalIgnoreCase))
@@ -6854,6 +7074,7 @@ deck.Hide();
             errorCode = capture == null ? "FOCUS-TARGET-NOT-EDITABLE" : capture.ErrorCode;
             return null;
         }
+        editableControlSeen = true;
         if (!ShouldUseTransientVoiceTarget(focusedProcess,
             configuredTarget == null ? "" : configuredTarget.ProcessName, capture.Descriptor))
         {
@@ -6996,6 +7217,94 @@ deck.Hide();
         });
     }
 
+    // Owner-approved deviation from the upstream "never read the input box" promise: this build reads only the
+    // character count of the dictation target so the WeType clipboard fallback can tell "the provider never wrote
+    // into the field" from "the provider wrote into the field and also parked the same text on the clipboard"
+    // (the duplicate-sentence case). The text itself is never stored, logged, uploaded, or reused; only the count
+    // is held in memory for the duration of one dictation. Returns -1 whenever the answer would be unsafe to use.
+    private static int ReadFocusedEditableTextLength(string expectedProcessName)
+    {
+        try
+        {
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero) return -1;
+            uint foregroundProcessId;
+            if (GetWindowThreadProcessId(foreground, out foregroundProcessId) == 0 ||
+                foregroundProcessId == 0) return -1;
+            System.Windows.Automation.AutomationElement focused =
+                System.Windows.Automation.AutomationElement.FocusedElement;
+            if (focused == null) return -1;
+            System.Windows.Automation.AutomationElement.AutomationElementInformation info = focused.Current;
+            if (info.ProcessId != (int)foregroundProcessId) return -1;
+            string expected = FocusTargetDescriptor.NormalizeProcessName(expectedProcessName);
+            if (expected.Length > 0 &&
+                !string.Equals(GetForegroundProcessName(foreground), expected,
+                    StringComparison.OrdinalIgnoreCase)) return -1;
+            object pattern;
+            if (focused.TryGetCurrentPattern(System.Windows.Automation.ValuePattern.Pattern, out pattern))
+            {
+                System.Windows.Automation.ValuePattern value =
+                    pattern as System.Windows.Automation.ValuePattern;
+                if (value != null)
+                {
+                    string current = value.Current.Value;
+                    return current == null ? 0 : current.Length;
+                }
+            }
+            if (focused.TryGetCurrentPattern(System.Windows.Automation.TextPattern.Pattern, out pattern))
+            {
+                System.Windows.Automation.TextPattern text =
+                    pattern as System.Windows.Automation.TextPattern;
+                if (text != null)
+                {
+                    string current = text.DocumentRange.GetText(-1);
+                    return current == null ? 0 : current.Length;
+                }
+            }
+            return -1;
+        }
+        catch (System.Windows.Automation.ElementNotAvailableException) { return -1; }
+        catch (ArgumentException) { return -1; }
+        catch (InvalidOperationException) { return -1; }
+        catch (COMException) { return -1; }
+        catch { return -1; }
+    }
+
+
+    // Diagnostic probe (same owner-approved read as above: the character count only). While a dictation
+    // runs it records when the verified target stops growing, so a provider that stops writing into the
+    // field mid-utterance can be placed against the audio timeline. It logs one line per change and goes
+    // quiet once the field has stopped changing. Remove once the stall is understood.
+    private void StartVoiceTargetGrowthProbe(string expectedProcessName)
+    {
+        if (voiceSessionTargetTextLength < 0) return;
+        int token = Interlocked.Increment(ref voiceTargetGrowthProbeToken);
+        int baseline = voiceSessionTargetTextLength;
+        DateTime started = DateTime.UtcNow;
+        string expected = expectedProcessName;
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            int lastChars = baseline;
+            string lastForeground = "";
+            while (Volatile.Read(ref voiceTargetGrowthProbeToken) == token && IsVoiceKeyHeld())
+            {
+                Thread.Sleep(1000);
+                if (Volatile.Read(ref voiceTargetGrowthProbeToken) != token) return;
+                int chars = ReadFocusedEditableTextLength(expected);
+                string foreground = GetForegroundProcessName(GetForegroundWindow());
+                if (chars != lastChars ||
+                    !string.Equals(foreground, lastForeground, StringComparison.OrdinalIgnoreCase))
+                {
+                    HostLog("VOICE TARGET GROWTH t=" +
+                        (DateTime.UtcNow - started).TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) +
+                        "s chars=" + chars + " delta=" + (chars - baseline) +
+                        " foreground=" + SafeLogValue(foreground));
+                    lastChars = chars;
+                    lastForeground = foreground;
+                }
+            }
+        });
+    }
     private static string GetForegroundProcessName(IntPtr window)
     {
         if (window == IntPtr.Zero) return "";
@@ -7133,9 +7442,9 @@ deck.Hide();
             // Wrapped, not clipped: a fixed 610 px box was tuned for 100%, and at 125% the sentence needs
             // more width than it has, so it was cut off mid-word (measured with
             // scripts/check-ui-geometry.ps1). The wording is short enough to fit one line at 125% while
-            // keeping the distinction the honesty gate requires: audio still works AND the foreground
-            // application may receive the record key.
-            filterWarning = NewLabel("!  未安装签名通道：音频不受影响；连接遥控器时会拦截录音键（键盘 F5 同时被拦截），断开后恢复。详见「自检」。",
+            // keeping the distinction the honesty gate requires: the physical keyboard always passes
+            // through, and the remote's native key effect may also reach the foreground application.
+            filterWarning = NewLabel("!  未安装签名通道：实体键盘始终直通；遥控器录音键的原始按键效果也可能同时发生。详见「自检」。",
                 8.4f, FontStyle.Bold, amber);
             filterWarning.Name = "rc003FilterWarning";
             filterWarning.Location = new Point(52, 190);
@@ -7352,6 +7661,7 @@ deck.Hide();
     private void UpdateOverviewStatus()
     {
         if (overviewStatusValues[0] == null || overviewStatusValues[0].IsDisposed) return;
+        double overviewStartedAt = PollClockMs();
         SessionHealth latestHealth = GetLatestSessionHealth();
         LinkQualityVerdict liveQuality = CurrentLinkQuality();
         bool triggerOnlyOverview = IsTriggerOnlyVoiceMode();
@@ -7368,13 +7678,11 @@ deck.Hide();
         bool[] ready = { bridgeReady, bridgeReady, liveQuality.IsGood, IsProviderRunning(config.inputMethod), true };
         for (int i = 0; i < values.Length; i++)
         {
-            if (overviewStatusValues[i] != null && !overviewStatusValues[i].IsDisposed) overviewStatusValues[i].Text = values[i];
-            if (overviewStatusGlyphs[i] != null && !overviewStatusGlyphs[i].IsDisposed)
-            {
-                overviewStatusGlyphs[i].ForeColor = ready[i] ? (i == 4 ? green : i < 2 ? violet : cyan) : amber;
-            }
+            SetLabelText(overviewStatusValues[i], values[i]);
+            SetLabelColor(overviewStatusGlyphs[i], ready[i] ? (i == 4 ? green : i < 2 ? violet : cyan) : amber);
         }
         UpdateActionReceipt(ReadKeyboardBridgeHealth());
+        MarkPollStage(20, overviewStartedAt);
     }
 
     private string GestureMappingSummary(string shortKey, string longKey)
@@ -7404,13 +7712,10 @@ deck.Hide();
             ? receipt.SmartEffectiveProfileName : active == null ? "当前 Profile" : active.name;
         if (receipt == null || receipt.LastExecutionSequence <= 0)
         {
-            actionReceiptTitle.Text = "等待按键操作";
-            actionReceiptDetail.Text = activeName + " · 按下已配置按键后，这里显示真实结果";
-            if (actionReceiptGlyph != null && !actionReceiptGlyph.IsDisposed)
-            {
-                actionReceiptGlyph.Text = "\uE946";
-                actionReceiptGlyph.ForeColor = muted;
-            }
+            SetLabelText(actionReceiptTitle, "等待按键操作");
+            SetLabelText(actionReceiptDetail, activeName + " · 按下已配置按键后，这里显示真实结果");
+            SetLabelText(actionReceiptGlyph, "\uE946");
+            SetLabelColor(actionReceiptGlyph, muted);
             return;
         }
         string label = string.IsNullOrWhiteSpace(receipt.LastExecutionLabel)
@@ -7420,19 +7725,18 @@ deck.Hide();
         string action = CustomActionText(receipt.LastExecutionAction);
         string normalizedAction = (receipt.LastExecutionAction ?? "").Trim().ToLowerInvariant();
         bool disabledAction = normalizedAction.Length == 0 || normalizedAction == "none" || normalizedAction == "passthrough";
-        actionReceiptTitle.Text = label + " · " + trigger + " · " + action;
+        SetLabelText(actionReceiptTitle, label + " · " + trigger + " · " + action);
         string profileName = string.IsNullOrWhiteSpace(receipt.LastExecutionProfileName)
             ? activeName : receipt.LastExecutionProfileName;
         string age = receipt.LastExecutionAgeSeconds < 5 ? "刚刚" :
             receipt.LastExecutionAgeSeconds < 60 ? ((int)receipt.LastExecutionAgeSeconds) + " 秒前" :
             receipt.LastExecutionAtUtc.ToLocalTime().ToString("HH:mm:ss");
-        actionReceiptDetail.Text = profileName + " · " + (disabledAction ? "未配置动作，不是连接故障" :
-            receipt.LastExecutionSuccess ? "执行成功" : "执行失败，请打开自检查看") + " · " + age;
-        if (actionReceiptGlyph != null && !actionReceiptGlyph.IsDisposed)
-        {
-            actionReceiptGlyph.Text = disabledAction ? "\uE946" : receipt.LastExecutionSuccess ? "\uE73E" : "\uEA39";
-            actionReceiptGlyph.ForeColor = disabledAction ? amber : receipt.LastExecutionSuccess ? green : coral;
-        }
+        SetLabelText(actionReceiptDetail, profileName + " · " + (disabledAction ? "未配置动作，不是连接故障" :
+            receipt.LastExecutionSuccess ? "执行成功" : "执行失败，请打开自检查看") + " · " + age);
+        SetLabelText(actionReceiptGlyph,
+            disabledAction ? "\uE946" : receipt.LastExecutionSuccess ? "\uE73E" : "\uEA39");
+        SetLabelColor(actionReceiptGlyph,
+            disabledAction ? amber : receipt.LastExecutionSuccess ? green : coral);
     }
 
     // The dedicated 工作流 page: everything about the favourite applications lives here —
@@ -7650,7 +7954,7 @@ deck.Hide();
 
         AddFieldLabel(card, "转写工具", 152);
         var provider = StyledCombo(new Point(220, 148), new Size(260, 38));
-        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+        provider.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
         provider.SelectedIndex = ProviderIndex(config.inputMethod);
         var providerStatus = NewLabel(ProviderStatusText(config.inputMethod), 9.2f, FontStyle.Bold,
             IsProviderRunning(config.inputMethod) ? green : amber);
@@ -7663,8 +7967,7 @@ deck.Hide();
         var hotkey = StyledTextBox(config.inputMethodHotkey, new Point(220, 202), new Size(220, 34));
         var triggerMode = StyledCombo(new Point(458, 200), new Size(184, 38));
         PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-        triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
-            config.inputMethodTrigger == "hold" ? 1 : 0;
+        triggerMode.SelectedIndex = TriggerModeIndex(config.inputMethod, config.inputMethodTrigger);
         var hotkeyHelp = NewLabel(ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger), 9f, FontStyle.Regular, muted);
         hotkeyHelp.Location = new Point(658, 207);
         hotkeyHelp.Size = new Size(242, 25);
@@ -7893,14 +8196,26 @@ deck.Hide();
         provider.SelectedIndexChanged += delegate
         {
             if (updating) return;
+            if (provider.SelectedIndex < 0) return;
+            string requestedProvider = NormalizeProviderKey(ProviderKeyFromIndex(provider.SelectedIndex));
+            // 云端槽默认关闭：打开前必须显式同意「录音会上传」，拒绝就回到原来的工具。
+            if (requestedProvider == "cloud" && !EnsureCloudAsrConsent())
+            {
+                updating = true;
+                provider.SelectedIndex = ProviderIndex(config.inputMethod);
+                updating = false;
+                return;
+            }
+            // 选中云端槽就打开上传开关，离开就关掉：配置文件始终反映当前真实状态。
+            SetCloudAsrEnabled(requestedProvider == "cloud",
+                requestedProvider == "cloud" ? "provider_selected" : "provider_switch_away");
             VibeMicConfig previousConfig = CloneConfiguration(config);
             bool captureWasRunning = IsCapturing;
             updating = true;
             ApplyProviderProfile(config, ProviderKeyFromIndex(provider.SelectedIndex));
             hotkey.Text = config.inputMethodHotkey;
             PopulateTriggerModeOptions(triggerMode, config.inputMethod);
-            triggerMode.SelectedIndex = NormalizeProviderKey(config.inputMethod) == "wechat" ? 0 :
-                config.inputMethodTrigger == "hold" ? 1 : 0;
+            triggerMode.SelectedIndex = TriggerModeIndex(config.inputMethod, config.inputMethodTrigger);
             hotkeyHelp.Text = ProviderHotkeyHelp(config.inputMethod, config.inputMethodTrigger);
             providerStatus.Text = ProviderStatusText(config.inputMethod);
             providerStatus.ForeColor = IsProviderRunning(config.inputMethod) ? green : amber;
@@ -9385,8 +9700,20 @@ deck.Hide();
             ShowToast(label + "保存失败，请打开自检", "error");
             return;
         }
+        // Writing the store is only half of the binding. The Bridge runs what the generated mapping document
+        // says, and that document is built from this store, so saving without re-syncing left the key running
+        // its previous action - measured: the 双击 row already read shortcut:rightshift+enter while the remote
+        // still sent the old ctrl+a, and it kept doing so until an unrelated settings change happened to
+        // rewrite the document. The per-Profile editors confirm the revision on every save; this one now does
+        // the same, so a gesture-layer edit is live as soon as it is saved.
+        string layerBridgeRevision = uiSmokeMode ? "" : SyncKeyboardBridgeConfig();
+        bool layerActive = uiSmokeMode || StartKeyboardBridgeForRevision(layerBridgeRevision);
+        HostLog("GESTURE LAYER SAVE applied=true key=" + SafeLogValue(gestureKey) +
+            " layer=" + kind + " bridge_revision=" + SafeLogValue(layerBridgeRevision) +
+            " acknowledged=" + layerActive);
         ShowPage(PageShortcuts);
-        ShowToast(label + "已保存", "success");
+        ShowToast(layerActive ? label + "已保存并生效" : label + "已保存，桥接仍在确认",
+            layerActive ? "success" : "warning");
     }
 
     // Testing a layer runs exactly the action the key will run, through the same bridge test channel the
@@ -10111,7 +10438,7 @@ deck.Hide();
             ShowActionToast(result);
         };
         var openBridge = SecondaryButton("打开高级配置", new Point(290, 780), new Size(150, 42));
-        openBridge.Click += delegate { Process.Start(Path.Combine(root, "voxdeck-shortcuts.json")); };
+        openBridge.Click += delegate { Process.Start(BridgeStateFile("voxdeck-shortcuts.json")); };
         mappings.Controls.Add(save);
         mappings.Controls.Add(openBridge);
         content.Controls.Add(mappings);
@@ -11025,10 +11352,35 @@ deck.Hide();
         var feedbackState = NewLabel("●  视觉反馈始终开启", 9f, FontStyle.Bold, violet);
         feedbackState.Location = new Point(28, 258);
         feedbackState.Size = new Size(260, 24);
+        // The floating panel is a preference now, and it ships off: it used to appear in the
+        // bottom-right corner on its own, over whatever the user was doing. The tray entry
+        // 显示 Live HUD stays as the way to open it on purpose, at any time.
+        var liveHudPopUp = StyledCheck("录音时自动弹出右下角悬浮状态窗", config.liveHudAutoShow, new Point(28, 288));
+        liveHudPopUp.Size = new Size(308, 40);
+        bool liveHudPopUpChanging = false;
+        liveHudPopUp.CheckedChanged += delegate
+        {
+            if (liveHudPopUpChanging) return;
+            bool previous = config.liveHudAutoShow;
+            config.liveHudAutoShow = liveHudPopUp.Checked;
+            ActionResult result = ApplySettingsChangeCore("更改悬浮窗弹出",
+                liveHudPopUp.Checked ? "录音时会自动弹出悬浮状态窗" : "悬浮状态窗不再自动弹出", false,
+                SaveConfig, null, delegate { config.liveHudAutoShow = previous; });
+            if (!result.IsSuccess)
+            {
+                liveHudPopUpChanging = true;
+                liveHudPopUp.Checked = previous;
+                liveHudPopUpChanging = false;
+            }
+            if (result.IsSuccess && !config.liveHudAutoShow && liveHud != null && !liveHud.IsDisposed)
+                liveHud.HideInactive();
+            ShowActionToast(result);
+        };
         feedbackCard.Controls.Add(feedbackSound);
         feedbackCard.Controls.Add(previewStopSound);
         feedbackCard.Controls.Add(feedbackNote);
         feedbackCard.Controls.Add(feedbackState);
+        feedbackCard.Controls.Add(liveHudPopUp);
 
         BridgeHealthSnapshot routingHealth = ReadKeyboardBridgeHealth();
         bool exactDeviceIsolation = routingHealth.FilterHealthy;
@@ -11042,7 +11394,7 @@ deck.Hide();
         // is worse than no statement at all.
         var sourceProtection = StyledCheck(exactDeviceIsolation
             ? "设备级隔离已启用：只有带 RC003 身份的事件会执行遥控器动作"
-            : "未安装签名通道：遥控器连接时会拦截录音键（实体键盘的 F5 同时被拦截），断开后恢复",
+            : "未安装签名通道：实体键盘始终直通；遥控器录音键的原始效果可能同时发生",
             exactDeviceIsolation, new Point(32, 62));
         sourceProtection.Size = new Size(620, 40);
         sourceProtection.AutoCheck = false;
@@ -11055,7 +11407,7 @@ deck.Hide();
         var sourceProtectionNote = NewLabel(
             exactDeviceIsolation ?
             "RC003 专属签名通道已就绪：遥控器原按键被设备级拦截，实体键盘保持原行为。" :
-            "未安装签名通道时，Vibe Link按「遥控器是否在场」判断：在场时拦截录音键（实体键盘的 F5 也同时被拦截），非语音键的原生效果仍会透传。签名通道装上后改为按设备精确拦截。",
+            "未安装签名通道时，Vibe Link不拦截来源未知的 F5：实体键盘始终直通；RC003 录音仍由设备级 Raw Input 驱动，但原始 F5 也可能到达前台。签名通道装上后可精确拦截。",
             8.8f, FontStyle.Regular, muted);
         sourceProtectionNote.Location = new Point(34, 112);
         sourceProtectionNote.Size = new Size(890, 34);
@@ -11153,7 +11505,7 @@ deck.Hide();
             { "Smart Profiles", "按当前应用自动切换键位方案；不修改录音与转写链路。" },
             { "Browser Remote Lite", "用遥控器按键操作浏览器的轻量配置：先看差异，再应用或一键撤销。" },
             { "Raw Input", "Windows 直接投递的原始键盘事件。「安全直通」表示尚未做逐设备隔离。" },
-            { "Live HUD", "不抢焦点的悬浮状态窗；主窗口不在前台时仍能看到录音状态。" },
+            { "Live HUD", "不抢焦点的悬浮状态窗；默认不自动弹出，可在托盘菜单随时打开，或在设置里改为自动弹出。" },
             { "Context Deck", "遥控器、Profile、目标与最近一次动作的详细面板，从托盘菜单打开。" }
         };
         for (int row = 0; row < glossary.GetLength(0); row++)
@@ -11853,6 +12205,7 @@ deck.Hide();
         ClearPendingCustomButtonCapture("application_exit");
         DisposeFeedbackSurfaces();
         if (activityTimer != null) { activityTimer.Stop(); activityTimer.Dispose(); activityTimer = null; }
+        if (uiProgressTimer != null) { uiProgressTimer.Stop(); uiProgressTimer.Dispose(); uiProgressTimer = null; }
         if (visualTimer != null) { visualTimer.Stop(); visualTimer.Dispose(); visualTimer = null; }
         if (toastTimer != null) { toastTimer.Stop(); toastTimer.Dispose(); toastTimer = null; }
         if (systemRecoveryTimer != null) { systemRecoveryTimer.Stop(); systemRecoveryTimer.Dispose(); systemRecoveryTimer = null; }
@@ -11878,7 +12231,6 @@ deck.Hide();
         try { if (providerHotkeyTapEvent != null) { providerHotkeyTapEvent.Set(); providerHotkeyTapEvent.Dispose(); } } catch { }
         try { if (providerHotkeyDownEvent != null) { providerHotkeyDownEvent.Set(); providerHotkeyDownEvent.Dispose(); } } catch { }
         try { if (providerHotkeyUpEvent != null) { providerHotkeyUpEvent.Set(); providerHotkeyUpEvent.Dispose(); } } catch { }
-        try { if (inputTargetMissingEvent != null) { inputTargetMissingEvent.Set(); inputTargetMissingEvent.Dispose(); } } catch { }
         try { if (focusTargetLockedEvent != null) { focusTargetLockedEvent.Reset(); focusTargetLockedEvent.Dispose(); focusTargetLockedEvent = null; } } catch { }
         try { if (recordingStartCueEvent != null) { recordingStartCueEvent.Dispose(); recordingStartCueEvent = null; } } catch { }
         try { if (recordingStopCueEvent != null) { recordingStopCueEvent.Dispose(); recordingStopCueEvent = null; } } catch { }
@@ -12092,7 +12444,8 @@ deck.Hide();
                 start.FileName = nativeCapture;
                 start.Arguments = config.captureSeconds + " \"" + sessionDir + "\" \"" + config.audioEndpointName + "\" " +
                     config.gain.ToString(CultureInfo.InvariantCulture) + " " + config.drainMs + " " + config.autoLevel + " " +
-                    SafeCaptureArgument(config.inputMethod) + " " + SafeCaptureArgument(config.inputMethodHotkey) + " " +
+                    SafeCaptureArgument(config.inputMethod) + " " +
+                    SafeCaptureArgument(CaptureHotkeyForKernel(config.inputMethod, config.inputMethodHotkey)) + " " +
                     SafeCaptureArgument(EffectiveTriggerForProvider(config.inputMethod, config.inputMethodTrigger)) + " " + config.providerStartupDelayMs + " " +
                     SafeCaptureArgument(config.audioProcessingMode) + " " + config.autoRouteVirtualMicrophone + " " +
                     SafeCaptureArgument(config.voiceMode);
@@ -12149,6 +12502,8 @@ deck.Hide();
     private void StopCapture()
     {
         captureStopping = true;
+        // 冻结 Capture 停了就不该继续从 CABLE Output 取音；未上传的会话直接丢弃。
+        CancelCloudAsrSession("capture_stop");
         bridgeReady = false;
         captureNotReadySince = DateTime.MinValue;
         captureHeartbeatUnhealthySince = DateTime.MinValue;
@@ -12307,8 +12662,15 @@ deck.Hide();
         catch { }
     }
 
-    private bool PrepareVoiceFocusForWake()
+    // textDestinationSeen reports that the wake found somewhere the words can
+    // land: either a focused writable control in the foreground process, or the
+    // configured provider's own panel (a normal wake — the panel owns the focus and
+    // the provider writes the transcript into the caret it captured), or the
+    // configured application still in front under its previous verified lease.
+    // It is evidence about the destination only — never a recording gate.
+    private bool PrepareVoiceFocusForWake(out bool textDestinationSeen)
     {
+        textDestinationSeen = false;
         if (applicationExiting) return false;
         // A previous lock is not proof that the user is still in that control.
         // Re-observe the foreground on every physical wake. The idle observer
@@ -12320,10 +12682,13 @@ deck.Hide();
         // a wake over the provider panel or this Host keeps the previous source.
         string wakeForeground = GetForegroundProcessName(GetForegroundWindow());
         string wakeProvider = config == null ? "wechat" : config.inputMethod;
+        bool wakeOverProvider = IsProviderProcess(wakeProvider, wakeForeground);
+        if (wakeOverProvider) textDestinationSeen = true;
         try { voiceSessionClipboardSequence = GetClipboardSequenceNumber(); }
         catch { voiceSessionClipboardSequence = 0; }
+        voiceSessionTargetTextLength = -1;
         if (!string.Equals(wakeForeground, "vibemic", StringComparison.OrdinalIgnoreCase) &&
-            !IsProviderProcess(wakeProvider, wakeForeground))
+            !wakeOverProvider)
             voiceSessionSourceProcess = wakeForeground;
         else if (voiceSessionSourceProcess.Length == 0)
             voiceSessionSourceProcess = wakeForeground;
@@ -12352,10 +12717,15 @@ deck.Hide();
 
         FocusTargetDescriptor configuredTarget = DefaultFocusTarget();
         string errorCode;
-        FocusTargetDescriptor transient = TryCaptureTransientVoiceTarget(configuredTarget, out errorCode);
+        bool editableControlSeen;
+        FocusTargetDescriptor transient = TryCaptureTransientVoiceTarget(configuredTarget, out errorCode,
+            out editableControlSeen);
+        if (editableControlSeen) textDestinationSeen = true;
         if (transient != null)
         {
             ArmVoiceFocusLock(transient, "voice_wake_preflight");
+            voiceSessionTargetTextLength = ReadFocusedEditableTextLength(transient.ProcessName);
+            StartVoiceTargetGrowthProbe(transient.ProcessName);
             HostLog("VOICE INPUT TARGET ready=true target_id=" + SafeLogValue(transient.Id) +
                 " code=OK action=voice_wake_preflight");
             return true;
@@ -12364,6 +12734,8 @@ deck.Hide();
         if (configuredTarget != null && focusTargetService.ObserveFocusedTarget(configuredTarget, out errorCode))
         {
             ArmVoiceFocusLock(configuredTarget, "voice_wake_preflight_saved");
+            voiceSessionTargetTextLength = ReadFocusedEditableTextLength(configuredTarget.ProcessName);
+            StartVoiceTargetGrowthProbe(configuredTarget.ProcessName);
             HostLog("VOICE INPUT TARGET ready=true target_id=" + SafeLogValue(configuredTarget.Id) +
                 " code=OK action=voice_wake_preflight_saved");
             return true;
@@ -12381,6 +12753,7 @@ deck.Hide();
         if (ShouldRetainVoiceFocusRecoveryLease(IsFocusLockArmed(), targetForeground, false) &&
             activeVoiceFocusTarget != null)
         {
+            textDestinationSeen = true;
             HostLog("VOICE INPUT TARGET ready=pending target_id=" +
                 SafeLogValue(activeVoiceFocusTarget.Id) +
                 " code=FOCUS-TARGET-TRANSIENT action=voice_wake_preflight_recovery");
@@ -12390,11 +12763,13 @@ deck.Hide();
         HostLog("VOICE INPUT TARGET ready=false target_id=" +
             SafeLogValue(configuredTarget == null ? "" : configuredTarget.Id) +
             " code=" + SafeLogValue(string.IsNullOrWhiteSpace(errorCode) ? "FOCUS-TARGET-MISSING" : errorCode) +
+            " foreground=" + SafeLogValue(GetForegroundProcessName(GetForegroundWindow())) +
+            " editable_control_seen=" + editableControlSeen +
             " action=voice_wake_preflight");
         return false;
     }
 
-    private void HandleVoiceWakeRequest(bool focusPrepared)
+    private void HandleVoiceWakeRequest(bool focusPrepared, bool textDestinationSeen)
     {
         if (applicationExiting) return;
         CancelV2ExternalActionsForRecording();
@@ -12421,7 +12796,11 @@ deck.Hide();
         bool providerReady = IsProviderReadyForStartup(config.inputMethod);
         bool focusLockArmed = ShouldCommitVoiceFocusPreflight(focusPrepared,
             held, IsFocusLockArmed());
-        if (!focusLockArmed) DispatchUi(HandleMissingInputTarget);
+        if (ShouldAnnounceUnverifiedVoiceTarget(held, focusLockArmed, textDestinationSeen))
+            DispatchUi(HandleUnverifiedVoiceTarget);
+        else if (!focusLockArmed)
+            HostLog("INPUT TARGET UNVERIFIED announced=false reason=" +
+                (held ? "wake_destination_seen" : "voice_key_released"));
         if (ShouldLaunchProviderNow(providerReady, focusLockArmed, held))
             WarmConfiguredProviderAsync(true);
         else if (!providerReady)
@@ -12449,6 +12828,9 @@ deck.Hide();
             HostLog("VOICE WAKE ignored reason=bridge_paused");
             return;
         }
+        // 云端槽在 Host 进程内取音：按住录音键时开一个会话，松开后上传出字。
+        // 它不派发任何外部快捷键，所以上面三个槽的派发行为完全不变。
+        if (held && IsCloudVoiceProvider()) BeginCloudAsrSession();
         if (!IsCapturing)
         {
             if (IsTriggerOnlyVoiceMode())
@@ -12502,14 +12884,25 @@ deck.Hide();
         return focusPrepared && voiceKeyHeld && currentLease;
     }
 
-    private void HandleMissingInputTarget()
+    // A failing wake preflight is not a failing dictation. The frozen Capture edge
+    // has already been delivered and the provider types at the caret, so the user
+    // must not be interrupted while the words have somewhere to land — dictating
+    // into an app that is not the configured target is ordinary use. Only a press
+    // that is still held with no destination at all is worth saying out loud.
+    internal static bool ShouldAnnounceUnverifiedVoiceTarget(bool voiceKeyHeld, bool focusLockArmed,
+        bool textDestinationSeen)
     {
-        const string message = "未确认工作流；请先在“工作流”页添加并测试落字目标，或手动点击目标输入框，再按住录音键";
+        return voiceKeyHeld && !focusLockArmed && !textDestinationSeen;
+    }
+
+    private void HandleUnverifiedVoiceTarget()
+    {
+        const string message = "当前窗口没有可落字的输入框；请先把光标放进输入框，再按住录音键";
         HostLog("INPUT TARGET MISSING user_action=focus_editable_text_box");
         if (Visible && WindowState != FormWindowState.Minimized) ShowToast(message, "warning");
         else
         {
-            tray.BalloonTipTitle = "Vibe Link尚未开始听写";
+            tray.BalloonTipTitle = "Vibe Link 没找到落字位置";
             tray.BalloonTipText = message;
             tray.ShowBalloonTip(3500);
         }
@@ -12625,14 +13018,14 @@ deck.Hide();
     internal static bool ShouldHoldProviderHotkeyForSession(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
-        if (normalized == "wechat") return false;
+        if (normalized == "wechat" || normalized == "cloud") return false;
         return EffectiveTriggerForProvider(normalized, trigger) == "hold";
     }
 
     internal static bool ShouldTapProviderHotkeyForSession(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
-        if (normalized == "wechat") return false;
+        if (normalized == "wechat" || normalized == "cloud") return false;
         return !ShouldHoldProviderHotkeyForSession(normalized, trigger);
     }
 
@@ -12646,6 +13039,8 @@ deck.Hide();
     internal static bool ProviderHotkeyIsHostDriven(string provider, string shortcut, bool triggerOnlyMode)
     {
         if (NormalizeProviderKey(provider) == "wechat") return false;
+        // 云端槽没有任何外部工具：快捷键只作为冻结 Capture 的占位参数，Host 绝不发送。
+        if (NormalizeProviderKey(provider) == "cloud") return false;
         if (triggerOnlyMode) return true;
         return !FrozenCaptureCanSendShortcut(shortcut);
     }
@@ -12780,7 +13175,7 @@ deck.Hide();
     private void WarmConfiguredProviderAsync(bool launchImmediately)
     {
         string provider = NormalizeProviderKey(config.inputMethod);
-        if (provider == "custom") return;
+        if (provider == "custom" || provider == "cloud") return;
         if (launchImmediately) Interlocked.Exchange(ref providerWarmupLaunchRequested, 1);
         lock (providerWarmupLock)
         {
@@ -12999,23 +13394,20 @@ deck.Hide();
         {
             try
             {
-                if (!File.Exists(path))
+                double ageSeconds;
+                if (FileRevisionKey(path, out ageSeconds) == "missing")
                 {
                     error = "heartbeat_missing";
                 }
                 else
                 {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete))
-                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
-                    {
-                        health = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
-                    }
+                    string parseError;
+                    health = ReadCaptureHealthDocumentRaw(path, out parseError);
                     if (health == null)
                     {
-                        error = "heartbeat_empty";
+                        error = parseError ?? "heartbeat_empty";
                     }
-                    else if ((DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds > 7)
+                    else if (ageSeconds > 7)
                     {
                         error = "heartbeat_stale";
                     }
@@ -13284,7 +13676,7 @@ deck.Hide();
         int expectedProcessId, Func<bool> cancellationRequested)
     {
         if (string.IsNullOrWhiteSpace(expectedRevision)) return false;
-        string path = Path.Combine(root, "input-bridge-health.json");
+        string path = BridgeStateFile("input-bridge-health.json");
         DateTime deadline = DateTime.UtcNow.AddMilliseconds(Math.Max(100, timeoutMilliseconds));
         do
         {
@@ -13405,7 +13797,7 @@ deck.Hide();
     private void PollKeyboardBridgeHealth()
     {
         if (applicationExiting || !config.setupCompleted) return;
-        string healthPath = Path.Combine(root, "input-bridge-health.json");
+        string healthPath = BridgeStateFile("input-bridge-health.json");
         ProcessTopologySnapshot topology = InspectProcessTopology("VoxDeckInputBridge");
         if (topology.CurrentRootCount == 0)
         {
@@ -13498,7 +13890,12 @@ deck.Hide();
         string profileName = health.TryGetValue("smart_profile_effective_name", out nameValue)
             ? Convert.ToString(nameValue) : profileId;
         if (overviewProfileLabel != null && !overviewProfileLabel.IsDisposed && !string.IsNullOrWhiteSpace(profileName))
-            overviewProfileLabel.Text = "●  Profile · " + profileName;
+        {
+            // Written through the same "only when it really changed" helper as every other label: a plain
+            // assignment here re-laid out and repainted this label on every 500 ms refresh, for a name that
+            // almost never changes.
+            SetLabelText(overviewProfileLabel, "●  Profile · " + profileName);
+        }
         if (!enabled || string.IsNullOrWhiteSpace(profileId))
         {
             lastObservedSmartProfileId = profileId;
@@ -13516,7 +13913,7 @@ deck.Hide();
             ShowToast("已自动切换到“" + profileName + "”", "success");
     }
 
-    private static bool TryReadBridgeHealth(string path, out Dictionary<string, object> health, out string error)
+    private bool TryReadBridgeHealth(string path, out Dictionary<string, object> health, out string error)
     {
         health = null;
         error = null;
@@ -13524,25 +13921,18 @@ deck.Hide();
         {
             try
             {
-                if (!File.Exists(path))
+                double ageSeconds;
+                if (FileRevisionKey(path, out ageSeconds) == "missing")
                 {
                     error = "heartbeat_missing";
                 }
                 else
                 {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete))
-                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
-                    {
-                        health = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
-                    }
-                    if (health != null)
-                    {
-                        DateTime modified = File.GetLastWriteTimeUtc(path);
-                        if ((DateTime.UtcNow - modified).TotalSeconds <= 7) return true;
-                        error = "heartbeat_stale";
-                    }
-                    else error = "heartbeat_empty";
+                    string parseError;
+                    health = ReadBridgeHealthDocumentRaw(path, out parseError);
+                    if (health == null) error = parseError ?? "heartbeat_empty";
+                    else if (ageSeconds < 0 || ageSeconds <= 7) return true;
+                    else error = "heartbeat_stale";
                 }
             }
             catch (Exception ex) { error = ex.Message; }
@@ -13866,7 +14256,16 @@ deck.Hide();
 
     private bool IsTriggerOnlyVoiceMode()
     {
-        return ShouldUseTriggerOnlyVoiceMode(HasCableInput(), IsTriggerOnlyVoiceModeForced());
+        // Probing the wave-out device list costs milliseconds, and this decision is asked for several times
+        // per poll and several times per page render while it only changes when VB-CABLE is installed or
+        // removed. The answer is reused for a moment. HasCableInput() itself stays uncached, so the checks
+        // that exist to re-probe the device list (自检, the wizard's re-check) still see it as it is.
+        if (triggerOnlyModeResolvedAt != DateTime.MinValue &&
+            (DateTime.Now - triggerOnlyModeResolvedAt).TotalMilliseconds < TriggerOnlyModeCacheMs)
+            return triggerOnlyModeCached;
+        triggerOnlyModeCached = ShouldUseTriggerOnlyVoiceMode(HasCableInput(), IsTriggerOnlyVoiceModeForced());
+        triggerOnlyModeResolvedAt = DateTime.Now;
+        return triggerOnlyModeCached;
     }
 
     private bool IsTriggerOnlyVoiceModeForced()
@@ -13958,16 +14357,30 @@ deck.Hide();
     private static bool HasFreshOnboardingDirectionEvidence(BridgeHealthSnapshot snapshot,
         DateTime baselineUtc)
     {
-        if (snapshot == null || snapshot.LastRawActionAtUtc <= baselineUtc) return false;
-        if (!string.Equals(snapshot.LastActionSource, "raw_input", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(snapshot.LastActionSource, "device_filter", StringComparison.OrdinalIgnoreCase))
+        if (snapshot == null) return false;
+        // Two records are accepted, and the second one is what makes this task passable at all. The bridge
+        // publishes the last routed edge, which after a key is released reads "...:up"; a heartbeat read
+        // therefore almost never shows the press itself, and judging only that field left a correctly
+        // working remote failing this check forever. The bridge also publishes the last press.
+        return IsOnboardingDirectionEvidence(snapshot.LastRawAction, snapshot.LastActionSource,
+                   snapshot.LastRawActionAtUtc, baselineUtc) ||
+               IsOnboardingDirectionEvidence(snapshot.LastRawPress, snapshot.LastRawPressSource,
+                   snapshot.LastRawPressAtUtc, baselineUtc);
+    }
+
+    private static bool IsOnboardingDirectionEvidence(string action, string source,
+        DateTime actionAtUtc, DateTime baselineUtc)
+    {
+        if (actionAtUtc <= baselineUtc) return false;
+        if (!string.Equals(source, "raw_input", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(source, "device_filter", StringComparison.OrdinalIgnoreCase))
             return false;
-        string action = (snapshot.LastRawAction ?? "").Trim();
-        int separator = action.LastIndexOf(':');
+        string text = (action ?? "").Trim();
+        int separator = text.LastIndexOf(':');
         if (separator <= 0 ||
-            !string.Equals(action.Substring(separator + 1).Trim(), "down",
+            !string.Equals(text.Substring(separator + 1).Trim(), "down",
                 StringComparison.OrdinalIgnoreCase)) return false;
-        string button = action.Substring(0, separator).Trim();
+        string button = text.Substring(0, separator).Trim();
         string[] directions = { "up", "down", "left", "right", "上键", "下键", "左键", "右键" };
         for (int index = 0; index < directions.Length; index++)
             if (string.Equals(button, directions[index], StringComparison.OrdinalIgnoreCase)) return true;
@@ -14160,7 +14573,7 @@ deck.Hide();
                 bool smartProfilesChoice = onboardingChoices[3];
                 var onboardingStepVerified = new bool[OnboardingStepCount];
                 DateTime keyBaselineUtc = currentStep == 1 ? DateTime.UtcNow : DateTime.MinValue;
-                int dictationBaselineGeneration = currentStep == 3 ? GetLatestSessionHealth().Generation : 0;
+                DateTime dictationBaselineAt = currentStep == 3 ? DateTime.Now : DateTime.MinValue;
                 bool textInsertionConfirmed = false;
                 string dictationEvidenceConfigurationKey = "";
                 ComboBox providerChoice = null;
@@ -14170,7 +14583,7 @@ deck.Hide();
                 Action<int> renderStep = null;
                 Action resetDictationEvidence = delegate
                 {
-                    dictationBaselineGeneration = GetLatestSessionHealth().Generation;
+                    dictationBaselineAt = DateTime.Now;
                     textInsertionConfirmed = false;
                     dictationEvidenceConfigurationKey = "";
                 };
@@ -14425,19 +14838,18 @@ deck.Hide();
                     else if (currentStep == 3)
                     {
                         SessionHealth health = GetLatestSessionHealth();
-                        bool audioSubmissionSucceeded = health.Generation > dictationBaselineGeneration && health.Success;
+                        bool freshAudio = DictationAudioIsFresh(health, dictationBaselineAt);
                         string currentProviderConfigurationKey = VoiceProviderConfigurationKey(
                             selectedProvider, selectedHotkey, selectedTrigger);
                         bool dictationSucceeded = VoiceProviderEvidenceIsCurrent(
                             currentProviderConfigurationKey, captureProviderConfigurationKey,
                             dictationEvidenceConfigurationKey,
-                            dictationBaselineGeneration, health.Generation, health.Success,
-                            textInsertionConfirmed);
+                            freshAudio, textInsertionConfirmed);
                         var providerLabel = NewLabel("默认语音工具", 8.9f, FontStyle.Bold, ink);
                         providerLabel.Location = new Point(8, 104);
                         providerLabel.Size = new Size(140, 24);
                         providerChoice = StyledCombo(new Point(8, 132), new Size(238, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var shortcutLabel = NewLabel("全局快捷键", 8.9f, FontStyle.Bold, ink);
                         shortcutLabel.Location = new Point(264, 104);
@@ -14445,10 +14857,9 @@ deck.Hide();
                         hotkeyBox = StyledTextBox(selectedHotkey, new Point(264, 132), new Size(202, 36));
                         hotkeyTrigger = StyledCombo(new Point(484, 130), new Size(194, 40));
                         PopulateTriggerModeOptions(hotkeyTrigger, selectedProvider);
-                        hotkeyTrigger.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        hotkeyTrigger.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         string testState = dictationSucceeded ? "●  已由用户目视确认测试框中的文字" :
-                            audioSubmissionSucceeded ? "●  音频与工具唤起已通过，请确认文字" : "●  等待一次真实听写";
+                            freshAudio ? "●  音频与工具唤起已通过，请确认文字" : "●  等待一次真实听写";
                         var status = NewLabel(testState, 11.5f, FontStyle.Bold, dictationSucceeded ? green : cyan);
                         status.Location = new Point(8, 188);
                         status.Size = new Size(620, 30);
@@ -14459,10 +14870,22 @@ deck.Hide();
                         confirmText.Click += delegate
                         {
                             SessionHealth currentHealth = GetLatestSessionHealth();
-                            bool currentAudioSubmissionSucceeded = currentHealth.Generation > dictationBaselineGeneration &&
-                                currentHealth.Success;
+                            bool currentAudioSubmissionSucceeded =
+                                DictationAudioIsFresh(currentHealth, dictationBaselineAt);
                             if (!currentAudioSubmissionSucceeded)
                             {
+                                // This task refuses in three different places and none of them left a trace, so a
+                                // user who is stuck here could not report anything and a support answer had nothing
+                                // to read. Measured on a remote whose dictation was working: the wizard said only
+                                // that the step was not done.
+                                HostLog("ONBOARDING DICTATION CONFIRM refused=true reason=no_fresh_audio" +
+                                    " baseline_at=" + SafeLogValue(dictationBaselineAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                    " last_completed_at=" + SafeLogValue(currentHealth.LastCompletedAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                    " last_session_started_at=" + SafeLogValue(currentHealth.StartedAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                    " last_session_generation=" + currentHealth.Generation +
+                                    " audio_success=" + currentHealth.Success +
+                                    " completed=" + currentHealth.Completed +
+                                    " audio_ms=" + currentHealth.AudioMs);
                                 showFeedback("还没有收到本次的真实音频与工具响应，测试结果未确认", false);
                                 return;
                             }
@@ -14471,11 +14894,17 @@ deck.Hide();
                             if (!string.Equals(selectedConfigurationKey,
                                 captureProviderConfigurationKey, StringComparison.Ordinal))
                             {
+                                HostLog("ONBOARDING DICTATION CONFIRM refused=true reason=configuration_changed" +
+                                    " selected_key=" + SafeLogValue(selectedConfigurationKey) +
+                                    " runtime_key=" + SafeLogValue(captureProviderConfigurationKey));
                                 showFeedback("当前设置已变更，请先用当前设置重新完成真实听写", false);
                                 return;
                             }
                             textInsertionConfirmed = true;
                             dictationEvidenceConfigurationKey = captureProviderConfigurationKey;
+                            HostLog("ONBOARDING DICTATION CONFIRM confirmed=true generation=" +
+                                currentHealth.Generation +
+                                " configuration_key=" + SafeLogValue(selectedConfigurationKey));
                             status.Text = "●  已由用户目视确认测试框中的文字";
                             status.ForeColor = green;
                         };
@@ -14522,6 +14951,9 @@ deck.Hide();
                                 return;
                             }
                             resetDictationEvidence();
+                            HostLog("ONBOARDING DICTATION TEST started=true baseline_at=" +
+                                SafeLogValue(dictationBaselineAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                " configuration_key=" + SafeLogValue(currentConfigurationKey));
                             testInput.Focus();
                             showFeedback("现在按住录音键说话，松开后等待文字", true);
                         };
@@ -14728,17 +15160,29 @@ deck.Hide();
                                 return;
                             }
                             SessionHealth health = GetLatestSessionHealth();
+                            bool freshAudio = DictationAudioIsFresh(health, dictationBaselineAt);
                             string currentProviderConfigurationKey = VoiceProviderConfigurationKey(
                                 selectedProvider, selectedHotkey, selectedTrigger);
                             if (!VoiceProviderEvidenceIsCurrent(currentProviderConfigurationKey,
                                 captureProviderConfigurationKey, dictationEvidenceConfigurationKey,
-                                dictationBaselineGeneration,
-                                health.Generation, health.Success, textInsertionConfirmed))
+                                freshAudio, textInsertionConfirmed))
                             {
+                                // The same reason the confirmation button records: without it a refusal here
+                                // is invisible, and this task is where a correctly working remote was most
+                                // likely to be reported as broken.
+                                HostLog("ONBOARDING DICTATION EVIDENCE ready=false selected_key=" +
+                                    SafeLogValue(currentProviderConfigurationKey) +
+                                    " runtime_key=" + SafeLogValue(captureProviderConfigurationKey) +
+                                    " evidence_key=" + SafeLogValue(dictationEvidenceConfigurationKey) +
+                                    " baseline_at=" + SafeLogValue(dictationBaselineAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                    " last_completed_at=" + SafeLogValue(health.LastCompletedAt.ToString("O", CultureInfo.InvariantCulture)) +
+                                    " fresh_audio=" + freshAudio +
+                                    " audio_success=" + health.Success +
+                                    " text_confirmed=" + textInsertionConfirmed);
                                 showFeedback(!string.Equals(currentProviderConfigurationKey,
                                         dictationEvidenceConfigurationKey, StringComparison.Ordinal)
                                     ? "语音工具设置已变更，请用当前设置重新完成真实听写"
-                                    : health.Generation <= dictationBaselineGeneration || !health.Success
+                                    : !freshAudio
                                         ? "音频与语音工具唤起尚未通过，请重新测试"
                                         : "请目视确认测试框中的文字，再点击「我已看到文字」", false);
                                 return;
@@ -15281,7 +15725,7 @@ deck.Hide();
                         providerLabel.Location = new Point(8, 112);
                         providerLabel.Size = new Size(150, 26);
                         var providerChoice = StyledCombo(new Point(8, 142), new Size(300, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15293,8 +15737,7 @@ deck.Hide();
                         hotkeyBox = StyledTextBox(selectedHotkey, new Point(8, 242), new Size(260, 36));
                         hotkeyTrigger = StyledCombo(new Point(286, 240), new Size(190, 40));
                         PopulateTriggerModeOptions(hotkeyTrigger, selectedProvider);
-                        hotkeyTrigger.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        hotkeyTrigger.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         var help = NewLabel(ProviderSetupInstruction(selectedProvider), 9f, FontStyle.Regular, muted);
                         help.Location = new Point(8, 312);
                         help.Size = new Size(670, 68);
@@ -15780,7 +16223,7 @@ deck.Hide();
                         providerLabel.Location = new Point(4, 105);
                         providerLabel.Size = new Size(140, 28);
                         var providerChoice = StyledCombo(new Point(4, 137), new Size(336, 40));
-                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具" });
+                        providerChoice.Items.AddRange(new object[] { "微信输入法", "网易八哥说", "其他语音工具", "云端 ASR（实验）" });
                         providerChoice.SelectedIndex = ProviderIndex(selectedProvider);
                         var providerState = NewLabel(ProviderStatusText(selectedProvider), 9.2f, FontStyle.Bold,
                             IsProviderRunning(selectedProvider) ? green : amber);
@@ -15939,8 +16382,7 @@ deck.Hide();
                         triggerLabel.Size = new Size(110, 28);
                         triggerBox = StyledCombo(new Point(140, 158), new Size(200, 38));
                         PopulateTriggerModeOptions(triggerBox, selectedProvider);
-                        triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                            selectedTrigger == "hold" ? 1 : 0;
+                        triggerBox.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         triggerBox.SelectedIndexChanged += delegate
                         {
                             selectedTrigger = triggerBox.SelectedIndex == 1 ? "hold" : "toggle";
@@ -15957,8 +16399,7 @@ deck.Hide();
                             selectedHotkey = DefaultHotkeyForProvider(selectedProvider);
                             selectedTrigger = DefaultTriggerForProvider(selectedProvider);
                             shortcutBox.Text = selectedHotkey;
-                            triggerBox.SelectedIndex = NormalizeProviderKey(selectedProvider) == "wechat" ? 0 :
-                                selectedTrigger == "hold" ? 1 : 0;
+                            triggerBox.SelectedIndex = TriggerModeIndex(selectedProvider, selectedTrigger);
                         };
                         var test = PrimaryButton("测试启动与结束", new Point(24, 216), new Size(166, 40));
                         test.Click += delegate
@@ -16302,12 +16743,29 @@ deck.Hide();
         return step;
     }
 
+    // The poll rewrites the same strings onto the hero card and the status strip every 500 ms. On this
+    // class of machine a write that repeats the current value still costs about a millisecond of
+    // re-measure and repaint per label, which was most of what made the interface feel slow. Only real
+    // changes are written, so a repeating poll stays off the paint path.
+    private static void SetLabelText(Control control, string text)
+    {
+        if (control == null || control.IsDisposed) return;
+        if (string.Equals(control.Text, text, StringComparison.Ordinal)) return;
+        control.Text = text;
+    }
+
+    private static void SetLabelColor(Control control, Color color)
+    {
+        if (control == null || control.IsDisposed) return;
+        if (control.ForeColor == color) return;
+        control.ForeColor = color;
+    }
+
     private void UpdateCaptureUi()
     {
         if (InvokeRequired) { BeginInvoke(new Action(UpdateCaptureUi)); return; }
         bool triggerOnlyUi = IsTriggerOnlyVoiceMode();
-        if (bridgeButton != null && !bridgeButton.IsDisposed)
-            bridgeButton.Text = triggerOnlyUi ? "查看语音设置" : IsCapturing ? "管理语音桥接" : "启动语音桥接";
+        SetLabelText(bridgeButton, triggerOnlyUi ? "查看语音设置" : IsCapturing ? "管理语音桥接" : "启动语音桥接");
         if (DateTime.Now < transientFeedbackUntil && !string.IsNullOrWhiteSpace(transientFeedbackState))
         {
             ApplyVisualState(transientFeedbackState);
@@ -16330,20 +16788,22 @@ deck.Hide();
             ApplyVisualState("trigger_only");
             return;
         }
-        if (heroTitle != null && !heroTitle.IsDisposed)
-            heroTitle.Text = !IsCapturing ? "语音桥接已暂停" : bridgeReady ? "已准备好" : "正在连接";
-        if (heroSubtitle != null && !heroSubtitle.IsDisposed)
-            heroSubtitle.Text = !IsCapturing ? "启动后按住录音键说话，松开结束" : bridgeReady ? "按住录音键说话，松开结束；请目视确认文字" : "正在建立遥控器语音通道，请稍候";
-        if (heroStateLabel != null && !heroStateLabel.IsDisposed)
-            heroStateLabel.Text = !IsCapturing ? "语音未启动" : bridgeReady ? "已就绪" : "连接中";
-        connectionBadge.Text = !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接";
-        connectionBadge.ForeColor = !IsCapturing ? muted : bridgeReady ? green : amber;
+        SetLabelText(heroTitle,
+            !IsCapturing ? "语音桥接已暂停" : bridgeReady ? "已准备好" : "正在连接");
+        SetLabelText(heroSubtitle,
+            !IsCapturing ? "启动后按住录音键说话，松开结束" :
+            bridgeReady ? "按住录音键说话，松开结束；请目视确认文字" : "正在建立遥控器语音通道，请稍候");
+        SetLabelText(heroStateLabel, !IsCapturing ? "语音未启动" : bridgeReady ? "已就绪" : "连接中");
+        SetLabelText(connectionBadge,
+            !IsCapturing ? "●  语音已暂停" : bridgeReady ? "●  语音链路就绪" : "●  正在连接");
+        SetLabelColor(connectionBadge, !IsCapturing ? muted : bridgeReady ? green : amber);
         UpdateOverviewStatus();
         ApplyVisualState(!IsCapturing ? "stopped" : bridgeReady ? "ready" : "connecting");
     }
 
     private void ApplyVisualState(string state)
     {
+        double visualStartedAt = PollClockMs();
         Color accent;
         Color surface;
         string voiceText;
@@ -16401,6 +16861,12 @@ deck.Hide();
             surface = StatusSurface("stopped");
             voiceText = "●  语音桥接已暂停";
         }
+        bool samePaintedSurface = string.Equals(state, currentVisualState, StringComparison.Ordinal) &&
+            accent == currentVisualAccent &&
+            ReferenceEquals(heroPanel, lastPaintedHeroPanel) &&
+            ReferenceEquals(remoteVisual, lastPaintedRemoteVisual) &&
+            ReferenceEquals(connectionBadge, lastPaintedConnectionBadge) &&
+            ReferenceEquals(voiceBridgeStateLabel, lastPaintedVoiceBridgeStateLabel);
         currentVisualAccent = accent;
         currentVisualState = state;
         if (state == "recording")
@@ -16409,6 +16875,18 @@ deck.Hide();
             remoteHighlightUntil = DateTime.Now.AddSeconds(1);
         }
         if (visualTimer != null && visualTimer.Interval != 500) visualTimer.Interval = 500;
+        // This method is re-applied by the 500 ms poll. Repainting a state that is already on screen is
+        // what made the interface stutter while the window was dragged, so an unchanged state on the
+        // same controls stops here.
+        if (samePaintedSurface)
+        {
+            MarkPollStage(21, visualStartedAt);
+            return;
+        }
+        lastPaintedHeroPanel = heroPanel;
+        lastPaintedRemoteVisual = remoteVisual;
+        lastPaintedConnectionBadge = connectionBadge;
+        lastPaintedVoiceBridgeStateLabel = voiceBridgeStateLabel;
         if (heroStateLabel != null && !heroStateLabel.IsDisposed) heroStateLabel.ForeColor = accent;
         if (heroPanel != null && !heroPanel.IsDisposed)
         {
@@ -16440,23 +16918,77 @@ deck.Hide();
             if (voiceBridgeStateLabel.Parent != null) voiceBridgeStateLabel.Parent.BackColor = surface;
         }
         PublishFeedbackSnapshot();
+        MarkPollStage(21, visualStartedAt);
+    }
+
+    // WM_ENTERSIZEMOVE / WM_EXITSIZEMOVE bracket the modal loop Windows runs while the user moves or
+    // resizes the window. That loop is the one place where a busy UI thread is directly visible as a
+    // window that will not follow the mouse, so the poll steps aside for it.
+    private const int WmEnterSizeMove = 0x0231;
+    private const int WmExitSizeMove = 0x0232;
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WmEnterSizeMove)
+        {
+            windowModalMoveLoopActive = true;
+            windowModalMoveLoopAt = DateTime.Now;
+        }
+        else if (m.Msg == WmExitSizeMove)
+        {
+            windowModalMoveLoopActive = false;
+        }
+        base.WndProc(ref m);
+    }
+
+    // Measures how late the UI thread runs against a cheap timer. A gap here is real interference, and
+    // it is the thing a user feels as a stutter, so it is recorded instead of being guessed at.
+    private void ObserveUiThreadProgress()
+    {
+        DateTime now = DateTime.Now;
+        var heartbeatClock = System.Diagnostics.Stopwatch.StartNew();
+        if (uiProgressObservedAt != DateTime.MinValue)
+        {
+            double gapMs = (now - uiProgressObservedAt).TotalMilliseconds;
+            if (gapMs >= UiStallThresholdMs && (now - lastUiStallLogAt).TotalSeconds >= 5)
+            {
+                lastUiStallLogAt = now;
+                HostLog("UI STALL gap_ms=" + ((int)gapMs).ToString(CultureInfo.InvariantCulture) +
+                    " threshold_ms=" + UiStallThresholdMs +
+                    " modal_loop=" + windowModalMoveLoopActive);
+            }
+        }
+        uiProgressObservedAt = now;
+        // This timer fires five times per tick, so its own cost is accounted for as well.
+        uiHeartbeatMs += heartbeatClock.Elapsed.TotalMilliseconds;
+        uiHeartbeatTicks++;
     }
 
     private void PollActivity()
     {
         try
         {
+            if (windowModalMoveLoopActive)
+            {
+                // Every step below touches the disk or the process table. They are all incremental, so
+                // deferring them costs nothing but keeps the window following the mouse.
+                if ((DateTime.Now - windowModalMoveLoopAt).TotalSeconds < 30) return;
+                windowModalMoveLoopActive = false;
+            }
+            var pollClock = System.Diagnostics.Stopwatch.StartNew();
+            activePollClock = pollClock;
             // Passive UIA observation arms the existing focus lease while the
             // app is idle. It never activates a window and is skipped during
             // recording/provider processing by PollFocusTargetForVoiceLock.
-            PollFocusTargetForVoiceLock();
-            RefreshActiveInputEngineIfStale();
-            ApplyCustomButtonCaptureResult();
-            ApplyMappingActionTestResult();
-            PollRuntimeFeedback();
-            PollInputFeedback();
-            PollKeyboardBridgeHealth();
-            PollCaptureHealth();
+            AccumulatePollStage(0, pollClock, delegate { PollFocusTargetForVoiceLock(); });
+            AccumulatePollStage(1, pollClock, RefreshActiveInputEngineIfStale);
+            AccumulatePollStage(2, pollClock, ApplyCustomButtonCaptureResult);
+            AccumulatePollStage(3, pollClock, ApplyMappingActionTestResult);
+            AccumulatePollStage(4, pollClock, PollRuntimeFeedback);
+            AccumulatePollStage(5, pollClock, PollInputFeedback);
+            AccumulatePollStage(6, pollClock, PollKeyboardBridgeHealth);
+            AccumulatePollStage(7, pollClock, PollCaptureHealth);
+            double eventsStartedAt = pollClock.Elapsed.TotalMilliseconds;
             if (File.Exists(eventsPath))
             {
                 long len = new FileInfo(eventsPath).Length;
@@ -16475,10 +17007,83 @@ deck.Hide();
                     }
                 }
             }
-            UpdateSessionConfidence();
-            PublishFeedbackSnapshot();
+            pollStageMs[8] += pollClock.Elapsed.TotalMilliseconds - eventsStartedAt;
+            AccumulatePollStage(9, pollClock, UpdateSessionConfidence);
+            AccumulatePollStage(10, pollClock, PublishFeedbackSnapshot);
+            RecordPollDuration(pollClock.Elapsed.TotalMilliseconds);
+            activePollClock = null;
         }
         catch { }
+    }
+
+    // The longest poll the user could have felt, reported once per window rather than per tick. This is
+    // the measurement the "the interface stutters" report was closed out with: a tick at or above the
+    // threshold really did hold the UI thread, and one that is not logged was not felt.
+    private void RecordPollDuration(double milliseconds)
+    {
+        if (milliseconds > worstPollMs) worstPollMs = milliseconds;
+        totalPollMs += milliseconds;
+        pollTicksInWindow++;
+        if ((DateTime.Now - pollWindowStartedAt).TotalSeconds < PollReportWindowSeconds) return;
+        double worst = worstPollMs;
+        long ticks = pollTicksInWindow;
+        double windowTotal = totalPollMs;
+        double average = ticks == 0 ? 0 : windowTotal / ticks;
+        string breakdown = PollStageBreakdown(windowTotal, ticks);
+        double heartbeatAverage = uiHeartbeatTicks == 0 ? 0 : uiHeartbeatMs / uiHeartbeatTicks;
+        pollWindowStartedAt = DateTime.Now;
+        worstPollMs = 0;
+        totalPollMs = 0;
+        pollTicksInWindow = 0;
+        Array.Clear(pollStageMs, 0, pollStageMs.Length);
+        uiHeartbeatMs = 0;
+        uiHeartbeatTicks = 0;
+        if (worst >= PollSlowTickMs || average >= PollSlowAverageMs)
+            HostLog("POLL SLOW worst_ms=" + ((int)worst).ToString(CultureInfo.InvariantCulture) +
+                " avg_ms=" + average.ToString("0.0", CultureInfo.InvariantCulture) +
+                " heartbeat_avg_ms=" + heartbeatAverage.ToString("0.00", CultureInfo.InvariantCulture) +
+                " ticks=" + ticks.ToString(CultureInfo.InvariantCulture) +
+                " stages=" + breakdown +
+                " window_s=" + PollReportWindowSeconds);
+    }
+
+    private void AccumulatePollStage(int index, System.Diagnostics.Stopwatch clock, Action action)
+    {
+        double before = clock.Elapsed.TotalMilliseconds;
+        action();
+        if (index >= 0 && index < pollStageMs.Length)
+            pollStageMs[index] += clock.Elapsed.TotalMilliseconds - before;
+    }
+
+    private double PollClockMs()
+    {
+        return activePollClock == null ? 0 : activePollClock.Elapsed.TotalMilliseconds;
+    }
+
+    private void MarkPollStage(int index, double startedAt)
+    {
+        if (activePollClock == null || index < 0 || index >= pollStageMs.Length) return;
+        pollStageMs[index] += activePollClock.Elapsed.TotalMilliseconds - startedAt;
+    }
+
+    // Every stage the poll runs, plus what is left over, so the next "it got slow again" report
+    // already names the stage instead of being a single unexplained average.
+    private string PollStageBreakdown(double windowTotalMs, long ticks)
+    {
+        var text = new StringBuilder();
+        double accounted = 0;
+        for (int i = 0; i < PollStageLabels.Length; i++)
+        {
+            double stage = i < pollStageMs.Length ? pollStageMs[i] : 0;
+            if (i < PollTopLevelStageCount) accounted += stage;
+            if (i > 0) text.Append(',');
+            text.Append(PollStageLabels[i]).Append('=').Append(
+                (ticks == 0 ? 0 : stage / ticks).ToString("0.00", CultureInfo.InvariantCulture));
+        }
+        text.Append(",other=").Append(
+            (ticks == 0 ? 0 : Math.Max(0, windowTotalMs - accounted) / ticks)
+                .ToString("0.00", CultureInfo.InvariantCulture));
+        return text.ToString();
     }
 
     private void ScanDevice()
@@ -16595,17 +17200,82 @@ deck.Hide();
         return Math.Max(1, (int)span.TotalSeconds) + " 秒";
     }
 
+    // Freshness for the wizard's real-dictation step can not be measured from the session framing the
+    // capture writes ("REMOTE STREAM START session=..."): when the remote starts streaming audio before
+    // the capture finished connecting, the capture starts the stream implicitly and writes no such line,
+    // and the session counters restart with every bridge restart. The completion receipt is written for
+    // every provider and carries a real timestamp, so "a dictation finished after the test started" is
+    // measured from it instead.
+    private static DateTime LatestCompletedDictationAt(string[] lines)
+    {
+        DateTime latest = DateTime.MinValue;
+        if (lines == null) return latest;
+        for (int i = 0; i < lines.Length; i++)
+        {
+            string line = lines[i];
+            bool completion = line.IndexOf("WETYPE SESSION END", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                line.IndexOf("TRANSCRIPTION SESSION END", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!completion) continue;
+            if (line.IndexOf("audio_delivered=True", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            if (line.IndexOf("submitted=True", StringComparison.OrdinalIgnoreCase) < 0 &&
+                line.IndexOf("sent=True", StringComparison.OrdinalIgnoreCase) < 0) continue;
+            DateTime stamp;
+            if (!TryParseRuntimeTimestamp(line, out stamp)) continue;
+            if (stamp > latest) latest = stamp;
+        }
+        return latest;
+    }
+
     private SessionHealth GetLatestSessionHealth()
+    {
+        RuntimeLogTail tail = ReadRuntimeLogTail();
+        if (tail.Health != null) return tail.Health.Copy();
+        SessionHealth parsed = ComputeSessionHealth(tail.Lines);
+        tail.Health = parsed;
+        return parsed.Copy();
+    }
+
+    // The cached runtime-log tail. A missing log is a valid cache entry (an empty tail), so an idle
+    // machine never opens the file at all.
+    private RuntimeLogTail ReadRuntimeLogTail()
+    {
+        string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
+        string key = RuntimeLogTailKey(path);
+        RuntimeLogTail cached = runtimeLogTail;
+        if (cached != null && string.Equals(cached.Key, key, StringComparison.Ordinal)) return cached;
+        string[] lines;
+        try { lines = ReadLogTailLines(path, RuntimeLogTailBytes); }
+        catch { lines = new string[0]; }
+        var fresh = new RuntimeLogTail();
+        fresh.Key = key;
+        fresh.Lines = lines;
+        runtimeLogTail = fresh;
+        return fresh;
+    }
+
+    // Length and write time identify one revision of an append-only log. The configuration is part of
+    // the key because the parse switches on the voice mode (long dictation has a different start
+    // marker) and reports the configured provider and route.
+    private string RuntimeLogTailKey(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists) return "missing";
+            return info.Length.ToString(CultureInfo.InvariantCulture) + "|" +
+                info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture) + "|" +
+                NormalizeProviderKey(config.inputMethod) + "|" + (config.voiceMode ?? "") + "|" +
+                (config.autoRouteVirtualMicrophone ? "route" : "manual");
+        }
+        catch { return "unreadable"; }
+    }
+
+    private SessionHealth ComputeSessionHealth(string[] lines)
     {
         var health = new SessionHealth();
         health.Provider = NormalizeProviderKey(config.inputMethod);
         health.NextAction = "按住遥控器录音键完成一次测试，松开后等待转译";
-        string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
-        if (!File.Exists(path)) return health;
-
-        string[] lines;
-        try { lines = ReadLogTailLines(path, 512 * 1024); }
-        catch { return health; }
+        health.LastCompletedAt = LatestCompletedDictationAt(lines);
         int searchStart = Math.Max(0, lines.Length - 2400);
         int sessionStart = -1;
         bool longHealth = UsesLongDictation(config.voiceMode);
@@ -16840,7 +17510,7 @@ deck.Hide();
         BridgeHealthSnapshot bridgeHealth = ReadKeyboardBridgeHealth();
         result.AppendLine("按键路由：" + (bridgeHealth.FilterHealthy ? "设备级精确隔离" :
             string.Equals(bridgeHealth.RoutingAuthority, "raw_input", StringComparison.OrdinalIgnoreCase) ?
-            "Raw Input 安全直通" : "未确认") + "  ·  设备事件 " + bridgeHealth.RawRemoteEdges +
+            "Raw Input 安全直通（F5 fail-open）" : "未确认") + "  ·  设备事件 " + bridgeHealth.RawRemoteEdges +
             "  ·  动作事件 " + (bridgeHealth.RawActionEdges + bridgeHealth.FilterActionEdges) +
             (string.IsNullOrWhiteSpace(bridgeHealth.LastRawAction) ? "" : "  ·  最近 " + bridgeHealth.LastRawAction));
         result.AppendLine("VB-CABLE：Input " + (HasCableInput() ? "已检测" : "未检测") + " / Output " + (HasCableOutput() ? "已检测" : "未检测"));
@@ -17047,8 +17717,10 @@ deck.Hide();
         bool filesReady = File.Exists(Path.Combine(root, "VibeMicAtvvCapture.exe")) &&
             File.Exists(Path.Combine(root, "VoxDeckInputBridge.exe")) &&
             File.Exists(Path.Combine(root, "NAudio.Core.dll")) && File.Exists(Path.Combine(root, "NAudio.Wasapi.dll"));
-        ProcessTopologySnapshot captureTopology = InspectProcessTopology("VibeMicAtvvCapture");
-        ProcessTopologySnapshot bridgeTopology = InspectProcessTopology("VoxDeckInputBridge");
+        // Forced past the cache: this page is rendered because the user asked for it, so it must not
+        // repeat an answer the poll measured up to a second ago.
+        ProcessTopologySnapshot captureTopology = InspectProcessTopology("VibeMicAtvvCapture", true);
+        ProcessTopologySnapshot bridgeTopology = InspectProcessTopology("VoxDeckInputBridge", true);
         bool processTopologyReady = captureTopology.ForeignCount == 0 && captureTopology.InaccessibleCount == 0 &&
             captureTopology.CurrentRootCount <= 1 && bridgeTopology.ForeignCount == 0 &&
             bridgeTopology.InaccessibleCount == 0 && bridgeTopology.CurrentRootCount <= 1;
@@ -17158,7 +17830,7 @@ deck.Hide();
         bool routingReady = string.Equals(bridge.InputRoutingMode, configuredRoutingMode, StringComparison.OrdinalIgnoreCase);
         bool authorityReady = string.Equals(bridge.RoutingAuthority, "raw_input", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(bridge.RoutingAuthority, "device_filter", StringComparison.OrdinalIgnoreCase);
-        string isolationLabel = bridge.FilterHealthy ? "设备级精确隔离" : "Raw Input 安全直通";
+        string isolationLabel = bridge.FilterHealthy ? "设备级精确隔离" : "Raw Input 安全直通（F5 fail-open）";
         string keyState = !keyboardRunning || !bridge.Healthy || !mappingReady || !routingReady || !authorityReady
             ? "fail" : recentAction ? "pass" : "checking";
         report.Items.Add(new SelfCheckItem("keys", "遥控器按键监听",
@@ -17865,10 +18537,97 @@ deck.Hide();
 
     private static bool IsProcessRunning(string processName)
     {
-        Process[] processes = Process.GetProcessesByName(processName);
-        bool running = processes.Length > 0;
-        foreach (Process process in processes) process.Dispose();
-        return running;
+        return IsProcessRunning(processName, false);
+    }
+
+    // forceRefresh bypasses the snapshot so a user-visible answer is measured at the moment it is asked for.
+    private static bool IsProcessRunning(string processName, bool forceRefresh)
+    {
+        if (string.IsNullOrEmpty(processName)) return false;
+        return ProcessNamesSnapshot(forceRefresh).Contains(processName);
+    }
+
+    // One enumeration of the process table answers every "is X running" question until the snapshot ages
+    // out. Process.GetProcessesByName enumerates the whole table on every call and was measured at about
+    // five milliseconds; the poll asks it about four provider names for the link strip on every tick,
+    // which made that the largest single cost of the poll. A process that starts is seen within the
+    // snapshot's lifetime, and forceRefresh measures on demand.
+    private static HashSet<string> ProcessNamesSnapshot(bool forceRefresh)
+    {
+        HashSet<string> current;
+        bool stale;
+        lock (processLookupCache)
+        {
+            current = processSnapshotNames;
+            stale = current == null ||
+                (DateTime.UtcNow - processSnapshotAt).TotalMilliseconds >= ProcessSnapshotMs;
+        }
+        if (forceRefresh || current == null) return RefreshProcessNamesSnapshot();
+        // The stale list is served once more while a background refresh runs. Enumerating the process
+        // table costs about twelve milliseconds on this class of machine, which is a stall the user feels
+        // when it lands on the UI thread; a name list a couple of seconds old is not.
+        if (stale) BeginProcessNamesRefresh();
+        return current;
+    }
+
+    // Builds and publishes the snapshot. Only the publish is done under the lock, so a reader is never
+    // held behind the enumeration.
+    private static HashSet<string> RefreshProcessNamesSnapshot()
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            Process[] running = Process.GetProcesses();
+            foreach (Process item in running)
+            {
+                try { names.Add(item.ProcessName); }
+                catch { }
+                finally { item.Dispose(); }
+            }
+        }
+        catch { return processSnapshotNames ?? names; }
+        lock (processLookupCache)
+        {
+            processSnapshotNames = names;
+            processSnapshotAt = DateTime.UtcNow;
+        }
+        return names;
+    }
+
+    private static void BeginProcessNamesRefresh()
+    {
+        if (Interlocked.CompareExchange(ref processSnapshotRefreshing, 1, 0) != 0) return;
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            try { RefreshProcessNamesSnapshot(); }
+            catch { }
+            finally { Interlocked.Exchange(ref processSnapshotRefreshing, 0); }
+        });
+    }
+
+    // A cached answer is trusted for one second. Only "it is running" is ever stored: caching "it is not
+    // running" would hide the restart the recovery paths are waiting for.
+    private static ProcessLookupEntry ReadProcessLookupCache(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return null;
+        lock (processLookupCache)
+        {
+            ProcessLookupEntry entry;
+            if (!processLookupCache.TryGetValue(key, out entry)) return null;
+            if (entry == null || (DateTime.UtcNow - entry.At).TotalMilliseconds > ProcessTopologyCacheMs)
+            {
+                processLookupCache.Remove(key);
+                return null;
+            }
+            return entry;
+        }
+    }
+
+    private static void WriteProcessLookupCache(string key, ProcessLookupEntry entry)
+    {
+        if (string.IsNullOrEmpty(key) || entry == null) return;
+        entry.At = DateTime.UtcNow;
+        lock (processLookupCache) { processLookupCache[key] = entry; }
     }
 
     private bool IsCurrentProcessRunningFromRoot(string processName)
@@ -17906,6 +18665,19 @@ deck.Hide();
 
     private ProcessTopologySnapshot InspectProcessTopology(string processName)
     {
+        return InspectProcessTopology(processName, false);
+    }
+
+    private ProcessTopologySnapshot InspectProcessTopology(string processName, bool forceRefresh)
+    {
+        if (!forceRefresh)
+        {
+            ProcessLookupEntry cached = ReadProcessLookupCache(processName);
+            if (cached != null && cached.Topology != null) return CopyProcessTopology(cached.Topology);
+            // A name the shared snapshot says is not running needs no enumeration at all: the foreign-root
+            // and duplicate tests are the only reason to look at module paths, and there is nothing to look at.
+            if (!ProcessNamesSnapshot(false).Contains(processName)) return new ProcessTopologySnapshot();
+        }
         var snapshot = new ProcessTopologySnapshot();
         string expected = Path.GetFullPath(Path.Combine(root, processName + ".exe"));
         foreach (Process process in Process.GetProcessesByName(processName))
@@ -17920,20 +18692,28 @@ deck.Hide();
             catch { snapshot.InaccessibleCount++; }
             finally { process.Dispose(); }
         }
-        return snapshot;
+        if (snapshot.TotalCount > 0)
+        {
+            var entry = new ProcessLookupEntry();
+            entry.Running = true;
+            entry.Topology = snapshot;
+            WriteProcessLookupCache(processName, entry);
+        }
+        return CopyProcessTopology(snapshot);
     }
 
     private BridgeHealthSnapshot ReadKeyboardBridgeHealth()
     {
         var snapshot = new BridgeHealthSnapshot();
-        string path = Path.Combine(root, "input-bridge-health.json");
+        string path = BridgeStateFile("input-bridge-health.json");
         try
         {
-            if (!File.Exists(path)) return snapshot;
-            snapshot.FileAgeSeconds = Math.Max(0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(path)).TotalSeconds);
-            Dictionary<string, object> data;
-            string readError;
-            TryReadBridgeHealth(path, out data, out readError);
+            // One stat answers both "is the heartbeat there" and "how old is it", instead of a File.Exists
+            // and a File.GetLastWriteTimeUtc either side of the cached parse below.
+            double ageSeconds;
+            if (FileRevisionKey(path, out ageSeconds) == "missing") return snapshot;
+            snapshot.FileAgeSeconds = ageSeconds < 0 ? 0 : ageSeconds;
+            Dictionary<string, object> data = ReadBridgeHealthDocument(path);
             if (data == null) return snapshot;
             object value;
             snapshot.ProcessId = ReadBridgeProcessId(data);
@@ -17950,6 +18730,8 @@ deck.Hide();
             if (data.TryGetValue("hook_candidate_passthroughs", out value)) snapshot.HookCandidatePassthroughs = Convert.ToInt64(value);
             if (data.TryGetValue("last_raw_action", out value)) snapshot.LastRawAction = Convert.ToString(value);
             if (data.TryGetValue("last_action_source", out value)) snapshot.LastActionSource = Convert.ToString(value);
+            if (data.TryGetValue("last_raw_press", out value)) snapshot.LastRawPress = Convert.ToString(value);
+            if (data.TryGetValue("last_raw_press_source", out value)) snapshot.LastRawPressSource = Convert.ToString(value);
             if (data.TryGetValue("last_execution_sequence", out value)) snapshot.LastExecutionSequence = Convert.ToInt64(value);
             if (data.TryGetValue("last_execution_button", out value)) snapshot.LastExecutionButton = Convert.ToString(value);
             if (data.TryGetValue("last_execution_label", out value)) snapshot.LastExecutionLabel = Convert.ToString(value);
@@ -18017,6 +18799,13 @@ deck.Hide();
                         (DateTime.UtcNow - snapshot.LastRawActionAtUtc).TotalSeconds);
                 }
             }
+            if (data.TryGetValue("last_raw_press_at", out value))
+            {
+                DateTime parsed;
+                if (DateTime.TryParse(Convert.ToString(value), CultureInfo.InvariantCulture,
+                    DateTimeStyles.RoundtripKind, out parsed))
+                    snapshot.LastRawPressAtUtc = parsed.ToUniversalTime();
+            }
             snapshot.Healthy = snapshot.FileAgeSeconds <= 7 &&
                 string.Equals(snapshot.State, "running", StringComparison.OrdinalIgnoreCase) &&
                 snapshot.HookInstalled && snapshot.RawInputRegistered &&
@@ -18028,6 +18817,99 @@ deck.Hide();
             Log("Bridge health read failed: " + ex.Message);
         }
         return snapshot;
+    }
+
+    // The bridge rewrites its health file every few seconds, and several callers inside one poll re-read
+    // and re-parse the same bytes. The parse is kept until the file changes, so one poll costs at most one
+    // parse; freshness is still judged against the real file age by the caller that needs it.
+    private Dictionary<string, object> ReadBridgeHealthDocument(string path)
+    {
+        Dictionary<string, object> data;
+        string readError;
+        return TryReadBridgeHealth(path, out data, out readError) ? data : null;
+    }
+
+    // The bytes are only re-parsed when the file itself changes; a heartbeat that stopped being written
+    // still fails the freshness test above, so a dead bridge is reported exactly as before.
+    private Dictionary<string, object> ReadBridgeHealthDocumentRaw(string path, out string error)
+    {
+        error = null;
+        string revision = FileRevisionKey(path);
+        Dictionary<string, object> cached = bridgeHealthDocument;
+        if (cached != null && string.Equals(bridgeHealthDocumentRevision, revision, StringComparison.Ordinal))
+            return cached;
+        Dictionary<string, object> data;
+        try
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+            {
+                data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return null;
+        }
+        if (data == null) return null;
+        bridgeHealthDocument = data;
+        bridgeHealthDocumentRevision = revision;
+        return data;
+    }
+
+    private static string FileRevisionKey(string path)
+    {
+        double ageSeconds;
+        return FileRevisionKey(path, out ageSeconds);
+    }
+
+    // Length and write time identify one revision of a file the keyboard bridge or the capture worker
+    // rewrites. Returning the age from the same stat means a caller no longer needs File.Exists and
+    // File.GetLastWriteTimeUtc as two extra trips to the file system on every poll.
+    private static string FileRevisionKey(string path, out double ageSeconds)
+    {
+        ageSeconds = -1;
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists) return "missing";
+            ageSeconds = Math.Max(0, (DateTime.UtcNow - info.LastWriteTimeUtc).TotalSeconds);
+            return info.Length.ToString(CultureInfo.InvariantCulture) + "|" +
+                info.LastWriteTimeUtc.Ticks.ToString(CultureInfo.InvariantCulture);
+        }
+        catch { return "unreadable"; }
+    }
+
+    // Same policy as the bridge heartbeat: the bytes are only re-parsed when the file changes, while the
+    // freshness, pid and process-start checks below still run against the live process every time.
+    private Dictionary<string, object> ReadCaptureHealthDocumentRaw(string path, out string error)
+    {
+        error = null;
+        string revision = FileRevisionKey(path);
+        Dictionary<string, object> cached = captureHealthDocument;
+        if (cached != null && string.Equals(captureHealthDocumentRevision, revision, StringComparison.Ordinal))
+            return cached;
+        Dictionary<string, object> data;
+        try
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+            {
+                data = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(reader.ReadToEnd());
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.GetType().Name;
+            return null;
+        }
+        if (data == null) return null;
+        captureHealthDocument = data;
+        captureHealthDocumentRevision = revision;
+        return data;
     }
 
     private static int ReadBridgeProcessId(Dictionary<string, object> data)
@@ -18059,41 +18941,63 @@ deck.Hide();
         return lines.ToArray();
     }
 
-    private void UpdateSessionConfidence()
+    // Backwards first: the newest capture start is the one that bounds this session, and stopping at the
+    // first hit avoids walking the whole tail (whose lines are long enough for the scan to cost several
+    // milliseconds on this class of machine).
+    private static SessionMarkerScan ScanSessionMarkers(string[] lines)
     {
-        if (activityLabel == null || activityLabel.IsDisposed) return;
-        string path = Path.Combine(sessionDir, "vibe-mic-runtime.log");
-        if (!File.Exists(path)) return;
-        string[] lines = ReadLogTailLines(path, 256 * 1024);
-        int startIndex = -1;
-        int stopIndex = -1;
-        int longStartIndex = -1;
-        int longEndIndex = -1;
-        int segmentStopIndex = -1;
-        int audioLiveIndex = -1;
-        int transportHealthIndex = -1;
-        bool transportHealthLive = false;
+        var scan = new SessionMarkerScan();
         int captureBoundaryIndex = 0;
-        for (int i = 0; i < lines.Length; i++)
+        for (int i = lines.Length - 1; i >= 0; i--)
         {
             if (lines[i].IndexOf(" START endpoint=", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
                 captureBoundaryIndex = i;
+                break;
+            }
         }
         for (int i = Math.Max(captureBoundaryIndex, Math.Max(0, lines.Length - 500)); i < lines.Length; i++)
         {
-            if (lines[i].IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) >= 0) startIndex = i;
-            if (lines[i].IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) stopIndex = i;
-            if (lines[i].IndexOf("LONG DICTATION START generation=", StringComparison.OrdinalIgnoreCase) >= 0) longStartIndex = i;
-            if (lines[i].IndexOf("LONG DICTATION END generation=", StringComparison.OrdinalIgnoreCase) >= 0) longEndIndex = i;
-            if (lines[i].IndexOf("REMOTE STREAM SEGMENT STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) segmentStopIndex = i;
-            if (lines[i].IndexOf("AUDIO LIVE START session=", StringComparison.OrdinalIgnoreCase) >= 0) audioLiveIndex = i;
+            if (lines[i].IndexOf("REMOTE STREAM START session=", StringComparison.OrdinalIgnoreCase) >= 0) scan.StartIndex = i;
+            if (lines[i].IndexOf("REMOTE STREAM STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) scan.StopIndex = i;
+            if (lines[i].IndexOf("LONG DICTATION START generation=", StringComparison.OrdinalIgnoreCase) >= 0) scan.LongStartIndex = i;
+            if (lines[i].IndexOf("LONG DICTATION END generation=", StringComparison.OrdinalIgnoreCase) >= 0) scan.LongEndIndex = i;
+            if (lines[i].IndexOf("REMOTE STREAM SEGMENT STOP session=", StringComparison.OrdinalIgnoreCase) >= 0) scan.SegmentStopIndex = i;
+            if (lines[i].IndexOf("AUDIO LIVE START session=", StringComparison.OrdinalIgnoreCase) >= 0) scan.AudioLiveIndex = i;
             if (lines[i].IndexOf("AUDIO TRANSPORT HEALTH", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                transportHealthIndex = i;
-                transportHealthLive = string.Equals(ExtractMetric(lines[i], "audio_live"), "True",
+                scan.TransportHealthIndex = i;
+                scan.TransportHealthLive = string.Equals(ExtractMetric(lines[i], "audio_live"), "True",
                     StringComparison.OrdinalIgnoreCase);
             }
         }
+        return scan;
+    }
+
+    private void UpdateSessionConfidence()
+    {
+        if (activityLabel == null || activityLabel.IsDisposed) return;
+        // The same cached tail GetLatestSessionHealth parses, so one log revision is read and split once
+        // per poll no matter how many readers want it. Only the newest lines are examined below.
+        double tailStartedAt = PollClockMs();
+        RuntimeLogTail tail = ReadRuntimeLogTail();
+        MarkPollStage(13, tailStartedAt);
+        string[] lines = tail.Lines;
+        if (lines.Length == 0) return;
+        SessionMarkerScan markers = tail.Markers;
+        if (markers == null)
+        {
+            markers = ScanSessionMarkers(lines);
+            tail.Markers = markers;
+        }
+        int startIndex = markers.StartIndex;
+        int stopIndex = markers.StopIndex;
+        int longStartIndex = markers.LongStartIndex;
+        int longEndIndex = markers.LongEndIndex;
+        int segmentStopIndex = markers.SegmentStopIndex;
+        int audioLiveIndex = markers.AudioLiveIndex;
+        int transportHealthIndex = markers.TransportHealthIndex;
+        bool transportHealthLive = markers.TransportHealthLive;
 
         bool longSessionActive = UsesLongDictation(config.voiceMode) && longStartIndex > longEndIndex;
         bool longAudioLive = longSessionActive &&
@@ -18146,7 +19050,9 @@ deck.Hide();
         }
         transientFeedbackState = "";
         transientFeedbackText = "";
+        double uiStartedAt = PollClockMs();
         UpdateCaptureUi();
+        MarkPollStage(19, uiStartedAt);
         if (stopIndex >= 0)
         {
             SessionHealth latest = UsesLongDictation(config.voiceMode) ? GetLatestSessionHealth() : null;
@@ -18259,7 +19165,7 @@ deck.Hide();
             int start = Math.Max(0, lines.Length - 30);
             for (int i = start; i < lines.Length; i++) sb.AppendLine(lines[i]);
         }
-        string inputLog = Path.Combine(root, "input-bridge-log.txt");
+        string inputLog = BridgeStateFile("input-bridge-log.txt");
         if (File.Exists(inputLog))
         {
             sb.AppendLine();
@@ -18324,6 +19230,16 @@ deck.Hide();
     {
         if (explicitlyRequested) return true;
         return windowInFront;
+    }
+
+    // The floating panel used to appear on its own whenever the main window was not in front,
+    // which put a dark rectangle in the bottom-right corner over whatever the user was doing —
+    // most visibly on the first recording after a start. Whether it may do that is now a
+    // preference (设置 ▸ 交互反馈) that ships off; an explicit request from the tray is
+    // separate and keeps working either way.
+    internal static bool ShouldPresentLiveHudOnItsOwn(bool explicitlyRequested, bool autoShowEnabled)
+    {
+        return explicitlyRequested || autoShowEnabled;
     }
 
     internal static bool WindowCountsAsInFront(bool visible, bool minimized, bool isForeground)
@@ -18774,6 +19690,15 @@ deck.Hide();
         return false;
     }
 
+
+    // The provider wrote the sentence into the field itself when the verified target gained text between the
+    // key-down snapshot and this paste. The clipboard payload is then a second copy, so pasting it would leave
+    // two identical sentences. An unreadable surface (-1 on either side) keeps the historical paste behaviour.
+    internal static bool ShouldSkipPasteForChangedTarget(int baselineLength, int currentLength)
+    {
+        if (baselineLength < 0 || currentLength < 0) return false;
+        return currentLength != baselineLength;
+    }
     private void ScheduleProviderPasteFallback(int generation)
     {
         ThreadPool.QueueUserWorkItem(delegate
@@ -18894,6 +19819,21 @@ deck.Hide();
                     });
                     return;
                 }
+                int targetLengthNow = ReadFocusedEditableTextLength(verified.ProcessName);
+                if (ShouldSkipPasteForChangedTarget(voiceSessionTargetTextLength, targetLengthNow))
+                {
+                    HostLog("WETYPE PASTE FALLBACK skipped=true reason=target_already_updated before=" +
+                        voiceSessionTargetTextLength + " after=" + targetLengthNow +
+                        " generation=" + generation);
+                    DispatchUi(delegate
+                    {
+                        ShowToast("输入框已经收到识别文字，未重复粘贴", "info");
+                    });
+                    return;
+                }
+                HostLog("WETYPE PASTE FALLBACK target_length before=" +
+                    voiceSessionTargetTextLength + " after=" + targetLengthNow +
+                    " generation=" + generation);
                 bool down = SendConfiguredHotkey("ctrl+v", false);
                 Thread.Sleep(60);
                 bool up = SendConfiguredHotkey("ctrl+v", true);
@@ -20042,7 +20982,7 @@ deck.Hide();
 
     private void PollInputFeedback()
     {
-        string path = Path.Combine(root, "input-bridge-log.txt");
+        string path = BridgeStateFile("input-bridge-log.txt");
         if (!File.Exists(path)) return;
         using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
         {
@@ -20109,6 +21049,7 @@ deck.Hide();
         string provider = (value ?? "").Trim().ToLowerInvariant();
         if (provider == "wetype" || provider == "wechat") return "wechat";
         if (provider == "voquill" || provider == "vokie") return "custom";
+        if (provider == "cloud" || provider == "cloud-asr" || provider == "云端") return "cloud";
         if (provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" || provider == "八哥说" || provider == "八哥") return "bage";
         return provider == "custom" ? "custom" : "wechat";
     }
@@ -20122,7 +21063,8 @@ deck.Hide();
         return provider == "wechat" || provider == "wetype" ||
             provider == "bage" || provider == "bageshuo" || provider == "bage-shuo" ||
             provider == "八哥说" || provider == "八哥" ||
-            provider == "custom" || provider == "voquill" || provider == "vokie";
+            provider == "custom" || provider == "voquill" || provider == "vokie" ||
+            provider == "cloud" || provider == "cloud-asr" || provider == "云端";
     }
 
     // Only 微信输入法, 网易八哥说 and the custom slot are supported. Every other value — including the
@@ -20175,6 +21117,7 @@ deck.Hide();
         {
             case "bage": return "网易八哥说";
             case "custom": return "其他语音工具";
+            case "cloud": return "云端 ASR（实验）";
             default: return "微信输入法";
         }
     }
@@ -20185,6 +21128,7 @@ deck.Hide();
         {
             case "bage": return "网易八哥说：已安装在本机，默认用右 Alt 启动与结束听写；Vibe Link只派发触发动作，不读取它的转写内容。";
             case "custom": return "连接任意支持全局快捷键启动和结束的本地语音输入工具。";
+            case "cloud": return "实验用云端识别：Vibe Link 自己读 CABLE Output 的遥控器音频，松开录音键后上传识别，再把文字输入焦点输入框。默认关闭，开启会离开本机。";
             default: return "适合中文输入。是否进行 AI 整理取决于微信输入法内部当前选择的语音模式，Vibe Link不会代替微信开启润色。";
         }
     }
@@ -20194,6 +21138,7 @@ deck.Hide();
         switch (NormalizeProviderKey(provider))
         {
             case "custom": return "先在目标工具中设置一个不超过四个按键的全局快捷键，再把相同内容填写到这里。";
+            case "cloud": return "在语音页选中「云端 ASR（实验）」并同意上传提示，然后把 API Key 写进本机文件（不进 Git）。不需要安装任何输入法。";
             default: return "在微信输入法中启用语音输入，把全局快捷键设为 Ctrl + Win；如需 AI 整理，还要在微信输入法内选择对应模式。录音前先聚焦目标输入框。";
         }
     }
@@ -20212,6 +21157,9 @@ deck.Hide();
         // what the tool itself does with its shortcut.
         string normalized = NormalizeProviderKey(provider);
         if (normalized == "wechat") return "toggle";
+        // 云端槽在 Vibe Link 内部录音，语义固定是按住说话：不派发外部快捷键，
+        // 所以这里把它钉成 hold，避免配置里残留的 toggle 改变行为。
+        if (normalized == "cloud") return "hold";
         return string.Equals(trigger, "hold", StringComparison.OrdinalIgnoreCase) ? "hold" : "toggle";
     }
 
@@ -20221,13 +21169,24 @@ deck.Hide();
         string normalized = NormalizeProviderKey(provider);
         if (normalized == "wechat")
             target.Items.Add("单击切换（稳定）");
+        else if (normalized == "cloud")
+            target.Items.Add("按住说话（云端识别固定）");
         else
             target.Items.AddRange(new object[] { "单击切换", "按住触发" });
+    }
+
+    // 触发方式下拉框的选中项：云端槽只有一个选项，不能按 hold/toggle 去推索引。
+    private static int TriggerModeIndex(string provider, string trigger)
+    {
+        string normalized = NormalizeProviderKey(provider);
+        if (normalized == "wechat" || normalized == "cloud") return 0;
+        return string.Equals(trigger, "hold", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
     }
 
     private static string ProviderHotkeyHelp(string provider, string trigger)
     {
         string normalized = NormalizeProviderKey(provider);
+        if (normalized == "cloud") return "云端 ASR 由 Vibe Link 自己取音，不使用外部快捷键";
         if (normalized != "wechat") return "须与所选工具中的快捷键一致";
         return "稳定参数：Ctrl + Win · 单击切换";
     }
@@ -20238,6 +21197,9 @@ deck.Hide();
         {
             case "bage": return "rightalt";
             case "custom": return "rightshift";
+            // 云端槽没有外部工具可触发。这个占位值只用于满足冻结 Capture 的
+            // 「快捷键可解析才放行音频」检查，F24 在 Windows 上没有默认绑定。
+            case "cloud": return "f24";
             default: return WeChatStableHotkey;
         }
     }
@@ -20246,6 +21208,7 @@ deck.Hide();
     {
         // Both remaining tools are toggles by their own design, and 微信输入法 is pinned to toggle as well.
         // The voice page still offers both choices to the custom slot, and the user's own choice is stored.
+        if (NormalizeProviderKey(provider) == "cloud") return "hold";
         return "toggle";
     }
 
@@ -20255,6 +21218,7 @@ deck.Hide();
         {
             case "bage": return 150;
             case "custom": return 150;
+            case "cloud": return 20;
             default: return 80;
         }
     }
@@ -20265,13 +21229,14 @@ deck.Hide();
         {
             case "bage": return 1;
             case "custom": return 2;
+            case "cloud": return 3;
             default: return 0;
         }
     }
 
     private static string ProviderKeyFromIndex(int index)
     {
-        return index == 1 ? "bage" : index == 2 ? "custom" : "wechat";
+        return index == 1 ? "bage" : index == 2 ? "custom" : index == 3 ? "cloud" : "wechat";
     }
 
     private static void ApplyProviderProfile(VibeMicConfig value, string provider)
@@ -20377,12 +21342,145 @@ deck.Hide();
         return names.TryGetValue(value, out result) ? result : -1;
     }
 
+    // ---- 云端 ASR（实验） ---------------------------------------------------------------
+    // 这一槽的承诺是「空闲零常驻」：没有常驻进程、不加载模型、没有后台连接。
+    // 按住录音键时才开一次 WASAPI 采集，松开后上传、出字，然后全部释放。
+
+    private bool IsCloudVoiceProvider()
+    {
+        return NormalizeProviderKey(config == null ? "" : config.inputMethod) == "cloud";
+    }
+
+    // 第一次选择云端槽时必须显式同意「录音会上传」；拒绝就留在原来的工具上。
+    private bool EnsureCloudAsrConsent()
+    {
+        CloudAsrSettings settings = CloudAsrSettings.Load(userStateRoot, HostLog);
+        if (settings.consentedAt > 0) return true;
+        DialogResult answer = MessageBox.Show(this, CloudAsrPolicy.AuthorisationNotice,
+            "云端 ASR：录音会上传", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (answer != DialogResult.Yes)
+        {
+            HostLog("CLOUD ASR consent declined");
+            Toast("已保留原来的语音工具；云端 ASR 未启用");
+            return false;
+        }
+        settings.consentedAt = (long)(DateTime.UtcNow -
+            new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
+        settings.enabled = true;
+        bool saved = settings.Save(userStateRoot, HostLog);
+        HostLog("CLOUD ASR consent granted saved=" + saved);
+        if (!saved)
+        {
+            Toast("云端 ASR 的同意状态没有保存成功，这次不会启用");
+            return false;
+        }
+        return true;
+    }
+
+    private void SetCloudAsrEnabled(bool enabled, string reason)
+    {
+        CloudAsrSettings settings = CloudAsrSettings.Load(userStateRoot, HostLog);
+        if (settings.enabled == enabled) return;
+        settings.enabled = enabled;
+        bool saved = settings.Save(userStateRoot, HostLog);
+        HostLog("CLOUD ASR enabled=" + enabled + " reason=" + SafeLogValue(reason) + " saved=" + saved);
+    }
+
+    // 按一次录音键开一个会话。录音键本身仍由冻结 Capture / Bridge 处理，这里只取音频。
+    private void BeginCloudAsrSession()
+    {
+        if (applicationExiting || IsDisposed || captureStopping) return;
+        if (!IsCloudVoiceProvider()) return;
+        lock (cloudAsrSync)
+        {
+            if (cloudAsrSession != null)
+            {
+                HostLog("CLOUD ASR session skipped reason=session_in_flight");
+                return;
+            }
+            cloudAsrSession = new CloudAsrSession(userStateRoot, "CABLE Output", IsVoiceKeyHeld, HostLog,
+                HandleCloudAsrSessionFinished);
+        }
+        HostLog("CLOUD ASR session begin");
+        cloudAsrSession.Start();
+    }
+
+    private void CancelCloudAsrSession(string reason)
+    {
+        CloudAsrSession active;
+        lock (cloudAsrSync)
+        {
+            active = cloudAsrSession;
+            cloudAsrSession = null;
+        }
+        if (active == null) return;
+        HostLog("CLOUD ASR session cancel reason=" + SafeLogValue(reason));
+        try { active.Cancel(); } catch { }
+    }
+
+    private void HandleCloudAsrSessionFinished(CloudAsrSession session)
+    {
+        DispatchUi(delegate { CompleteCloudAsrOnUiThread(session); });
+    }
+
+    private void CompleteCloudAsrOnUiThread(CloudAsrSession session)
+    {
+        if (session == null) return;
+        lock (cloudAsrSync)
+        {
+            if (ReferenceEquals(cloudAsrSession, session)) cloudAsrSession = null;
+        }
+        CloudAsrResult result = session.Completed;
+        if (result == null || !result.Ok)
+        {
+            string code = result == null ? "UNKNOWN" : result.FailureCode;
+            HostLog("CLOUD ASR finished ok=false code=" + SafeLogValue(code));
+            ShowToast(CloudAsrPolicy.FailureMessage(code), "warning");
+            return;
+        }
+        // 只在按下录音键时的那个输入框仍然可写时才落字：不猜、也不投递到别的窗口。
+        FocusTargetDescriptor target = activeVoiceFocusTarget == null ? null : activeVoiceFocusTarget.Copy();
+        string observationCode = "";
+        bool focusedTarget = target != null &&
+            focusTargetService.ObserveFocusedTarget(target, out observationCode);
+        if (!focusedTarget)
+        {
+            HostLog("CLOUD ASR inject skipped=true reason=focus_changed code=" +
+                SafeLogValue(observationCode) + " characters=" +
+                (result.Text == null ? 0 : result.Text.Length));
+            ShowToast(CloudAsrPolicy.FailureMessage("FOCUS"), "warning");
+            return;
+        }
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        bool typed = CloudAsrTextInjection.TypeText(result.Text);
+        timer.Stop();
+        HostLog("CLOUD ASR inject ok=" + typed + " characters=" + result.Text.Length +
+            " inject_ms=" + timer.ElapsedMilliseconds + " release_to_text_ms=" + result.ReleaseToTextMs);
+        if (!typed)
+        {
+            ShowToast(CloudAsrPolicy.FailureMessage("INJECT"), "warning");
+            return;
+        }
+        ShowToast("云端识别已输入 " + result.Text.Length + " 个字（松开到出字 " +
+            Math.Max(0, result.ReleaseToTextMs) + " ms）", "success");
+    }
+
+    // 云端槽没有外部工具可触发，但冻结 Capture 只在「快捷键可解析」时才放行音频，
+    // 所以给它一个 Windows 上没有默认绑定的占位键 F24。Host 自己不会发送这个键。
+    private static string CaptureHotkeyForKernel(string provider, string hotkey)
+    {
+        if (NormalizeProviderKey(provider) == "cloud") return DefaultHotkeyForProvider("cloud");
+        return hotkey;
+    }
+
     private bool IsProviderRunning(string provider)
     {
         switch (NormalizeProviderKey(provider))
         {
             case "wechat": return IsProcessRunning("WeType") || IsProcessRunning("WeTypeService") ||
                 IsProcessRunning("wetype_server") || IsProcessRunning("wetype_service");
+            case "cloud": return CloudAsrSettings.Load(userStateRoot, HostLog).IsUsable();
             default: return true;
         }
     }
@@ -20390,6 +21488,10 @@ deck.Hide();
     private string ProviderStatusText(string provider)
     {
         string normalized = NormalizeProviderKey(provider);
+        if (normalized == "cloud")
+            return IsProviderRunning(provider)
+                ? "●  已配置 · 松开录音键后上传识别"
+                : "●  未配置：需要开启并填入 API Key";
         if (normalized == "custom") return "●  请确保客户端已启动";
         if (normalized == "wechat" && IsProviderRunning(provider))
             return "●  客户端运行 · AI 整理由微信内模式决定";
@@ -20417,6 +21519,10 @@ deck.Hide();
 
     private static string VoiceProviderNote(string provider, bool automaticRoute)
     {
+        if (NormalizeProviderKey(provider) == "cloud")
+            return "云端 ASR 直接从 CABLE Output 读取遥控器音频，松开录音键后才上传到所配置的服务商识别，" +
+                "再把文字输入焦点输入框。Vibe Link 不保存录音文件、不保存识别文字，也绝不自动回车或发送；" +
+                "音频会离开这台电脑，服务商的隐私政策适用。按录音键之前不会有任何网络请求。";
         return ProviderRouteInstruction(provider, automaticRoute) +
             "。Vibe Link只转发遥控器音频，不保存录音、不读取听写文字，也不会自行上传音频。" +
             VoiceProviderCompatibilityNote(provider);
@@ -20528,14 +21634,23 @@ deck.Hide();
                 "打开自检后重新启动或停止语音桥接", "ONBOARDING-VOICE-RUNTIME-RESTORE-FAILED");
     }
 
+    // A dictation counts as fresh when its completion receipt is newer than the moment the test started.
+    // The generation counter can not answer that: it restarts with the bridge, and the remote starting to
+    // stream before the capture finished connecting leaves the capture with no session frame of its own.
+    private static bool DictationAudioIsFresh(SessionHealth health, DateTime baselineAt)
+    {
+        if (health == null) return false;
+        return health.LastCompletedAt > baselineAt;
+    }
+
     private static bool VoiceProviderEvidenceIsCurrent(string currentConfigurationKey,
-        string runtimeConfigurationKey, string evidenceConfigurationKey, int baselineGeneration,
-        int observedGeneration, bool audioSucceeded, bool textConfirmed)
+        string runtimeConfigurationKey, string evidenceConfigurationKey, bool freshAudio,
+        bool textConfirmed)
     {
         return !string.IsNullOrWhiteSpace(currentConfigurationKey) &&
             string.Equals(currentConfigurationKey, runtimeConfigurationKey, StringComparison.Ordinal) &&
             string.Equals(currentConfigurationKey, evidenceConfigurationKey, StringComparison.Ordinal) &&
-            observedGeneration > baselineGeneration && audioSucceeded && textConfirmed;
+            freshAudio && textConfirmed;
     }
 
     private static ActionResult ProviderConfigurationSaveResult(bool saved, bool captureWasRunning)
@@ -21442,7 +22557,7 @@ deck.Hide();
             Dictionary<string, object> document = BuildKeyboardBridgeDocument(config, BuildGestureOverrides(),
                 snippetStore.Load());
             string revision = Convert.ToString(document["revision"]);
-            string bridgeConfigPath = Path.Combine(root, "voxdeck-shortcuts.json");
+            string bridgeConfigPath = BridgeStateFile("voxdeck-shortcuts.json");
             WriteTextAtomically(bridgeConfigPath, new JavaScriptSerializer().Serialize(document), bridgeConfigPath + ".bak");
             expectedKeyboardConfigRevision = revision;
             if (IsCurrentProcessRunningFromRoot("VoxDeckInputBridge"))
@@ -21452,6 +22567,9 @@ deck.Hide();
         catch (Exception ex)
         {
             Log("Keyboard config sync failed: " + ex.Message);
+            // The interface log box was the only place this failure ever appeared, so a fault that
+            // stopped the entire keyboard bridge left nothing in the host log to explain it.
+            HostLog("KEYBOARD BRIDGE config_sync_error=" + SafeLogValue(ex.GetType().Name + ": " + ex.Message));
             return "";
         }
     }
@@ -21996,7 +23114,7 @@ deck.Hide();
     {
         try
         {
-            string path = Path.Combine(root, "input-bridge-log.txt");
+            string path = BridgeStateFile("input-bridge-log.txt");
             return File.Exists(path) ? new FileInfo(path).Length : 0;
         }
         catch { return 0; }
@@ -22009,7 +23127,7 @@ deck.Hide();
 
     private bool HasObservedPhysicalButtonSince(string key, long startPosition)
     {
-        string path = Path.Combine(root, "input-bridge-log.txt");
+        string path = BridgeStateFile("input-bridge-log.txt");
         if (!File.Exists(path)) return false;
         try
         {
@@ -23916,9 +25034,9 @@ deck.Hide();
             request["token"] = token;
             request["slot"] = slot;
             request["created_at"] = DateTime.UtcNow.ToString("o");
-            File.WriteAllText(Path.Combine(root, "custom-button-capture-request.json"),
+            File.WriteAllText(BridgeStateFile("custom-button-capture-request.json"),
                 new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
-            File.Delete(Path.Combine(root, "custom-button-capture-result.json"));
+            File.Delete(BridgeStateFile("custom-button-capture-result.json"));
             StartKeyboardBridge();
             if (status != null) status.Text = "请在 10 秒内按一下遥控器按键…";
             ShowToast("正在等待第 " + (slot + 1) + " 个自定义按键", "info");
@@ -23935,8 +25053,8 @@ deck.Hide();
     {
         try
         {
-            string requestPath = Path.Combine(root, "custom-button-capture-request.json");
-            string resultPath = Path.Combine(root, "custom-button-capture-result.json");
+            string requestPath = BridgeStateFile("custom-button-capture-request.json");
+            string resultPath = BridgeStateFile("custom-button-capture-result.json");
             bool cleared = false;
             if (File.Exists(requestPath)) { File.Delete(requestPath); cleared = true; }
             if (File.Exists(resultPath)) { File.Delete(resultPath); cleared = true; }
@@ -23956,7 +25074,7 @@ deck.Hide();
             request["token"] = token;
             request["created_at"] = DateTime.UtcNow.ToString("o");
             PrepareMappingActionTest(token, "自定义按键 " + (slot + 1));
-            File.WriteAllText(Path.Combine(root, "custom-button-test.json"),
+            File.WriteAllText(BridgeStateFile("custom-button-test.json"),
                 new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
             StartKeyboardBridge();
             ShowToast("正在验证自定义按键动作…", "info");
@@ -23983,7 +25101,7 @@ deck.Hide();
             request["token"] = token;
             request["created_at"] = DateTime.UtcNow.ToString("o");
             PrepareMappingActionTest(token, key);
-            File.WriteAllText(Path.Combine(root, "custom-button-test.json"),
+            File.WriteAllText(BridgeStateFile("custom-button-test.json"),
                 new JavaScriptSerializer().Serialize(request), Encoding.UTF8);
             StartKeyboardBridge();
             ShowToast("正在验证“" + key + "”的当前功能…", "info");
@@ -24005,7 +25123,7 @@ deck.Hide();
         pendingMappingTestResultHandler = resultHandler;
         try
         {
-            string resultPath = Path.Combine(root, "custom-button-test-result.json");
+            string resultPath = BridgeStateFile("custom-button-test-result.json");
             if (File.Exists(resultPath)) File.Delete(resultPath);
         }
         catch { }
@@ -24014,7 +25132,7 @@ deck.Hide();
     private void ApplyMappingActionTestResult()
     {
         if (string.IsNullOrWhiteSpace(pendingMappingTestToken)) return;
-        string path = Path.Combine(root, "custom-button-test-result.json");
+        string path = BridgeStateFile("custom-button-test-result.json");
         if (!File.Exists(path))
         {
             if (pendingMappingTestStartedAt != DateTime.MinValue &&
@@ -24066,7 +25184,7 @@ deck.Hide();
             !string.Equals(pendingMappingTestToken, expectedToken,
                 StringComparison.OrdinalIgnoreCase)) return false;
         BrowserRemoteRequestFile.TryCancel(
-            Path.Combine(root, "custom-button-test.json"), expectedToken);
+            BridgeStateFile("custom-button-test.json"), expectedToken);
         pendingMappingTestToken = "";
         if (string.Equals(pendingBrowserRemoteTestToken, expectedToken,
             StringComparison.OrdinalIgnoreCase)) pendingBrowserRemoteTestToken = "";
@@ -24079,7 +25197,7 @@ deck.Hide();
     private void ApplyCustomButtonCaptureResult()
     {
         if (string.IsNullOrWhiteSpace(pendingCustomCaptureToken)) return;
-        string path = Path.Combine(root, "custom-button-capture-result.json");
+        string path = BridgeStateFile("custom-button-capture-result.json");
         if (!File.Exists(path)) return;
         try
         {
@@ -24354,7 +25472,7 @@ deck.Hide();
         report.AppendLine("Mappings: " + BuildDiagnosticMappingSummary(config.mappings));
         report.AppendLine();
         AppendLogTail(report, Path.Combine(sessionDir, "vibe-mic-runtime.log"), "Runtime log", 200);
-        AppendLogTail(report, Path.Combine(root, "input-bridge-log.txt"), "Input bridge log", 200);
+        AppendLogTail(report, BridgeStateFile("input-bridge-log.txt"), "Input bridge log", 200);
         string captureReport = Path.Combine(sessionDir, "remote-voice-report.json");
         if (File.Exists(captureReport))
         {
@@ -24747,6 +25865,12 @@ deck.Hide();
         public string LastActionSource = "";
         public DateTime LastRawActionAtUtc = DateTime.MinValue;
         public double LastRawActionAgeSeconds = double.MaxValue;
+        // The last press the bridge saw, published separately from the last routed edge. A key that was
+        // pressed and released reads "...:up" in the routed field, so a heartbeat sample almost never shows
+        // the press itself, and the wizard's direction task could not see the press it was waiting for.
+        public string LastRawPress = "";
+        public string LastRawPressSource = "";
+        public DateTime LastRawPressAtUtc = DateTime.MinValue;
         public long LastExecutionSequence;
         public string LastExecutionButton = "";
         public string LastExecutionLabel = "";
@@ -24794,6 +25918,27 @@ deck.Hide();
         public int CurrentRootCount;
         public int ForeignCount;
         public int InaccessibleCount;
+    }
+
+    // One cached answer about one process name: whether it is running at all, and for the two names the
+    // self-check inspects, the fuller topology.
+    private sealed class ProcessLookupEntry
+    {
+        public DateTime At;
+        public bool Running;
+        public ProcessTopologySnapshot Topology;
+    }
+
+    // The topology lives in the cache, so callers get a copy instead of the cached instance.
+    private static ProcessTopologySnapshot CopyProcessTopology(ProcessTopologySnapshot source)
+    {
+        var copy = new ProcessTopologySnapshot();
+        if (source == null) return copy;
+        copy.TotalCount = source.TotalCount;
+        copy.CurrentRootCount = source.CurrentRootCount;
+        copy.ForeignCount = source.ForeignCount;
+        copy.InaccessibleCount = source.InaccessibleCount;
+        return copy;
     }
 
     private sealed class SelfCheckItem
@@ -25618,6 +26763,76 @@ deck.Hide();
     // Trigger-only mode is a capability decision, so it is pinned by the host
     // self-test: it may only be claimed from the verified endpoint capability and
     // only for the tools whose wake-up the Host itself performs.
+    // 云端 ASR（实验）槽的策略在这里固定：默认关闭、没有同意就不上传、没按住录音键不出网。
+    private static void RunCloudAsrSelfTests()
+    {
+        if (NormalizeProviderKey("cloud") != "cloud" ||
+            NormalizeProviderKey("cloud-asr") != "cloud" ||
+            NormalizeProviderKey("CLOUD") != "cloud" ||
+            ProviderDisplayName("cloud") != "云端 ASR（实验）" ||
+            ProviderIndex("cloud") != 3 ||
+            ProviderKeyFromIndex(3) != "cloud" ||
+            !IsKnownProviderValue("cloud") ||
+            IsRetiredProviderValue("cloud") ||
+            DefaultTriggerForProvider("cloud") != "hold" ||
+            EffectiveTriggerForProvider("cloud", "toggle") != "hold" ||
+            DefaultStartupDelayForProvider("cloud") != 20 ||
+            TriggerModeIndex("cloud", "toggle") != 0 ||
+            CaptureHotkeyForKernel("cloud", "ctrl+win") != "f24" ||
+            CaptureHotkeyForKernel("bage", "rightalt") != "rightalt" ||
+            TriggerOnlyModeSupportsProvider("cloud"))
+            throw new InvalidOperationException("The cloud voice slot is not wired consistently");
+        // 云端槽没有外部工具：Host 绝不代按它的占位快捷键。
+        if (ProviderHotkeyIsHostDriven("cloud", "f24", false) ||
+            ProviderHotkeyIsHostDriven("cloud", "f24", true) ||
+            ShouldHoldProviderHotkeyForSession("cloud", "hold") ||
+            ShouldTapProviderHotkeyForSession("cloud", "hold"))
+            throw new InvalidOperationException("The cloud voice slot must not press any tool shortcut");
+        // 默认关闭：全新配置必须是关闭、未同意、不读 Key。
+        CloudAsrSettings defaults = CloudAsrSettings.Default();
+        if (defaults.enabled || defaults.consentedAt != 0 ||
+            defaults.endpoint != CloudAsrSettings.DefaultEndpoint ||
+            defaults.model != CloudAsrSettings.DefaultModel ||
+            defaults.IsUsable())
+            throw new InvalidOperationException("The cloud voice slot must default to off");
+        // 上传门槛必须 fail-closed：未开启 / 未同意 / 无 Key / 录得太短 一律不上传。
+        if (CloudAsrPolicy.ShouldUpload(false, true, true, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, false, true, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, true, false, 400000, 5000) ||
+            CloudAsrPolicy.ShouldUpload(true, true, true, 0, 0) ||
+            CloudAsrPolicy.ShouldUpload(true, true, true, 400000, CloudAsrPolicy.MinimumAudioMs - 1) ||
+            !CloudAsrPolicy.ShouldUpload(true, true, true, 400000, 5000))
+            throw new InvalidOperationException("The cloud upload gate is not fail-closed");
+        if (CloudAsrPolicy.ClassifyHttpFailure(401) != "AUTH" ||
+            CloudAsrPolicy.ClassifyHttpFailure(429) != "RATE_LIMIT" ||
+            CloudAsrPolicy.ClassifyHttpFailure(503) != "OVERLOADED" ||
+            CloudAsrPolicy.ClassifyHttpFailure(404) != "REQUEST" ||
+            CloudAsrPolicy.FailureMessage("FOCUS").Length == 0 ||
+            CloudAsrPolicy.AuthorisationNotice.IndexOf("上传", StringComparison.Ordinal) < 0)
+            throw new InvalidOperationException("Cloud failure classification or consent copy drifted");
+        // 48 kHz 立体声 float 源压出来必须是 16 kHz 单声道 16 bit 的 WAV。
+        NAudio.Wave.WaveFormat floatFormat = NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(48000, 2);
+        var source = new byte[floatFormat.AverageBytesPerSecond / 10];
+        for (int index = 0; index + 4 <= source.Length; index += 4)
+        {
+            byte[] sampleBytes = BitConverter.GetBytes((float)(Math.Sin(index / 32.0) * 0.25));
+            source[index] = sampleBytes[0];
+            source[index + 1] = sampleBytes[1];
+            source[index + 2] = sampleBytes[2];
+            source[index + 3] = sampleBytes[3];
+        }
+        int convertedMs;
+        byte[] wav = CloudAsrWave.To16kMonoWav(floatFormat, source, out convertedMs);
+        if (wav == null || wav.Length <= 44 ||
+            wav[0] != (byte)'R' || wav[8] != (byte)'W' ||
+            BitConverter.ToInt16(wav, 20) != 1 ||
+            BitConverter.ToInt16(wav, 22) != 1 ||
+            BitConverter.ToInt32(wav, 24) != 16000 ||
+            BitConverter.ToInt16(wav, 34) != 16 ||
+            convertedMs <= 0 || convertedMs > 200)
+            throw new InvalidOperationException("Cloud audio is not converted to 16 kHz mono WAV");
+    }
+
     private static void RunTriggerOnlyVoiceModeSelfTests()
     {
         if (!ShouldUseTriggerOnlyVoiceMode(false, false) ||
@@ -26094,6 +27309,10 @@ deck.Hide();
         // An explicit tray request is additive, never a replacement for the card.
         if (!ShouldPresentLiveHud(true, true) || !ShouldPresentInlineToast(true, true))
             throw new InvalidOperationException("An explicitly requested Live HUD suppressed the in-window card");
+        // The automatic pop-up is a preference, and the tray entry works no matter how it is set.
+        if (ShouldPresentLiveHudOnItsOwn(false, false) || !ShouldPresentLiveHudOnItsOwn(false, true) ||
+            !ShouldPresentLiveHudOnItsOwn(true, false))
+            throw new InvalidOperationException("The floating panel ignored its automatic pop-up preference");
         // Minimised and hidden windows both count as "not in front".
         if (WindowCountsAsInFront(true, true, true) || WindowCountsAsInFront(false, false, true) ||
             !WindowCountsAsInFront(true, false, true))
@@ -26458,8 +27677,41 @@ deck.Hide();
         public string DefaultRouteState = "";
         public DateTime StartedAt;
         public DateTime EndedAt;
+        // When the newest dictation really finished, taken from the completion receipt. This is what the
+        // wizard measures freshness with: the session generation restarts with every bridge restart and so
+        // reads zero for the very dictation the test just produced.
+        public DateTime LastCompletedAt;
         public string Error = "";
         public string NextAction = "";
+
+        // The parsed session is cached between log revisions, so every caller is handed its own instance:
+        // a caller that wrote into the cached object would change what the next reader sees.
+        public SessionHealth Copy() { return (SessionHealth)MemberwiseClone(); }
+    }
+
+    // The cached runtime-log tail together with the session parsed from it. A missing log is a valid and
+    // cheap cache entry, so an idle machine never opens the file at all.
+    private sealed class RuntimeLogTail
+    {
+        public string Key;
+        public string[] Lines;
+        public SessionHealth Health;
+        public SessionMarkerScan Markers;
+    }
+
+    // The newest session markers inside the cached tail only move when the log does, and the interface
+    // asks for several of them on every refresh. Keeping the answer next to the lines it was derived from
+    // stops the poll from re-walking hundreds of long lines twice a second.
+    private sealed class SessionMarkerScan
+    {
+        public int StartIndex = -1;
+        public int StopIndex = -1;
+        public int LongStartIndex = -1;
+        public int LongEndIndex = -1;
+        public int SegmentStopIndex = -1;
+        public int AudioLiveIndex = -1;
+        public int TransportHealthIndex = -1;
+        public bool TransportHealthLive;
     }
 
     private sealed class VibeMicConfig
@@ -26487,6 +27739,10 @@ deck.Hide();
         public bool launchAtStartup { get; set; }
         public bool startBridgeOnLaunch { get; set; }
         public bool minimizeToTray { get; set; }
+        // Whether the floating status panel (Live HUD) may pop up on its own when the main window
+        // is not in front. The tray entry always opens it; this only governs the automatic
+        // appearance. Files written before it existed load it as off, which is the shipped default.
+        public bool liveHudAutoShow { get; set; }
         public string audioEndpointName { get; set; }
         public string inputMethod { get; set; }
         public string inputMethodHotkey { get; set; }
@@ -26524,6 +27780,7 @@ deck.Hide();
             c.launchAtStartup = false;
             c.startBridgeOnLaunch = false;
             c.minimizeToTray = true;
+            c.liveHudAutoShow = false;
             c.audioEndpointName = "CABLE Input";
             c.inputMethod = "wechat";
             c.inputMethodHotkey = WeChatStableHotkey;

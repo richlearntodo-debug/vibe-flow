@@ -303,9 +303,31 @@ internal static class OverlayText
     {
         if (string.IsNullOrWhiteSpace(value)) return "";
         string safe = value.Replace('\r', ' ').Replace('\n', ' ').Trim();
-        safe = UrlPattern.Replace(safe, "[网页地址]");
-        safe = WindowsPathPattern.Replace(safe, "[本机路径]");
+        // Each overlay snapshot sanitizes every field and every mapping, and running both patterns was
+        // measured at about six milliseconds per snapshot — most of what one poll cost. The patterns can
+        // only match text that really carries a scheme or a drive path, so they are skipped otherwise and
+        // the result is unchanged.
+        if (ContainsUrlScheme(safe)) safe = UrlPattern.Replace(safe, "[网页地址]");
+        if (ContainsDrivePath(safe)) safe = WindowsPathPattern.Replace(safe, "[本机路径]");
         return safe.Length <= 180 ? safe : safe.Substring(0, 177) + "...";
+    }
+
+    private static bool ContainsUrlScheme(string text)
+    {
+        return text.IndexOf("http", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    // Over-approximates "a letter, a colon and a backslash" on purpose: a false positive only runs the
+    // pattern, which then finds nothing.
+    private static bool ContainsDrivePath(string text)
+    {
+        for (int i = 0; i + 2 < text.Length; i++)
+        {
+            if (text[i + 1] != ':' || text[i + 2] != '\\') continue;
+            char letter = text[i];
+            if ((letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z')) return true;
+        }
+        return false;
     }
 
     internal static string SanitizeMappingAction(string action)

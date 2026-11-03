@@ -594,6 +594,14 @@ internal sealed partial class VibeMicForm
         if (liveHud != null && !liveHud.IsDisposed) liveHud.HideInactive();
     }
 
+    // The floating panel's automatic pop-up is a user choice (设置 ▸ 交互反馈). An explicit
+    // tray request always opens it, and turning the choice off never takes that entry away.
+    private bool LiveHudAutoPresentationEnabled()
+    {
+        return ShouldPresentLiveHudOnItsOwn(liveHudExplicitlyRequested,
+            config != null && config.liveHudAutoShow);
+    }
+
     private void PresentLiveHud(VibeUiStatusSnapshot snapshot, bool force)
     {
         PresentLiveHud(snapshot, force, false);
@@ -604,6 +612,14 @@ internal sealed partial class VibeMicForm
     private void PresentLiveHud(VibeUiStatusSnapshot snapshot, bool force, bool carryMessage)
     {
         if (snapshot == null || applicationExiting || IsDisposed) return;
+        // The panel is a preference, not a fixture. It may only appear on its own while
+        // 设置 ▸ 交互反馈 allows it, or when the user opened it from the tray on purpose; its
+        // content stays current either way, so switching the choice back on shows state at once.
+        if (!force && !LiveHudAutoPresentationEnabled())
+        {
+            if (liveHud != null && !liveHud.IsDisposed) liveHud.ApplySnapshot(snapshot);
+            return;
+        }
         string key = LiveHudKey(snapshot);
         bool firstSnapshot = string.IsNullOrWhiteSpace(liveHudPresentationKey);
         bool changed = !string.Equals(key, liveHudPresentationKey, StringComparison.Ordinal);
@@ -742,7 +758,10 @@ internal sealed partial class VibeMicForm
             DispatchUi(delegate { PublishFeedbackSnapshotInternal(presentHud, carryMessage); });
             return;
         }
+        double buildStartedAt = PollClockMs();
         latestUiSnapshot = BuildFeedbackSnapshot();
+        MarkPollStage(11, buildStartedAt);
+        double applyStartedAt = PollClockMs();
         if (contextDeck != null && !contextDeck.IsDisposed)
         {
             contextDeck.ApplySnapshot(latestUiSnapshot);
@@ -750,12 +769,15 @@ internal sealed partial class VibeMicForm
         }
         if (presentHud) PresentLiveHud(latestUiSnapshot, false, carryMessage);
         else if (liveHud != null && !liveHud.IsDisposed) liveHud.ApplySnapshot(latestUiSnapshot);
+        MarkPollStage(12, applyStartedAt);
     }
 
     private VibeUiStatusSnapshot BuildFeedbackSnapshot()
     {
+        double healthStartedAt = PollClockMs();
         BridgeHealthSnapshot bridge = ReadKeyboardBridgeHealth();
         UpdateLatestBridgeAction(bridge);
+        MarkPollStage(15, healthStartedAt);
         ShortcutProfileConfig activeProfile = ActiveShortcutProfile(config);
         string profileName = bridge != null && !string.IsNullOrWhiteSpace(bridge.SmartEffectiveProfileName)
             ? bridge.SmartEffectiveProfileName : activeProfile == null ? "通用导航" : activeProfile.name;
@@ -765,6 +787,7 @@ internal sealed partial class VibeMicForm
             currentVisualState == "error" ? "语音链路需要检查" :
             bridgeReady ? "语音桥接就绪" : IsCapturing ? "语音桥接正在连接" : "语音桥接已暂停";
         string highlighted = DateTime.Now < remoteHighlightUntil ? latestHighlightedControl : "";
+        double mapStartedAt = PollClockMs();
         var mappings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         mappings["录音键"] = "按住开始 · 松开结束";
         mappings["上键"] = MappingCardActionText(GetMapping("上键", "up"));
@@ -777,11 +800,18 @@ internal sealed partial class VibeMicForm
         mappings["TV"] = MappingCardActionText(GetMapping("TV", "task-switcher"));
         mappings["功能键短按"] = MappingCardActionText(GetMapping("功能键:short", "ctrl+c"));
         mappings["功能键长按"] = MappingCardActionText(GetMapping("功能键:long", "ctrl+v"));
-        return VibeUiStatusSnapshot.Create(deviceStatus, voiceStatus, profileName,
-            bridge == null ? "" : bridge.SmartForegroundProcess, FocusTargetSummary(),
+        MarkPollStage(16, mapStartedAt);
+        double focusStartedAt = PollClockMs();
+        string focusSummary = FocusTargetSummary();
+        MarkPollStage(17, focusStartedAt);
+        double createStartedAt = PollClockMs();
+        VibeUiStatusSnapshot snapshot = VibeUiStatusSnapshot.Create(deviceStatus, voiceStatus, profileName,
+            bridge == null ? "" : bridge.SmartForegroundProcess, focusSummary,
             string.IsNullOrWhiteSpace(currentProjectSpaceName) ? "未配置项目" : currentProjectSpaceName, highlighted,
             currentVisualState == "recording", latestAudioOutputRmsPercent, latestActionResult, mappings,
             ProviderDisplayName(config.inputMethod));
+        MarkPollStage(18, createStartedAt);
+        return snapshot;
     }
 
     private void UpdateLatestBridgeAction(BridgeHealthSnapshot bridge)

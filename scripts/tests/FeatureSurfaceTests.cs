@@ -11,6 +11,7 @@ internal static class FeatureSurfaceTests
             TestVoiceTargetObservationFailsClosed();
             TestTransientFocusedVoiceTargetPolicy();
             TestVoiceFocusPreflightRequiresCurrentLease();
+            TestUnverifiedWakeTargetIsNotAnnouncedOverUsableFocus();
             TestVoiceWakeRecoveryRequiresFocusWhenCold();
             TestRecordingKeepsVerifiedVoiceFocusLock();
             TestVoiceFocusRestoreOnlyRepairsProviderTakeover();
@@ -92,6 +93,26 @@ internal static class FeatureSurfaceTests
         if (!currentAndHeld || staleLockAndHeld || rejectedAndHeld || currentButReleased)
             throw new InvalidOperationException(
                 "Voice focus preflight accepted a stale, rejected, or released lease");
+    }
+
+    private static void TestUnverifiedWakeTargetIsNotAnnouncedOverUsableFocus()
+    {
+        MethodInfo method = typeof(VibeMicForm).GetMethod(
+            "ShouldAnnounceUnverifiedVoiceTarget", BindingFlags.Static | BindingFlags.NonPublic);
+        if (method == null) throw new InvalidOperationException(
+            "Wake-time unverified voice target notice policy is unavailable");
+
+        bool noDestination = Convert.ToBoolean(method.Invoke(null,
+            new object[] { true, false, false }));
+        bool destinationFocused = Convert.ToBoolean(method.Invoke(null,
+            new object[] { true, false, true }));
+        bool leaseArmed = Convert.ToBoolean(method.Invoke(null,
+            new object[] { true, true, false }));
+        bool keyAlreadyReleased = Convert.ToBoolean(method.Invoke(null,
+            new object[] { false, false, false }));
+        if (!noDestination || destinationFocused || leaseArmed || keyAlreadyReleased)
+            throw new InvalidOperationException(
+                "An unverified wake target was announced without a held press and an empty destination");
     }
 
     private static void TestVoiceWakeRecoveryRequiresFocusWhenCold()
